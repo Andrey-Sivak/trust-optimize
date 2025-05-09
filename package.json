@@ -1,0 +1,27 @@
+{
+  "name": "trust-optimize",
+  "version": "1.0.0",
+  "description": "Advanced media optimization solution for WordPress",
+  "scripts": {
+    "prepare": "husky install",
+    "phpcs": "composer phpcs",
+    "phpcbf": "composer phpcbf",
+    "lint-php": "composer phpcbf || (composer phpcs && exit 0)",
+    "test": "composer test",
+    "lint-staged": "lint-staged"
+  },
+  "lint-staged": {
+    "*.php": [
+      "npm run lint-php"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2"
+  }
+}
