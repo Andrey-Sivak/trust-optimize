@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<ruleset name="WordPress Plugin Coding Standards">
+    <description>A custom set of rules to check for a WP plugin</description>
+
+    <!-- What to scan -->
+    <file>.</file>
+    <exclude-pattern>/vendor/*</exclude-pattern>
+    <exclude-pattern>/node_modules/*</exclude-pattern>
+    <exclude-pattern>/tests/*</exclude-pattern>
+    <exclude-pattern>/assets/*</exclude-pattern>
+
+    <!-- How to scan -->
+    <arg value="sp"/><!-- Show sniff and progress -->
+    <arg name="basepath" value="./"/><!-- Strip the file paths down to the relevant bit -->
+    <arg name="colors"/>
+    <arg name="extensions" value="php"/>
+    <arg name="tab-width" value="4"/>
+    <!--<arg name="parallel" value="8"/>--> <!-- Enables parallel processing when available for faster results. -->
+
+    <!-- Rules: Check PHP version compatibility -->
+    <config name="testVersion" value="7.4-"/>
+
+    <!-- PHPCompatibility -->
+    <rule ref="PHPCompatibility"/>
+
+    <!-- Rules: WordPress Coding Standards -->
+    <config name="minimum_supported_wp_version" value="5.6"/>
+    <rule ref="WordPress">
+        <!-- Exclude rules that might be too strict -->
+        <exclude name="WordPress.Files.FileName.InvalidClassFileName"/>
+        <exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
+        <exclude name="Squiz.Commenting.InlineComment.InvalidEndChar"/>
+        <exclude name="Squiz.Commenting.FunctionComment.ParamCommentFullStop"/>
+    </rule>
+    <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+        <properties>
+            <property name="prefixes" type="array" value="trust_optimize,TrustOptimize"/>
+        </properties>
+    </rule>
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array" value="trust-optimize"/>
+        </properties>
+    </rule>
+
+    <!-- Make sure WordPress functions are safe for installations before WP 5.6 -->
+    <config name="minimum_wp_version" value="5.6"/>
+</ruleset>
