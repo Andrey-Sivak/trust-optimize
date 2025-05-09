@@ -22,6 +22,9 @@
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
 
+use TrustOptimize\API\RestController;
+use TrustOptimize\Core\Plugin;
+
 // If this file is called directly, abort.
 if ( ! defined( 'WPINC' ) ) {
 	die;
@@ -62,6 +65,16 @@ function trust_optimize_deactivate() {
 function trust_optimize_init() {
 	// Load text domain for internationalization
 	load_plugin_textdomain( 'trust-optimize', false, dirname( TRUST_OPTIMIZE_PLUGIN_BASENAME ) . '/languages' );
+
+	// Check if the class exists before trying to use it
+	if ( class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
+		// Initialize the main plugin class
+		$plugin = Plugin::get_instance();
+		$plugin->init();
+	} else {
+		// Add admin notice if class doesn't exist
+		add_action( 'admin_notices', 'trust_optimize_missing_class_notice' );
+	}
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );
 
@@ -72,4 +85,12 @@ function trust_optimize_missing_class_notice() {
 	echo '<div class="error"><p>';
 	echo '<strong>TrustOptimize Error:</strong> Main plugin class not found. Please reinstall the plugin or contact support.';
 	echo '</p></div>';
+}
+
+// If composer autoload isn't available or if it fails to load the class
+if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
+	// Manually include the class files
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 }
