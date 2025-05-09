@@ -96,4 +96,14 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
 }
+
+/**
+ * Register REST API endpoints
+ */
+function trust_optimize_rest_api_init() {
+	$controller = new RestController();
+	$controller->register_routes();
+}
+add_action( 'rest_api_init', 'trust_optimize_rest_api_init' );
