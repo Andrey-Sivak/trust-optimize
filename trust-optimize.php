@@ -93,4 +93,5 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
 }
