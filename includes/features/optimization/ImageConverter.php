@@ -47,10 +47,6 @@ class ImageConverter {
 			return $metadata;
 		}
 
-		// Get the upload directory information
-		$upload_dir = wp_upload_dir();
-		$base_dir   = $upload_dir['basedir'];
-
 		// Get the directory of the original image
 		$image_dir = dirname( $file_path );
 
@@ -68,7 +64,6 @@ class ImageConverter {
 
 			if ( ! is_wp_error( $saved ) ) {
 				// Add WebP information for the original image to metadata
-				// We'll store this in a dedicated key for converter-specific info
 				if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
 					$metadata['trust_optimize_converted'] = array();
 				}
@@ -104,7 +99,6 @@ class ImageConverter {
 
 					if ( ! is_wp_error( $saved ) ) {
 						// Add WebP information to a dedicated key within the size metadata
-						// This is slightly different from the previous approach but keeps conversion info separate.
 						if ( ! isset( $metadata['sizes'][ $size_name ]['trust_optimize_converted'] ) ) {
 							$metadata['sizes'][ $size_name ]['trust_optimize_converted'] = array();
 						}
