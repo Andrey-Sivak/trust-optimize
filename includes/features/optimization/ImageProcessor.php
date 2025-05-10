@@ -7,6 +7,7 @@
 
 namespace TrustOptimize\Features\Optimization;
 
+use DOMDocument;
 use DOMElement;
 
 /**
@@ -63,13 +64,13 @@ class ImageProcessor implements OptimizerInterface {
 			return $content;
 		}
 
-		$dom = new \DOMDocument();
+		$dom = new DOMDocument();
 
 		// Suppress errors from malformed HTML
 		libxml_use_internal_errors( true );
 
 		// Load the content
-		$dom->loadHTML( mb_convert_encoding( $content, 'HTML-ENTITIES', 'UTF-8' ) );
+		$dom->loadHTML( '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">' . $content );
 
 		// Reset errors
 		libxml_clear_errors();

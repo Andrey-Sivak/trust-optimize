@@ -114,7 +114,7 @@ class Plugin {
 	 */
 	private function register_hooks() {
 		// Filter to replace image src with optimized version
-		$this->loader->add_filter( 'the_content', $this->image_processor, 'process_content_images', 999 );
+		$this->loader->add_filter( 'the_content', $this->image_processor, 'process_content', 999 );
 
 		// Filter for post thumbnails
 		$this->loader->add_filter( 'post_thumbnail_html', $this->image_processor, 'process_thumbnail', 999 );
