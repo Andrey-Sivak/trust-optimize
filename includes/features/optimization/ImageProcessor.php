@@ -119,6 +119,9 @@ class ImageProcessor implements OptimizerInterface {
 		// Add data-adaptive attribute
 		$image->setAttribute( 'data-adaptive', 'true' );
 
+		// Add lazy loading attribute
+		$image->setAttribute( 'loading', 'lazy' );
+
 		// Add srcset for responsive images
 		$srcset = $this->generate_adaptive_srcset( $src );
 		if ( ! empty( $srcset ) ) {
