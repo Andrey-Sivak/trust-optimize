@@ -132,5 +132,19 @@ class Plugin {
 
 		// Hook for generating WebP on image upload (backend conversion)
 		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'generate_webp_on_upload', 10, 2 );
+
+		// Hook for add WebP support
+		$this->loader->add_filter( 'upload_mimes', $this, 'allow_webp_uploads' );
+	}
+
+	/**
+	 * Allow WebP file uploads.
+	 *
+	 * @param array $mime_types The list of MIME types.
+	 * @return array
+	 */
+	public function allow_webp_uploads( $mime_types ) {
+		$mime_types['webp'] = 'image/webp';
+		return $mime_types;
 	}
 }
