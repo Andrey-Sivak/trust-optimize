@@ -54,8 +54,8 @@ class ImageProcessor implements OptimizerInterface {
 	 * @return string
 	 */
 	public function process_content_images( $content ) {
-		// Skip if not in frontend or if the feature is disabled
-		if ( is_admin() || ! $this->is_feature_enabled() ) {
+		// Skip if not in frontend or if the feature is disabled or content is empty
+		if ( is_admin() || ! $this->is_feature_enabled() || empty( $content ) ) {
 			return $content;
 		}
 
@@ -69,7 +69,8 @@ class ImageProcessor implements OptimizerInterface {
 		// Suppress errors from malformed HTML
 		libxml_use_internal_errors( true );
 
-		// Load the content
+		// Load the content with a proper header to help DOMDocument with encoding
+		// Using a meta tag ensures DOMDocument interprets the content as UTF-8
 		$dom->loadHTML( '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">' . $content );
 
 		// Reset errors
@@ -84,14 +85,15 @@ class ImageProcessor implements OptimizerInterface {
 		}
 
 		// Save the modified HTML
-		$processed_content = $dom->saveHTML();
-
-		// Extract body contents
-		$body_start = strpos( $processed_content, '<body>' );
-		$body_end   = strpos( $processed_content, '</body>' );
-
-		if ( false !== $body_start && false !== $body_end ) {
-			$processed_content = substr( $processed_content, $body_start + 6, $body_end - $body_start - 6 );
+		// Use saveHTML($dom->getElementsByTagName('body')->item(0)) to get only body content
+		$body_element = $dom->getElementsByTagName('body')->item(0);
+		if ($body_element) {
+			$processed_content = $dom->saveHTML($body_element);
+			// Remove the outer <body> tags added by saveHTML when processing a fragment
+			$processed_content = preg_replace('/^<body>(.*)<\/body>$/s', '$1', $processed_content);
+		} else {
+			// Fallback if body element is not found (shouldn't happen with typical HTML fragments)
+			$processed_content = $dom->saveHTML();
 		}
 
 		return $processed_content;
@@ -108,8 +110,8 @@ class ImageProcessor implements OptimizerInterface {
 		$width  = $image->getAttribute( 'width' );
 		$height = $image->getAttribute( 'height' );
 
-		// Skip if not a valid image URL
-		if ( empty( $src ) || 0 === strpos( $src, 'data:' ) ) {
+		// Skip if not a valid image URL or already processed
+		if ( empty( $src ) || 0 === strpos( $src, 'data:' ) || $image->hasAttribute('data-original-src') ) {
 			return;
 		}
 
@@ -174,7 +176,7 @@ class ImageProcessor implements OptimizerInterface {
 		}
 
 		$query['width']          = $width;
-		$query['trust_optimize'] = 1;
+		$query['trust_optimize'] = 1; // Keep this to potentially indicate a request from the plugin
 
 		return $base_url . '?' . http_build_query( $query );
 	}

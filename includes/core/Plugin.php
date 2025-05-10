@@ -10,6 +10,7 @@ namespace TrustOptimize\Core;
 use TrustOptimize\Admin\Admin;
 use TrustOptimize\Frontend\Frontend;
 use TrustOptimize\Features\Optimization\ImageProcessor;
+use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
 
 /**
@@ -51,6 +52,13 @@ class Plugin {
 	 * @var ImageProcessor
 	 */
 	public $image_processor;
+
+	/**
+	 * Image converter instance.
+	 *
+	 * @var ImageConverter
+	 */
+	public $image_converter;
 
 	/**
 	 * Settings class instance.
@@ -105,6 +113,9 @@ class Plugin {
 		// Initialize image processor
 		$this->image_processor = new ImageProcessor();
 
+		// Initialize image converter
+		$this->image_converter = new ImageConverter();
+
 		// Initialize settings
 		$this->settings = new Settings();
 	}
@@ -113,10 +124,13 @@ class Plugin {
 	 * Register all hooks.
 	 */
 	private function register_hooks() {
-		// Filter to replace image src with optimized version
+		// Filter to replace image src with optimized version (frontend processing)
 		$this->loader->add_filter( 'the_content', $this->image_processor, 'process_content', 999 );
 
-		// Filter for post thumbnails
+		// Filter for post thumbnails (frontend processing)
 		$this->loader->add_filter( 'post_thumbnail_html', $this->image_processor, 'process_thumbnail', 999 );
+
+		// Hook for generating WebP on image upload (backend conversion)
+		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'generate_webp_on_upload', 10, 2 );
 	}
 }
