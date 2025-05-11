@@ -322,48 +322,45 @@ class ImageProcessor implements OptimizerInterface {
 		$upload_dir = wp_upload_dir();
 		$base_url   = $upload_dir['baseurl'];
 
-		// Get the directory and file name relative to uploads from the original src
+		// Get the directory relative to uploads from the original src
 		$image_dir_relative = dirname( str_replace( trailingslashit( $base_url ), '', $original_src ) );
 
-		// Add the original size (if it exists in our custom format model)
-		if ( 'webp' === $format ) {
-			$original_format_data = $this->image_model->get_format( $attachment_id, 'original', 'webp' );
-			if ( $original_format_data && isset( $original_format_data['file'] ) ) {
-				$file_name      = $original_format_data['file'];
-				$width          = $metadata['width']; // Use original image width from WordPress metadata
-				$srcset_items[] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . $file_name . ' ' . $width . 'w';
-			}
-		} elseif ( 'webp' !== $format && isset( $metadata['file'] ) && basename( $metadata['file'] ) === basename( $original_src ) ) {
-			// Add the original size for non-webp formats using the original URL
-			$width          = $metadata['width'];
-			$srcset_items[] = $original_src . ' ' . $width . 'w';
+		// Get all variations of this format across all sizes from our custom model
+		$format_variations = $this->image_model->get_format_variations( $attachment_id, $format );
+
+		// If no variations found for the specific format, return empty string
+		if ( empty( $format_variations ) ) {
+			return '';
 		}
 
-		// Add generated sizes
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			foreach ( $metadata['sizes'] as $size_name => $size_info ) {
-				$file_name = '';
-				$width     = $size_info['width'];
-
-				if ( 'webp' === $format ) {
-					// Get WebP variation for this size from our custom format model
-					$size_format_data = $this->image_model->get_format( $attachment_id, $size_name, 'webp' );
-					if ( $size_format_data && isset( $size_format_data['file'] ) ) {
-						$file_name = $size_format_data['file'];
-					}
-				} elseif ( 'webp' !== $format ) {
-					// Use the original size file name from size-specific metadata
-					$file_name = $size_info['file'];
-				}
-
-				if ( ! empty( $file_name ) ) {
-					// Construct the full URL for the size
-					$srcset_items[] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . $file_name . ' ' . $width . 'w';
-				}
+		foreach ( $format_variations as $size_name => $variation ) {
+			// Skip if no file information available
+			if ( ! isset( $variation['file'] ) ) {
+				continue;
 			}
+
+			$file_name = $variation['file'];
+
+			// Get the width either from the variation data (newly added) or fallback to metadata
+			$width = 0;
+			if ( isset( $variation['width'] ) && $variation['width'] > 0 ) {
+				$width = $variation['width'];
+			} elseif ( $size_name === 'original' && isset( $metadata['width'] ) ) {
+				$width = $metadata['width'];
+			} elseif ( isset( $metadata['sizes'][$size_name]['width'] ) ) {
+				$width = $metadata['sizes'][$size_name]['width'];
+			}
+
+			// Skip if we couldn't determine the width
+			if ( empty( $width ) ) {
+				continue;
+			}
+
+			// Construct the full URL for the size
+			$srcset_items[] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . $file_name . ' ' . $width . 'w';
 		}
 
-		// Sort srcset items by width (optional but good practice)
+		// Sort srcset items by width (ascending order)
 		usort( $srcset_items, function ( $a, $b ) {
 			$a_parts = explode( ' ', $a );
 			$b_parts = explode( ' ', $b );
