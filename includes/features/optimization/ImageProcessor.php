@@ -177,16 +177,16 @@ class ImageProcessor implements OptimizerInterface {
 		// Add remaining formats at the end (excluding original format, which will be the fallback)
 		foreach ( $formats as $format ) {
 			if ( ! in_array( $format, $format_priorities, true ) &&
-			     $format !== strtolower( $original_format ) &&
-			     ! in_array( $format, array( 'webp', 'avif' ), true ) ) {
+				 $format !== strtolower( $original_format ) &&
+				 ! in_array( $format, array( 'webp', 'avif' ), true ) ) {
 				$format_priorities[] = $format;
 			}
 		}
 
 		// Add original format as the last priority (if not already a next-gen format)
 		if ( ! empty( $original_format ) &&
-		     ! in_array( strtolower( $original_format ), array( 'webp', 'avif' ), true ) &&
-		     ! in_array( strtolower( $original_format ), $format_priorities, true ) ) {
+			 ! in_array( strtolower( $original_format ), array( 'webp', 'avif' ), true ) &&
+			 ! in_array( strtolower( $original_format ), $format_priorities, true ) ) {
 			$format_priorities[] = strtolower( $original_format );
 		}
 
@@ -253,11 +253,11 @@ class ImageProcessor implements OptimizerInterface {
 	 * Create a source element for a specific image format
 	 *
 	 * @param DOMDocument $dom The DOM document.
-	 * @param string $src The original image source.
-	 * @param string $format The image format ('webp', 'jpeg', 'png', etc.).
-	 * @param array $metadata The attachment metadata.
-	 * @param int $attachment_id The attachment ID.
-	 * @param string $sizes_attr The sizes attribute for responsive images.
+	 * @param string      $src The original image source.
+	 * @param string      $format The image format ('webp', 'jpeg', 'png', etc.).
+	 * @param array       $metadata The attachment metadata.
+	 * @param int         $attachment_id The attachment ID.
+	 * @param string      $sizes_attr The sizes attribute for responsive images.
 	 *
 	 * @return DOMElement|null The source element, or null if it couldn't be created.
 	 */
@@ -310,8 +310,8 @@ class ImageProcessor implements OptimizerInterface {
 	 *
 	 * @param string $original_src The original image URL.
 	 * @param string $format The desired image format (e.g., 'webp', 'jpeg').
-	 * @param array $metadata The attachment metadata.
-	 * @param int $attachment_id The attachment ID.
+	 * @param array  $metadata The attachment metadata.
+	 * @param int    $attachment_id The attachment ID.
 	 *
 	 * @return string The srcset attribute.
 	 */
@@ -347,8 +347,8 @@ class ImageProcessor implements OptimizerInterface {
 				$width = $variation['width'];
 			} elseif ( $size_name === 'original' && isset( $metadata['width'] ) ) {
 				$width = $metadata['width'];
-			} elseif ( isset( $metadata['sizes'][$size_name]['width'] ) ) {
-				$width = $metadata['sizes'][$size_name]['width'];
+			} elseif ( isset( $metadata['sizes'][ $size_name ]['width'] ) ) {
+				$width = $metadata['sizes'][ $size_name ]['width'];
 			}
 
 			// Skip if we couldn't determine the width
@@ -361,14 +361,17 @@ class ImageProcessor implements OptimizerInterface {
 		}
 
 		// Sort srcset items by width (ascending order)
-		usort( $srcset_items, function ( $a, $b ) {
-			$a_parts = explode( ' ', $a );
-			$b_parts = explode( ' ', $b );
-			$a_width = (int) rtrim( end( $a_parts ), 'w' );
-			$b_width = (int) rtrim( end( $b_parts ), 'w' );
+		usort(
+			$srcset_items,
+			function ( $a, $b ) {
+				$a_parts = explode( ' ', $a );
+				$b_parts = explode( ' ', $b );
+				$a_width = (int) rtrim( end( $a_parts ), 'w' );
+				$b_width = (int) rtrim( end( $b_parts ), 'w' );
 
-			return $a_width - $b_width;
-		} );
+				return $a_width - $b_width;
+			}
+		);
 
 		return implode( ', ', $srcset_items );
 	}
@@ -377,7 +380,7 @@ class ImageProcessor implements OptimizerInterface {
 	 * Get an adaptive URL for a specific width and format.
 	 *
 	 * @param string $src The original image URL.
-	 * @param int $width The target width.
+	 * @param int    $width The target width.
 	 * @param string $format The desired image format.
 	 *
 	 * @return string The adaptive URL.

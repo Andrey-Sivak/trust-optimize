@@ -43,7 +43,7 @@ class ImageModel {
 	public function get_by_attachment_id( $attachment_id ) {
 		global $wpdb;
 
-		$table = $this->db_manager->get_table_name( $this->table );
+		$table  = $this->db_manager->get_table_name( $this->table );
 		$result = $wpdb->get_row(
 			$wpdb->prepare( "SELECT * FROM $table WHERE attachment_id = %d", $attachment_id ),
 			ARRAY_A
@@ -68,7 +68,7 @@ class ImageModel {
 	public function save( $attachment_id, $metadata ) {
 		global $wpdb;
 
-		$table = $this->db_manager->get_table_name( $this->table );
+		$table    = $this->db_manager->get_table_name( $this->table );
 		$existing = $this->get_by_attachment_id( $attachment_id );
 
 		$data = array(
@@ -86,7 +86,7 @@ class ImageModel {
 			return $result !== false ? $existing['id'] : false;
 		} else {
 			$data['date_created'] = current_time( 'mysql' );
-			$result = $wpdb->insert( $table, $data );
+			$result               = $wpdb->insert( $table, $data );
 			return $result ? $wpdb->insert_id : false;
 		}
 	}
@@ -100,7 +100,7 @@ class ImageModel {
 	public function delete( $attachment_id ) {
 		global $wpdb;
 
-		$table = $this->db_manager->get_table_name( $this->table );
+		$table  = $this->db_manager->get_table_name( $this->table );
 		$result = $wpdb->delete(
 			$table,
 			array( 'attachment_id' => $attachment_id )
@@ -155,7 +155,7 @@ class ImageModel {
 
 				// Add original format for this size
 				$size_extension = pathinfo( $size_data['file'], PATHINFO_EXTENSION );
-				$size_mime = 'image/' . ( $size_extension === 'jpg' ? 'jpeg' : $size_extension );
+				$size_mime      = 'image/' . ( $size_extension === 'jpg' ? 'jpeg' : $size_extension );
 
 				$sizes[ $size_name ]['formats'][ $size_extension ] = array(
 					'file'      => $size_data['file'],
@@ -212,7 +212,7 @@ class ImageModel {
 					'formats' => array(),
 				);
 			} elseif ( isset( $wp_metadata['sizes'][ $size_name ] ) ) {
-				$wp_size = $wp_metadata['sizes'][ $size_name ];
+				$wp_size                         = $wp_metadata['sizes'][ $size_name ];
 				$metadata['sizes'][ $size_name ] = array(
 					'width'   => $wp_size['width'],
 					'height'  => $wp_size['height'],
@@ -289,8 +289,8 @@ class ImageModel {
 			if ( isset( $size_data['formats'][ $format ] ) ) {
 				$format_data = $size_data['formats'][ $format ];
 				// Include width and height from the size data for convenience
-				$format_data['width'] = $size_data['width'] ?? 0;
-				$format_data['height'] = $size_data['height'] ?? 0;
+				$format_data['width']     = $size_data['width'] ?? 0;
+				$format_data['height']    = $size_data['height'] ?? 0;
 				$variations[ $size_name ] = $format_data;
 			}
 		}
@@ -335,7 +335,7 @@ class ImageModel {
 
 		// Add WebP format for original if exists
 		if ( isset( $wp_metadata['trust_optimize_converted']['original_webp'] ) ) {
-			$webp_data = $wp_metadata['trust_optimize_converted']['original_webp'];
+			$webp_data                            = $wp_metadata['trust_optimize_converted']['original_webp'];
 			$sizes['original']['formats']['webp'] = array(
 				'file'      => $webp_data['file'],
 				'mime_type' => $webp_data['mime-type'],
@@ -354,7 +354,7 @@ class ImageModel {
 
 				// Add original format for this size
 				$size_extension = pathinfo( $size_data['file'], PATHINFO_EXTENSION );
-				$size_mime = 'image/' . ( $size_extension === 'jpg' ? 'jpeg' : $size_extension );
+				$size_mime      = 'image/' . ( $size_extension === 'jpg' ? 'jpeg' : $size_extension );
 
 				$sizes[ $size_name ]['formats'][ $size_extension ] = array(
 					'file'      => $size_data['file'],
@@ -369,7 +369,7 @@ class ImageModel {
 
 						// Handle special case where format might be 'webp', 'original_webp', etc.
 						if ( strpos( $format, '_' ) !== false ) {
-							$parts = explode( '_', $format );
+							$parts      = explode( '_', $format );
 							$format_key = end( $parts );
 						}
 
@@ -420,7 +420,7 @@ class ImageModel {
 	 */
 	public function get_available_formats( $attachment_id ) {
 		$image_data = $this->get_by_attachment_id( $attachment_id );
-		$formats = array();
+		$formats    = array();
 
 		if ( ! $image_data || ! isset( $image_data['metadata']['sizes'] ) ) {
 			return $formats;
