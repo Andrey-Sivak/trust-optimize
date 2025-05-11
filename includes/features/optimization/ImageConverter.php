@@ -56,103 +56,88 @@ class ImageConverter {
 		// Initialize base metadata in our custom table
 		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
 
-		// Check the image type and process accordingly
-		if ( in_array( $mime_type, array( 'image/jpeg', 'image/png' ), true ) ) {
+		// Determine conversion strategy based on mime type
+		$conversion_strategy = $this->get_conversion_strategy($mime_type);
+		if (empty($conversion_strategy)) {
+			return $metadata;
+		}
+
+		// Process the image according to the determined strategy
+		return $this->convert_image_formats(
+			$metadata,
+			$attachment_id,
+			$file_path,
+			$conversion_strategy['target_format'],
+			$conversion_strategy['target_mime']
+		);
+	}
+
+	/**
+	 * Determine what format to convert to based on original mime type
+	 *
+	 * @param string $mime_type Original image mime type
+	 * @return array|null Conversion strategy or null if no conversion needed
+	 */
+	private function get_conversion_strategy($mime_type) {
+		if (in_array($mime_type, array('image/jpeg', 'image/png'), true)) {
 			// Check if WebP conversion is enabled
-			if ( ! $this->is_webp_conversion_enabled() ) {
-				return $metadata;
+			if (!$this->is_webp_conversion_enabled()) {
+				return null;
 			}
-
-			// Standard image - generate WebP
-			$metadata = $this->process_standard_image_formats( $metadata, $attachment_id, $file_path );
-		} elseif ( in_array( $mime_type, array( 'image/webp', 'image/avif' ), true ) ) {
-			// Modern image format - generate PNG fallback
-			$metadata = $this->generate_png_fallback( $metadata, $attachment_id, $file_path, $mime_type );
+			return array(
+				'target_format' => 'webp',
+				'target_mime' => 'image/webp'
+			);
+		} elseif (in_array($mime_type, array('image/webp', 'image/avif'), true)) {
+			return array(
+				'target_format' => 'png',
+				'target_mime' => 'image/png'
+			);
 		}
 
-		return $metadata;
+		return null; // No conversion for other types
 	}
 
 	/**
-	 * Process standard image formats (JPEG, PNG) to create WebP versions.
+	 * Convert image to a different format for all sizes
 	 *
-	 * @param array $metadata The attachment metadata.
-	 * @param int $attachment_id The attachment ID.
-	 * @param string $file_path The file path of the original image.
-	 *
-	 * @return array The modified attachment metadata.
+	 * @param array $metadata The attachment metadata
+	 * @param int $attachment_id The attachment ID
+	 * @param string $file_path The file path of the original image
+	 * @param string $target_format The target format extension (e.g., 'webp', 'png')
+	 * @param string $target_mime The target mime type (e.g., 'image/webp', 'image/png')
+	 * @return array The modified attachment metadata
 	 */
-	private function process_standard_image_formats( $metadata, $attachment_id, $file_path ) {
+	private function convert_image_formats($metadata, $attachment_id, $file_path, $target_format, $target_mime) {
 		// Get the directory of the original image
-		$image_dir = dirname( $file_path );
+		$image_dir = dirname($file_path);
 
 		// Process the original image size
-		$original_file_name = basename( $file_path );
-		$webp_original_path = trailingslashit( $image_dir ) . pathinfo( $original_file_name, PATHINFO_FILENAME ) . '.webp';
+		$this->convert_single_image(
+			$metadata,
+			$attachment_id,
+			$file_path,
+			$image_dir,
+			'original',
+			$target_format,
+			$target_mime
+		);
 
-		$editor = wp_get_image_editor( $file_path );
+		// Process all generated sizes
+		if (isset($metadata['sizes']) && is_array($metadata['sizes'])) {
+			foreach ($metadata['sizes'] as $size_name => &$size_info) {
+				$image_path = trailingslashit($image_dir) . $size_info['file'];
 
-		if ( ! is_wp_error( $editor ) ) {
-			// Set WebP quality (can be a setting)
-			$quality = apply_filters( 'trust_optimize_image_quality', 100 );
-			$editor->set_quality( $quality );
-			$saved = $editor->save( $webp_original_path, 'image/webp' );
-
-			if ( ! is_wp_error( $saved ) ) {
-				// Add WebP information directly to our custom format
-				$this->image_model->add_format_variation(
+				$this->convert_single_image(
+					$metadata,
 					$attachment_id,
-					'original',
-					'webp',
-					array(
-						'file'      => basename( $webp_original_path ),
-						'mime_type' => 'image/webp',
-						'file_size' => filesize( $webp_original_path ),
-					)
+					$image_path,
+					$image_dir,
+					$size_name,
+					$target_format,
+					$target_mime,
+					$size_info
 				);
-			} else {
-				// Log or handle the error if the original image conversion fails
-				error_log( 'TrustOptimize: Failed to create WebP for original image ' . $file_path . ': ' . $saved->get_error_message() );
-			}
-		} else {
-			// Log or handle error getting image editor for original image
-			error_log( 'TrustOptimize: Failed to get image editor for original image ' . $file_path . ': ' . $editor->get_error_message() );
-		}
-
-		// Process generated sizes
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			foreach ( $metadata['sizes'] as $size_name => $size_info ) {
-				$image_path = trailingslashit( $image_dir ) . $size_info['file'];
-				$webp_path  = trailingslashit( $image_dir ) . pathinfo( $size_info['file'], PATHINFO_FILENAME ) . '.webp';
-
-				$editor = wp_get_image_editor( $image_path );
-
-				if ( ! is_wp_error( $editor ) ) {
-					// Set WebP quality (using the same filter)
-					$quality = apply_filters( 'trust_optimize_image_quality', 100 );
-					$editor->set_quality( $quality );
-					$saved = $editor->save( $webp_path, 'image/webp' );
-
-					if ( ! is_wp_error( $saved ) ) {
-						// Add WebP information directly to our custom format
-						$this->image_model->add_format_variation(
-							$attachment_id,
-							$size_name,
-							'webp',
-							array(
-								'file'      => basename( $webp_path ),
-								'mime-type' => 'image/webp',
-								'file_size' => filesize( $webp_path ),
-							)
-						);
-					} else {
-						// Log or handle error for specific size conversion
-						error_log( 'TrustOptimize: Failed to create WebP for size ' . $size_name . ' (' . $image_path . '): ' . $saved->get_error_message() );
-					}
-				} else {
-					// Log or handle error getting image editor for size
-					error_log( 'TrustOptimize: Failed to get image editor for size ' . $size_name . ' (' . $image_path . '): ' . $editor->get_error_message() );
-				}
 			}
 		}
 
@@ -160,116 +145,107 @@ class ImageConverter {
 	}
 
 	/**
-	 * Generate PNG fallback for modern image formats like WebP and AVIF.
+	 * Convert a single image to target format
 	 *
-	 * @param array $metadata The attachment metadata.
-	 * @param int $attachment_id The attachment ID.
-	 * @param string $file_path The file path of the original image.
-	 * @param string $mime_type The MIME type of the original image.
-	 *
-	 * @return array The modified attachment metadata.
+	 * @param array $metadata The attachment metadata
+	 * @param int $attachment_id The attachment ID
+	 * @param string $source_path Source image path
+	 * @param string $dest_dir Destination directory
+	 * @param string $size_name Size name (e.g., 'original', 'thumbnail')
+	 * @param string $target_format Target format extension
+	 * @param string $target_mime Target mime type
+	 * @param array $size_info Optional size info for non-original sizes
+	 * @return bool Success or failure
 	 */
-	private function generate_png_fallback( $metadata, $attachment_id, $file_path, $mime_type ) {
-		// Get the directory of the original image
-		$image_dir = dirname( $file_path );
+	private function convert_single_image($metadata, $attachment_id, $source_path, $dest_dir, $size_name, $target_format, $target_mime, &$size_info = null) {
+		$original_filename = basename($source_path);
+		$target_path = trailingslashit($dest_dir) . pathinfo($original_filename, PATHINFO_FILENAME) . '.' . $target_format;
 
-		// Process the original image size
-		$original_file_name = basename( $file_path );
-		$png_original_path  = trailingslashit( $image_dir ) . pathinfo( $original_file_name, PATHINFO_FILENAME ) . '.png';
+		$editor = wp_get_image_editor($source_path);
 
-		$editor = wp_get_image_editor( $file_path );
-
-		if ( ! is_wp_error( $editor ) ) {
-			// Set PNG quality (can be a setting)
-			$quality = apply_filters( 'trust_optimize_image_quality', 100 );
-			$editor->set_quality( $quality );
-			$saved = $editor->save( $png_original_path, 'image/png' );
-
-			if ( ! is_wp_error( $saved ) ) {
-				// Add PNG information directly to our custom format
-				$this->image_model->add_format_variation(
-					$attachment_id,
-					'original',
-					'png',
-					array(
-						'file'      => basename( $png_original_path ),
-						'mime_type' => 'image/png',
-						'file_size' => filesize( $png_original_path ),
-					)
-				);
-
-				// Add to WordPress metadata for better integration
-				if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
-					$metadata['trust_optimize_converted'] = array();
-				}
-
-				$metadata['trust_optimize_converted']['original_png'] = array(
-					'file'      => basename( $png_original_path ),
-					'width'     => $metadata['width'],
-					'height'    => $metadata['height'],
-					'mime-type' => 'image/png',
-					'filesize'  => filesize( $png_original_path ),
-				);
-			} else {
-				// Log or handle the error if the original image conversion fails
-				error_log( 'TrustOptimize: Failed to create PNG fallback for original ' . $mime_type . ' image ' . $file_path . ': ' . $saved->get_error_message() );
-			}
-		} else {
-			// Log or handle error getting image editor for original image
-			error_log( 'TrustOptimize: Failed to get image editor for original ' . $mime_type . ' image ' . $file_path . ': ' . $editor->get_error_message() );
+		if (is_wp_error($editor)) {
+			error_log(sprintf(
+				'TrustOptimize: Failed to get image editor for %s (%s): %s',
+				$size_name,
+				$source_path,
+				$editor->get_error_message()
+			));
+			return false;
 		}
 
-		// Process generated sizes
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			foreach ( $metadata['sizes'] as $size_name => &$size_info ) {
-				$image_path = trailingslashit( $image_dir ) . $size_info['file'];
-				$png_path   = trailingslashit( $image_dir ) . pathinfo( $size_info['file'], PATHINFO_FILENAME ) . '.png';
+		// Set quality
+		$quality = apply_filters('trust_optimize_image_quality', 100);
+		$editor->set_quality($quality);
 
-				$editor = wp_get_image_editor( $image_path );
+		// Save in target format
+		$saved = $editor->save($target_path, $target_mime);
 
-				if ( ! is_wp_error( $editor ) ) {
-					// Set PNG quality
-					$quality = apply_filters( 'trust_optimize_image_quality', 100 );
-					$editor->set_quality( $quality );
-					$saved = $editor->save( $png_path, 'image/png' );
-
-					if ( ! is_wp_error( $saved ) ) {
-						// Add PNG information directly to our custom format
-						$this->image_model->add_format_variation(
-							$attachment_id,
-							$size_name,
-							'png',
-							array(
-								'file'      => basename( $png_path ),
-								'mime_type' => 'image/png',
-								'file_size' => filesize( $png_path ),
-							)
-						);
-
-						// Add to WordPress metadata for each size
-						if ( ! isset( $size_info['trust_optimize_converted'] ) ) {
-							$size_info['trust_optimize_converted'] = array();
-						}
-
-						$size_info['trust_optimize_converted']['png'] = array(
-							'file'      => basename( $png_path ),
-							'width'     => $size_info['width'],
-							'height'    => $size_info['height'],
-							'mime-type' => 'image/png',
-							'filesize'  => filesize( $png_path ),
-						);
-					} else {
-						// Log or handle error for specific size conversion
-						error_log( 'TrustOptimize: Failed to create PNG fallback for size ' . $size_name . ' (' . $image_path . '): ' . $saved->get_error_message() );
-					}
-				} else {
-					// Log or handle error getting image editor for size
-					error_log( 'TrustOptimize: Failed to get image editor for size ' . $size_name . ' (' . $image_path . '): ' . $editor->get_error_message() );
-				}
-			}
+		if (is_wp_error($saved)) {
+			error_log(sprintf(
+				'TrustOptimize: Failed to create %s for %s (%s): %s',
+				$target_format,
+				$size_name,
+				$source_path,
+				$saved->get_error_message()
+			));
+			return false;
 		}
 
-		return $metadata;
+		// Add information to our custom format database
+		$this->image_model->add_format_variation(
+			$attachment_id,
+			$size_name,
+			$target_format,
+			array(
+				'file'      => basename($target_path),
+				'mime_type' => $target_mime,
+				'file_size' => filesize($target_path),
+			)
+		);
+
+		// For backward compatibility, also update WordPress metadata
+		$this->update_wp_metadata($metadata, $size_name, $target_format, $target_path, $size_info);
+
+		return true;
+	}
+
+	/**
+	 * Update WordPress metadata with converted format info
+	 *
+	 * @param array $metadata Main metadata array
+	 * @param string $size_name Size name
+	 * @param string $format Target format
+	 * @param string $file_path Converted file path
+	 * @param array $size_info Size info reference for non-original sizes
+	 */
+	private function update_wp_metadata(&$metadata, $size_name, $format, $file_path, &$size_info = null) {
+		$format_data = array(
+			'file'      => basename($file_path),
+			'mime-type' => 'image/' . $format,
+			'filesize'  => filesize($file_path),
+		);
+
+		if ($size_name === 'original') {
+			// Add width and height for original size
+			$format_data['width'] = $metadata['width'];
+			$format_data['height'] = $metadata['height'];
+
+			// Store in main metadata array
+			if (!isset($metadata['trust_optimize_converted'])) {
+				$metadata['trust_optimize_converted'] = array();
+			}
+			$metadata['trust_optimize_converted']['original_' . $format] = $format_data;
+		} elseif ($size_info !== null) {
+			// Add width and height for this size
+			$format_data['width'] = $size_info['width'];
+			$format_data['height'] = $size_info['height'];
+
+			// Store in size-specific metadata
+			if (!isset($size_info['trust_optimize_converted'])) {
+				$size_info['trust_optimize_converted'] = array();
+			}
+			$size_info['trust_optimize_converted'][$format] = $format_data;
+		}
 	}
 
 	/**
@@ -279,7 +255,6 @@ class ImageConverter {
 	 */
 	private function is_webp_conversion_enabled() {
 		// Placeholder - in a real plugin, this would check a plugin setting
-		// For now, let's use a filter to allow enabling/disabling
-		return apply_filters( 'trust_optimize_enable_webp_conversion', true );
+		return apply_filters('trust_optimize_enable_webp_conversion', true);
 	}
 }
