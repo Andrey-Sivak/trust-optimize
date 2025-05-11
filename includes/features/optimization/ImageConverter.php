@@ -9,12 +9,27 @@
 
 namespace TrustOptimize\Features\Optimization;
 
+use TrustOptimize\Database\ImageModel;
 use WP_Error;
 
 /**
  * Class ImageConverter
  */
 class ImageConverter {
+
+	/**
+	 * Image model instance
+	 *
+	 * @var ImageModel
+	 */
+	protected $image_model;
+
+	/**
+	 * Constructor
+	 */
+	public function __construct() {
+		$this->image_model = new ImageModel();
+	}
 
 	/**
 	 * Generates WebP versions for all generated image sizes.
@@ -47,6 +62,9 @@ class ImageConverter {
 			return $metadata;
 		}
 
+		// Initialize base metadata in our custom table
+		$this->image_model->save($attachment_id, $this->image_model->create_base_metadata($metadata));
+
 		// Get the directory of the original image
 		$image_dir = dirname( $file_path );
 
@@ -63,16 +81,16 @@ class ImageConverter {
 			$saved = $editor->save( $webp_original_path, 'image/webp' );
 
 			if ( ! is_wp_error( $saved ) ) {
-				// Add WebP information for the original image to metadata
-				if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
-					$metadata['trust_optimize_converted'] = array();
-				}
-				$metadata['trust_optimize_converted']['original_webp'] = array(
-					'file'      => basename( $webp_original_path ),
-					'width'     => $metadata['width'],
-					'height'    => $metadata['height'],
-					'mime-type' => 'image/webp',
-					'filesize'  => filesize( $webp_original_path ),
+				// Add WebP information directly to our custom format
+				$this->image_model->add_format_variation(
+					$attachment_id,
+					'original',
+					'webp',
+					array(
+						'file'      => basename( $webp_original_path ),
+						'mime_type' => 'image/webp',
+						'file_size' => filesize( $webp_original_path ),
+					)
 				);
 			} else {
 				// Log or handle the error if the original image conversion fails
@@ -98,16 +116,16 @@ class ImageConverter {
 					$saved = $editor->save( $webp_path, 'image/webp' );
 
 					if ( ! is_wp_error( $saved ) ) {
-						// Add WebP information to a dedicated key within the size metadata
-						if ( ! isset( $metadata['sizes'][ $size_name ]['trust_optimize_converted'] ) ) {
-							$metadata['sizes'][ $size_name ]['trust_optimize_converted'] = array();
-						}
-						$metadata['sizes'][ $size_name ]['trust_optimize_converted']['webp'] = array(
-							'file'      => basename( $webp_path ),
-							'width'     => $size_info['width'],
-							'height'    => $size_info['height'],
-							'mime-type' => 'image/webp',
-							'filesize'  => filesize( $webp_path ),
+						// Add WebP information directly to our custom format
+						$this->image_model->add_format_variation(
+							$attachment_id,
+							$size_name,
+							'webp',
+							array(
+								'file'      => basename( $webp_path ),
+								'mime_type' => 'image/webp',
+								'file_size' => filesize( $webp_path ),
+							)
 						);
 					} else {
 						// Log or handle error for specific size conversion

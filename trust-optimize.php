@@ -100,6 +100,8 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageConverter.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/DatabaseManager.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
 }
 
 /**

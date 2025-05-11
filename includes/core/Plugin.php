@@ -12,6 +12,8 @@ use TrustOptimize\Frontend\Frontend;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Database\ImageModel;
 
 /**
  * Class Plugin
@@ -68,6 +70,13 @@ class Plugin {
 	public $settings;
 
 	/**
+	 * Database manager instance.
+	 *
+	 * @var DatabaseManager
+	 */
+	public $db_manager;
+
+	/**
 	 * Plugin constructor.
 	 */
 	public function __construct() {
@@ -104,6 +113,10 @@ class Plugin {
 	 * Load the required dependencies.
 	 */
 	private function load_dependencies() {
+		// Initialize database manager
+		$this->db_manager = new DatabaseManager();
+		$this->db_manager->init();
+
 		// Initialize admin class
 		$this->admin = new Admin();
 
@@ -135,6 +148,9 @@ class Plugin {
 
 		// Hook for add WebP support
 		$this->loader->add_filter( 'upload_mimes', $this, 'allow_webp_uploads' );
+
+		// Hook for cleaning up image data when an attachment is deleted
+		$this->loader->add_action( 'delete_attachment', $this, 'clean_image_data', 10 );
 	}
 
 	/**
@@ -146,5 +162,17 @@ class Plugin {
 	public function allow_webp_uploads( $mime_types ) {
 		$mime_types['webp'] = 'image/webp';
 		return $mime_types;
+	}
+
+	/**
+	 * Clean up image data when an attachment is deleted
+	 *
+	 * @param int $attachment_id The attachment ID being deleted.
+	 */
+	public function clean_image_data( $attachment_id ) {
+		// Delete the image data from our custom table
+		$image_model = new ImageModel();
+		$image_model->delete( $attachment_id );
+
 	}
 }
