@@ -144,7 +144,7 @@ class Plugin {
 		$this->loader->add_filter( 'post_thumbnail_html', $this->image_processor, 'process_thumbnail', 999 );
 
 		// Hook for generating WebP on image upload (backend conversion)
-		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'generate_webp_on_upload', 10, 2 );
+		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'handle_image_upload', 10, 2 );
 
 		// Hook for add WebP support
 		$this->loader->add_filter( 'upload_mimes', $this, 'allow_webp_uploads' );
