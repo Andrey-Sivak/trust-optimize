@@ -76,7 +76,7 @@ class Helper {
 		global $wpdb;
 
 		// Remove any image size from the URL
-		$image_url = preg_replace( '/-\d+x\d+(?=\.(jpg|jpeg|png|gif)$)/i', '', $image_url );
+		$image_url = preg_replace( '/-\d+x\d+(?=\.(jpg|jpeg|png|gif|webp|avif)$)/i', '', $image_url );
 
 		// Get the upload directory
 		$upload_dir = wp_upload_dir();
@@ -93,9 +93,9 @@ class Helper {
 		$attachment = $wpdb->get_col(
 			$wpdb->prepare(
 				"
-            SELECT post_id 
-            FROM $wpdb->postmeta 
-            WHERE meta_key = '_wp_attached_file' 
+            SELECT post_id
+            FROM $wpdb->postmeta
+            WHERE meta_key = '_wp_attached_file'
             AND meta_value = %s
         ",
 				$relative_path
