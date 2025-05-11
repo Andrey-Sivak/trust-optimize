@@ -269,6 +269,35 @@ class ImageModel {
 		return $size_data['formats'][ $format ];
 	}
 
+
+	/**
+	 * Get all variations of a specific format across all sizes
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $format Format (e.g., 'webp', 'avif', 'jpeg', 'png').
+	 * @return array Associative array of size names and their format data
+	 */
+	public function get_format_variations( $attachment_id, $format ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+		$variations = array();
+
+		if ( ! $image_data || ! isset( $image_data['metadata']['sizes'] ) ) {
+			return $variations;
+		}
+
+		foreach ( $image_data['metadata']['sizes'] as $size_name => $size_data ) {
+			if ( isset( $size_data['formats'][ $format ] ) ) {
+				$format_data = $size_data['formats'][ $format ];
+				// Include width and height from the size data for convenience
+				$format_data['width'] = $size_data['width'] ?? 0;
+				$format_data['height'] = $size_data['height'] ?? 0;
+				$variations[ $size_name ] = $format_data;
+			}
+		}
+
+		return $variations;
+	}
+
 	/**
 	 * Legacy method to convert from WordPress metadata including custom fields
 	 *
