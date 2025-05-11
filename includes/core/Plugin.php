@@ -147,20 +147,21 @@ class Plugin {
 		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'handle_image_upload', 10, 2 );
 
 		// Hook for add WebP support
-		$this->loader->add_filter( 'upload_mimes', $this, 'allow_webp_uploads' );
+		$this->loader->add_filter( 'upload_mimes', $this, 'allow_modern_image_uploads' );
 
 		// Hook for cleaning up image data when an attachment is deleted
 		$this->loader->add_action( 'delete_attachment', $this, 'clean_image_data', 10 );
 	}
 
 	/**
-	 * Allow WebP file uploads.
+	 * Allow modern image formats for uploads.
 	 *
 	 * @param array $mime_types The list of MIME types.
 	 * @return array
 	 */
-	public function allow_webp_uploads( $mime_types ) {
+	public function allow_modern_image_uploads( $mime_types ) {
 		$mime_types['webp'] = 'image/webp';
+		$mime_types['avif'] = 'image/avif';
 		return $mime_types;
 	}
 

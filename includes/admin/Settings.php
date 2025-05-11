@@ -19,10 +19,11 @@ class Settings {
 	 */
 	private $defaults = array(
 		'enable_adaptive_images' => 1,
-		'image_quality'          => 85,
+		'image_quality'          => 100,
 		'breakpoints'            => array( 320, 480, 768, 1024, 1280, 1440, 1920 ),
 		'lazy_load'              => 1,
 		'convert_to_webp'        => 1,
+		'convert_to_avif'        => 1,
 	);
 
 	/**

@@ -1,16 +1,15 @@
 <?php
 /**
- * Image converter class
+ * Image Converter class
  *
- * Handles image format conversions (e.g., to WebP, AVIF).
- *
- * @package TrustOptimize
+ * @package TrustOptimize\Features\Optimization
  */
 
 namespace TrustOptimize\Features\Optimization;
 
+use Imagick;
 use TrustOptimize\Database\ImageModel;
-use WP_Error;
+use TrustOptimize\Admin\Settings;
 
 /**
  * Class ImageConverter
@@ -25,10 +24,18 @@ class ImageConverter {
 	protected $image_model;
 
 	/**
+	 * Settings instance
+	 *
+	 * @var Settings
+	 */
+	protected $settings;
+
+	/**
 	 * Constructor
 	 */
 	public function __construct() {
 		$this->image_model = new ImageModel();
+		$this->settings    = new Settings();
 	}
 
 	/**
@@ -56,46 +63,68 @@ class ImageConverter {
 		// Initialize base metadata in our custom table
 		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
 
-		// Determine conversion strategy based on mime type
-		$conversion_strategy = $this->get_conversion_strategy( $mime_type );
-		if ( empty( $conversion_strategy ) ) {
+		// Get conversion strategies based on mime type
+		$conversion_strategies = $this->get_conversion_strategies( $mime_type );
+
+		if ( empty( $conversion_strategies ) ) {
 			return $metadata;
 		}
 
-		// Process the image according to the determined strategy
-		return $this->convert_image_formats(
-			$metadata,
-			$attachment_id,
-			$file_path,
-			$conversion_strategy['target_format'],
-			$conversion_strategy['target_mime']
-		);
-	}
-
-	/**
-	 * Determine what format to convert to based on original mime type
-	 *
-	 * @param string $mime_type Original image mime type
-	 * @return array|null Conversion strategy or null if no conversion needed
-	 */
-	private function get_conversion_strategy( $mime_type ) {
-		if ( in_array( $mime_type, array( 'image/jpeg', 'image/png' ), true ) ) {
-			// Check if WebP conversion is enabled
-			if ( ! $this->is_webp_conversion_enabled() ) {
-				return null;
-			}
-			return array(
-				'target_format' => 'webp',
-				'target_mime'   => 'image/webp',
-			);
-		} elseif ( in_array( $mime_type, array( 'image/webp', 'image/avif' ), true ) ) {
-			return array(
-				'target_format' => 'png',
-				'target_mime'   => 'image/png',
+		// Process each conversion strategy
+		foreach ( $conversion_strategies as $strategy ) {
+			$metadata = $this->convert_image_formats(
+				$metadata,
+				$attachment_id,
+				$file_path,
+				$strategy['target_format'],
+				$strategy['target_mime']
 			);
 		}
 
-		return null; // No conversion for other types
+		return $metadata;
+	}
+
+	/**
+	 * Determine what formats to convert to based on original mime type and settings
+	 *
+	 * @param string $mime_type Original image mime type
+	 * @return array Array of conversion strategies or empty array if no conversion needed
+	 */
+	private function get_conversion_strategies( $mime_type ) {
+		$strategies = array();
+
+		// Skip conversion if the image is already in one of our target formats
+		if ( in_array( $mime_type, array( 'image/webp', 'image/avif' ), true ) ) {
+			return array(
+				array(
+					'target_format' => 'png',
+					'target_mime'   => 'image/png',
+				),
+			);
+		}
+
+		// Only convert jpeg and png images
+		if ( ! in_array( $mime_type, array( 'image/jpeg', 'image/png' ), true ) ) {
+			return array();
+		}
+
+		// Add AVIF strategy if enabled
+		if ( $this->is_avif_conversion_enabled() ) {
+			$strategies[] = array(
+				'target_format' => 'avif',
+				'target_mime'   => 'image/avif',
+			);
+		}
+
+		// Add WebP strategy if enabled
+		if ( $this->is_webp_conversion_enabled() ) {
+			$strategies[] = array(
+				'target_format' => 'webp',
+				'target_mime'   => 'image/webp',
+			);
+		}
+
+		return $strategies;
 	}
 
 	/**
@@ -104,8 +133,8 @@ class ImageConverter {
 	 * @param array  $metadata The attachment metadata
 	 * @param int    $attachment_id The attachment ID
 	 * @param string $file_path The file path of the original image
-	 * @param string $target_format The target format extension (e.g., 'webp', 'png')
-	 * @param string $target_mime The target mime type (e.g., 'image/webp', 'image/png')
+	 * @param string $target_format The target format extension (e.g., 'webp', 'avif')
+	 * @param string $target_mime The target mime type (e.g., 'image/webp', 'image/avif')
 	 * @return array The modified attachment metadata
 	 */
 	private function convert_image_formats( $metadata, $attachment_id, $file_path, $target_format, $target_mime ) {
@@ -175,8 +204,8 @@ class ImageConverter {
 			return false;
 		}
 
-		// Set quality
-		$quality = apply_filters( 'trust_optimize_image_quality', 100 );
+		// Set quality based on format
+		$quality = $this->get_quality_for_format( $target_format );
 		$editor->set_quality( $quality );
 
 		// Save in target format
@@ -211,6 +240,34 @@ class ImageConverter {
 		$this->update_wp_metadata( $metadata, $size_name, $target_format, $target_path, $size_info );
 
 		return true;
+	}
+
+	/**
+	 * Get the appropriate quality setting for a specific format
+	 *
+	 * @param string $format The image format (webp, avif, etc.)
+	 * @return int The quality value to use
+	 */
+	private function get_quality_for_format( $format ) {
+		// Get the base quality from settings
+		$base_quality = (int) $this->settings->get( 'image_quality', 100 );
+
+		// You might want different quality settings for different formats
+		// AVIF often requires less quality for similar visual results
+		switch ( $format ) {
+			case 'avif':
+				// AVIF typically needs lower quality values for similar visual results
+				$quality = min( $base_quality, 85 ); // Cap at 85 for AVIF
+				break;
+			case 'webp':
+				// WebP can use slightly lower quality than JPEG for similar results
+				$quality = min( $base_quality, 90 ); // Cap at 90 for WebP
+				break;
+			default:
+				$quality = $base_quality;
+		}
+
+		return apply_filters( "trust_optimize_{$format}_quality", $quality );
 	}
 
 	/**
@@ -258,7 +315,41 @@ class ImageConverter {
 	 * @return bool
 	 */
 	private function is_webp_conversion_enabled() {
-		// Placeholder - in a real plugin, this would check a plugin setting
-		return apply_filters( 'trust_optimize_enable_webp_conversion', true );
+		return (bool) $this->settings->get( 'convert_to_webp', 1 );
+	}
+
+	/**
+	 * Check if AVIF conversion is enabled.
+	 *
+	 * @return bool
+	 */
+	private function is_avif_conversion_enabled() {
+		return (bool) $this->settings->get( 'convert_to_avif', 1 );
+	}
+
+	/**
+	 * Check if server supports AVIF image generation
+	 *
+	 * @return bool True if AVIF conversion is supported
+	 */
+	private function is_avif_supported() {
+		// Check GD support for AVIF
+		if ( function_exists( 'gd_info' ) ) {
+			$gd_info = gd_info();
+			if ( isset( $gd_info['AVIF Support'] ) && $gd_info['AVIF Support'] ) {
+				return true;
+			}
+		}
+
+		// Check Imagick support for AVIF
+		if ( extension_loaded( 'imagick' ) ) {
+			$imagick = new Imagick();
+			$formats = $imagick->queryFormats();
+			if ( in_array( 'AVIF', $formats ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
