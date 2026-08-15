@@ -24,23 +24,8 @@ class Frontend {
 	 * Enqueue frontend scripts and styles.
 	 */
 	public function enqueue_scripts() {
-		// Enqueue frontend scripts
-		wp_enqueue_script(
-			'trust-optimize',
-			TRUST_OPTIMIZE_PLUGIN_URL . 'assets/js/trust-optimize.js',
-			array(),
-			TRUST_OPTIMIZE_VERSION,
-			true
-		);
-
-		// Localize script with settings
-		wp_localize_script(
-			'trust-optimize',
-			'trustOptimizeSettings',
-			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( 'trust-optimize-nonce' ),
-			)
-		);
+		// The current frontend path rewrites safe images to <picture> markup on
+		// the server. Do not enqueue the legacy adaptive JS because no frontend
+		// endpoint exists for width-based image generation.
 	}
 }
