@@ -43,11 +43,11 @@ class EligibilityQuery {
 	}
 
 	/**
-	 * Count eligible image attachments.
+	 * Count image attachments in the media library.
 	 *
 	 * @return int
 	 */
-	public function count_eligible_attachments() {
+	public function count_image_attachments() {
 		global $wpdb;
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -61,5 +61,17 @@ class EligibilityQuery {
 			)
 		);
 		// phpcs:enable
+	}
+
+	/**
+	 * Count candidate image attachments.
+	 *
+	 * True optimization eligibility depends on filesystem/editor checks and is
+	 * computed by the inventory preflight per attachment.
+	 *
+	 * @return int
+	 */
+	public function count_eligible_attachments() {
+		return $this->count_image_attachments();
 	}
 }

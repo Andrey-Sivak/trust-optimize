@@ -141,6 +141,7 @@ class BulkJobRunner {
 		$started_at  = time();
 		$time_budget = (int) apply_filters( 'trust_optimize_bulk_time_budget', 20 );
 		$ids         = $this->eligibility->get_next_attachment_ids( $job->get_cursor_id(), $batch_size );
+		$inventory   = BulkJob::TYPE_INVENTORY === $job->get_type() ? $this->get_inventory_summary( $job ) : array();
 
 		if ( empty( $ids ) ) {
 			$this->jobs->complete( $job_id );
@@ -155,6 +156,20 @@ class BulkJobRunner {
 				$attachment_id,
 				$this->build_counter_increments( $result )
 			);
+
+			if ( BulkJob::TYPE_INVENTORY === $job->get_type() ) {
+				$inventory = $this->merge_inventory_result( $inventory, $result );
+				$this->jobs->update(
+					$job_id,
+					array(
+						'settings_snapshot' => wp_json_encode(
+							array(
+								'inventory' => $inventory,
+							)
+						),
+					)
+				);
+			}
 
 			if ( $this->should_stop( $started_at, $time_budget ) ) {
 				break;
@@ -188,7 +203,7 @@ class BulkJobRunner {
 			}
 
 			if ( BulkJob::TYPE_INVENTORY === $type ) {
-				return OptimizeResult::skipped( 'inventory_only' );
+				return $this->optimization->inventory_attachment( $attachment_id );
 			}
 
 			return $this->optimization->optimize_attachment( $attachment_id );
@@ -229,13 +244,139 @@ class BulkJobRunner {
 			$increments['created_count'] = (int) $data['completed'];
 		}
 
+		if ( isset( $data['estimated_variants_to_create'] ) ) {
+			$increments['created_count'] = (int) $data['estimated_variants_to_create'];
+		}
+
 		if ( isset( $data['deleted'] ) && is_array( $data['deleted'] ) ) {
 			$increments['deleted_count'] = count( $data['deleted'] );
 		} elseif ( isset( $data['deleted'] ) ) {
 			$increments['deleted_count'] = (int) $data['deleted'];
 		}
 
+		if ( isset( $data['estimated_stale_variants_to_delete'] ) ) {
+			$increments['deleted_count'] = (int) $data['estimated_stale_variants_to_delete'];
+		}
+
 		return $increments;
+	}
+
+	/**
+	 * Get the current inventory summary from the job snapshot.
+	 *
+	 * @param BulkJob $job Job value object.
+	 * @return array Inventory summary.
+	 */
+	private function get_inventory_summary( BulkJob $job ) {
+		$data     = $job->to_array();
+		$snapshot = isset( $data['settings_snapshot'] ) && is_array( $data['settings_snapshot'] ) ? $data['settings_snapshot'] : array();
+
+		if ( isset( $snapshot['inventory'] ) && is_array( $snapshot['inventory'] ) ) {
+			return $this->normalize_inventory_summary( $snapshot['inventory'], $data );
+		}
+
+		return $this->normalize_inventory_summary( array(), $data );
+	}
+
+	/**
+	 * Normalize inventory summary shape.
+	 *
+	 * @param array $summary Existing summary.
+	 * @param array $job     Job data.
+	 * @return array Normalized summary.
+	 */
+	private function normalize_inventory_summary( array $summary, array $job ) {
+		$defaults = array(
+			'total_image_attachments'            => isset( $job['total'] ) ? (int) $job['total'] : 0,
+			'eligible_attachments'               => 0,
+			'unsupported_mime_types'             => array(),
+			'missing_source_files'               => 0,
+			'already_optimized_current_profile'  => 0,
+			'outdated_profile'                   => 0,
+			'plugin_managed_variants_count'      => 0,
+			'estimated_variants_to_create'       => 0,
+			'estimated_stale_variants_to_delete' => 0,
+			'errors'                             => array(),
+			'warnings'                           => array(),
+		);
+
+		return array_merge( $defaults, $summary );
+	}
+
+	/**
+	 * Merge one attachment inventory result into the job summary.
+	 *
+	 * @param array          $summary Inventory summary.
+	 * @param OptimizeResult $result  Attachment inventory result.
+	 * @return array Updated summary.
+	 */
+	private function merge_inventory_result( array $summary, OptimizeResult $result ) {
+		$data = $result->get_data();
+
+		if ( ! empty( $data['eligible'] ) ) {
+			++$summary['eligible_attachments'];
+		}
+
+		if ( ! empty( $data['unsupported_mime_type'] ) ) {
+			$mime = $data['unsupported_mime_type'];
+
+			if ( ! isset( $summary['unsupported_mime_types'][ $mime ] ) ) {
+				$summary['unsupported_mime_types'][ $mime ] = 0;
+			}
+
+			++$summary['unsupported_mime_types'][ $mime ];
+		}
+
+		if ( ! empty( $data['missing_source_file'] ) ) {
+			++$summary['missing_source_files'];
+		}
+
+		if ( ! empty( $data['already_optimized'] ) ) {
+			++$summary['already_optimized_current_profile'];
+		}
+
+		if ( ! empty( $data['outdated_profile'] ) ) {
+			++$summary['outdated_profile'];
+		}
+
+		foreach ( array( 'plugin_managed_variants', 'estimated_variants_to_create', 'estimated_stale_variants_to_delete' ) as $key ) {
+			if ( isset( $data[ $key ] ) ) {
+				$summary_key              = 'plugin_managed_variants' === $key ? 'plugin_managed_variants_count' : $key;
+				$summary[ $summary_key ] += (int) $data[ $key ];
+			}
+		}
+
+		$summary = $this->merge_inventory_notices( $summary, $data, 'warnings' );
+		$summary = $this->merge_inventory_notices( $summary, $data, 'errors' );
+
+		return $summary;
+	}
+
+	/**
+	 * Merge bounded warning/error samples into inventory summary.
+	 *
+	 * @param array  $summary Inventory summary.
+	 * @param array  $data    Attachment inventory data.
+	 * @param string $key     Notice key.
+	 * @return array Updated summary.
+	 */
+	private function merge_inventory_notices( array $summary, array $data, $key ) {
+		if ( empty( $data[ $key ] ) || ! is_array( $data[ $key ] ) ) {
+			return $summary;
+		}
+
+		foreach ( $data[ $key ] as $notice ) {
+			if ( count( $summary[ $key ] ) >= 20 ) {
+				break;
+			}
+
+			$summary[ $key ][] = array(
+				'attachment_id' => isset( $data['attachment_id'] ) ? (int) $data['attachment_id'] : 0,
+				'code'          => $notice,
+			);
+		}
+
+		return $summary;
 	}
 
 	/**

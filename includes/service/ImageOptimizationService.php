@@ -332,6 +332,86 @@ class ImageOptimizationService {
 	}
 
 	/**
+	 * Build inventory/preflight data for one attachment without mutating files.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return OptimizeResult
+	 */
+	public function inventory_attachment( $attachment_id ) {
+		$summary = array(
+			'attachment_id'                      => (int) $attachment_id,
+			'eligible'                           => false,
+			'unsupported_mime_type'              => '',
+			'missing_source_file'                => false,
+			'no_editor'                          => false,
+			'already_optimized'                  => false,
+			'outdated_profile'                   => false,
+			'plugin_managed_variants'            => 0,
+			'estimated_variants_to_create'       => 0,
+			'estimated_stale_variants_to_delete' => 0,
+			'warnings'                           => array(),
+			'errors'                             => array(),
+		);
+
+		$capability = $this->can_optimize( $attachment_id );
+		$metadata   = wp_get_attachment_metadata( $attachment_id );
+
+		if ( ! $capability->is_allowed() ) {
+			$reasons = $capability->get_reasons();
+
+			if ( in_array( CapabilityCheck::REASON_MISSING_FILE, $reasons, true ) ) {
+				$summary['missing_source_file'] = true;
+				$summary['errors'][]            = CapabilityCheck::REASON_MISSING_FILE;
+			}
+
+			if ( in_array( CapabilityCheck::REASON_UNSUPPORTED_MIME, $reasons, true ) ) {
+				$data                             = $capability->get_data();
+				$summary['unsupported_mime_type'] = isset( $data['mime_type'] ) ? $data['mime_type'] : '';
+				$summary['warnings'][]            = CapabilityCheck::REASON_UNSUPPORTED_MIME;
+			}
+
+			if ( in_array( CapabilityCheck::REASON_NO_EDITOR, $reasons, true ) ) {
+				$summary['no_editor'] = true;
+				$summary['errors'][]  = CapabilityCheck::REASON_NO_EDITOR;
+			}
+
+			return OptimizeResult::skipped( 'not_eligible', $summary );
+		}
+
+		if ( ! $metadata || ! is_array( $metadata ) ) {
+			$summary['errors'][] = 'missing_metadata';
+			return OptimizeResult::failed( 'missing_metadata', array(), $summary );
+		}
+
+		$summary['eligible'] = true;
+
+		$profile          = $this->profile_factory->from_wp_metadata( $metadata );
+		$desired_variants = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
+		$actual_variants  = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
+
+		$summary['plugin_managed_variants'] = count( $actual_variants );
+
+		foreach ( $desired_variants as $key => $variant ) {
+			$actual = isset( $actual_variants[ $key ] ) ? $actual_variants[ $key ] : null;
+
+			if ( ! $actual || $this->image_model->is_variant_stale( $actual, $profile->get_hash() ) || ! $this->variant_file_exists( $actual, $attachment_id ) ) {
+				++$summary['estimated_variants_to_create'];
+			}
+		}
+
+		foreach ( $actual_variants as $key => $variant ) {
+			if ( ! isset( $desired_variants[ $key ] ) || $this->image_model->is_variant_stale( $variant, $profile->get_hash() ) ) {
+				++$summary['estimated_stale_variants_to_delete'];
+			}
+		}
+
+		$summary['outdated_profile']  = $summary['estimated_stale_variants_to_delete'] > 0;
+		$summary['already_optimized'] = 0 === $summary['estimated_variants_to_create'] && 0 === $summary['estimated_stale_variants_to_delete'];
+
+		return OptimizeResult::success( 'inventory_checked', $summary );
+	}
+
+	/**
 	 * Convert one queued variant and update image task state consistently.
 	 *
 	 * @param int    $attachment_id Attachment ID.
