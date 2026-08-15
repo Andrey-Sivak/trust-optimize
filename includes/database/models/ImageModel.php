@@ -287,6 +287,65 @@ class ImageModel {
 	}
 
 	/**
+	 * Check whether an attachment has plugin-managed generated variants.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool True when plugin metadata contains generated variants.
+	 */
+	public function has_generated_variants( $attachment_id ) {
+		return ! empty( $this->get_generated_variants( $attachment_id ) );
+	}
+
+	/**
+	 * Get attachment IDs with plugin-managed generated variants after cursor.
+	 *
+	 * @param int $cursor_id Last processed attachment ID.
+	 * @param int $limit     Maximum IDs to return.
+	 * @return array Attachment IDs.
+	 */
+	public function get_attachment_ids_with_generated_variants( $cursor_id, $limit ) {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT attachment_id FROM {$table}
+				WHERE attachment_id > %d
+				AND JSON_VALID(metadata)
+				AND JSON_LENGTH(JSON_EXTRACT(metadata, '$.generated_variants')) > 0
+				ORDER BY attachment_id ASC
+				LIMIT %d",
+				(int) $cursor_id,
+				(int) $limit
+			)
+		);
+		// phpcs:enable
+
+		return array_map( 'intval', $ids );
+	}
+
+	/**
+	 * Count attachments with plugin-managed generated variants.
+	 *
+	 * @return int Attachment count.
+	 */
+	public function count_attachments_with_generated_variants() {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (int) $wpdb->get_var(
+			"SELECT COUNT(1) FROM {$table}
+			WHERE JSON_VALID(metadata)
+			AND JSON_LENGTH(JSON_EXTRACT(metadata, '$.generated_variants')) > 0"
+		);
+		// phpcs:enable
+	}
+
+	/**
 	 * Store current attachment profile hash.
 	 *
 	 * @param int    $attachment_id Attachment ID.

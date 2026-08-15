@@ -140,7 +140,7 @@ class BulkJobRunner {
 		$batch_size  = max( 1, min( 25, $batch_size ) );
 		$started_at  = time();
 		$time_budget = (int) apply_filters( 'trust_optimize_bulk_time_budget', 20 );
-		$ids         = $this->eligibility->get_next_attachment_ids( $job->get_cursor_id(), $batch_size );
+		$ids         = $this->get_next_attachment_ids( $job, $batch_size );
 		$inventory   = BulkJob::TYPE_INVENTORY === $job->get_type() ? $this->get_inventory_summary( $job ) : array();
 
 		if ( empty( $ids ) ) {
@@ -178,7 +178,7 @@ class BulkJobRunner {
 
 		$job = $this->jobs->get( $job_id );
 		if ( $job && BulkJob::STATUS_RUNNING === $job->get_status() ) {
-			$next_ids = $this->eligibility->get_next_attachment_ids( $job->get_cursor_id(), 1 );
+			$next_ids = $this->get_next_attachment_ids( $job, 1 );
 
 			if ( empty( $next_ids ) ) {
 				$this->jobs->complete( $job_id );
@@ -217,6 +217,23 @@ class BulkJobRunner {
 				)
 			);
 		}
+	}
+
+	/**
+	 * Get next attachment IDs for the current job type.
+	 *
+	 * Remove jobs only iterate attachments with plugin-managed generated variants.
+	 *
+	 * @param BulkJob $job   Bulk job.
+	 * @param int     $limit Maximum IDs to return.
+	 * @return array Attachment IDs.
+	 */
+	private function get_next_attachment_ids( BulkJob $job, $limit ) {
+		if ( BulkJob::TYPE_REMOVE === $job->get_type() ) {
+			return $this->eligibility->get_next_plugin_managed_attachment_ids( $job->get_cursor_id(), $limit );
+		}
+
+		return $this->eligibility->get_next_attachment_ids( $job->get_cursor_id(), $limit );
 	}
 
 	/**

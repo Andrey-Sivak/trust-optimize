@@ -7,10 +7,28 @@
 
 namespace TrustOptimize\Bulk;
 
+use TrustOptimize\Database\ImageModel;
+
 /**
  * Class EligibilityQuery
  */
 class EligibilityQuery {
+
+	/**
+	 * Image model instance.
+	 *
+	 * @var ImageModel
+	 */
+	private $image_model;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param ImageModel|null $image_model Image model instance.
+	 */
+	public function __construct( ImageModel $image_model = null ) {
+		$this->image_model = $image_model ? $image_model : new ImageModel();
+	}
 
 	/**
 	 * Get next eligible image attachment IDs after cursor.
@@ -73,5 +91,25 @@ class EligibilityQuery {
 	 */
 	public function count_eligible_attachments() {
 		return $this->count_image_attachments();
+	}
+
+	/**
+	 * Get next attachment IDs that have plugin-managed generated variants.
+	 *
+	 * @param int $cursor_id Last processed attachment ID.
+	 * @param int $limit     Maximum IDs to return.
+	 * @return array
+	 */
+	public function get_next_plugin_managed_attachment_ids( $cursor_id, $limit ) {
+		return $this->image_model->get_attachment_ids_with_generated_variants( $cursor_id, $limit );
+	}
+
+	/**
+	 * Count attachments that have plugin-managed generated variants.
+	 *
+	 * @return int
+	 */
+	public function count_plugin_managed_attachments() {
+		return $this->image_model->count_attachments_with_generated_variants();
 	}
 }

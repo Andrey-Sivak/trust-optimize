@@ -51,7 +51,10 @@ class ImageCleanupService {
 	public function cleanup_attachment( $attachment_id, array $args = array() ) {
 		$this->cancel_pending_actions( $attachment_id );
 
-		$variants = $this->image_model->get_generated_variants( $attachment_id );
+		$variants = $this->filter_plugin_managed_variants(
+			$attachment_id,
+			$this->image_model->get_generated_variants( $attachment_id )
+		);
 
 		if ( empty( $variants ) ) {
 			$this->remove_attachment_metadata( $attachment_id );
@@ -85,6 +88,8 @@ class ImageCleanupService {
 	 * @return DeleteResult
 	 */
 	public function cleanup_variants( $attachment_id, array $variants ) {
+		$variants = $this->filter_plugin_managed_variants( $attachment_id, $variants );
+
 		if ( empty( $variants ) ) {
 			return DeleteResult::skipped( 'no_generated_variants' );
 		}
@@ -111,6 +116,35 @@ class ImageCleanupService {
 		if ( method_exists( ConversionQueue::class, 'cancel_tasks_for_attachment' ) ) {
 			ConversionQueue::cancel_tasks_for_attachment( $attachment_id );
 		}
+	}
+
+	/**
+	 * Keep only explicit TrustOptimize generated variant manifest records.
+	 *
+	 * @param int   $attachment_id Attachment ID.
+	 * @param array $variants      Candidate variant manifest records.
+	 * @return array Plugin-managed variant records.
+	 */
+	private function filter_plugin_managed_variants( $attachment_id, array $variants ) {
+		$filtered = array();
+
+		foreach ( $variants as $variant ) {
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+
+			if ( isset( $variant['attachment_id'] ) && (int) $variant['attachment_id'] !== (int) $attachment_id ) {
+				continue;
+			}
+
+			if ( empty( $variant['file'] ) || empty( $variant['size_name'] ) || empty( $variant['format'] ) ) {
+				continue;
+			}
+
+			$filtered[] = $variant;
+		}
+
+		return $filtered;
 	}
 
 	/**

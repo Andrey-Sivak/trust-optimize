@@ -172,7 +172,7 @@ class Command {
 	private function run_bulk_job( $type, array $assoc_args ) {
 		$repository  = new BulkJobRepository();
 		$eligibility = new EligibilityQuery();
-		$total       = $eligibility->count_eligible_attachments();
+		$total       = BulkJob::TYPE_REMOVE === $type ? $eligibility->count_plugin_managed_attachments() : $eligibility->count_eligible_attachments();
 		$job         = $repository->create( $type, array(), '', $total );
 
 		if ( ! $job ) {

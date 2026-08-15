@@ -374,7 +374,7 @@ class RestController extends WP_REST_Controller {
 	private function create_and_start_bulk_job( $type, $request ) {
 		$repository  = new BulkJobRepository();
 		$eligibility = new EligibilityQuery();
-		$total       = $eligibility->count_eligible_attachments();
+		$total       = BulkJob::TYPE_REMOVE === $type ? $eligibility->count_plugin_managed_attachments() : $eligibility->count_eligible_attachments();
 		$job         = $repository->create( $type, array(), '', $total );
 
 		if ( ! $job ) {
