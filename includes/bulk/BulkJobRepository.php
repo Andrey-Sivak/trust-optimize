@@ -130,6 +130,26 @@ class BulkJobRepository {
 	}
 
 	/**
+	 * Get the latest job.
+	 *
+	 * @return BulkJob|null
+	 */
+	public function get_latest_job() {
+		global $wpdb;
+
+		$table = $this->get_table_name();
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$row = $wpdb->get_row(
+			"SELECT * FROM {$table} ORDER BY id DESC LIMIT 1",
+			ARRAY_A
+		);
+		// phpcs:enable
+
+		return $row ? $this->hydrate( $row ) : null;
+	}
+
+	/**
 	 * Mark a job as running.
 	 *
 	 * @param int $job_id Job ID.
