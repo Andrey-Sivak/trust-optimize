@@ -16,7 +16,7 @@ class DatabaseManager {
 	/**
 	 * Current database version
 	 */
-	const DB_VERSION = '1.2.0';
+	const DB_VERSION = '1.3.0';
 
 	/**
 	 * Initialize the database manager
@@ -46,7 +46,8 @@ class DatabaseManager {
 
 		$charset_collate = $wpdb->get_charset_collate();
 
-		$table_name = $wpdb->prefix . 'trust_optimize_images';
+		$table_name      = $wpdb->prefix . 'trust_optimize_images';
+		$jobs_table_name = $wpdb->prefix . 'trust_optimize_jobs';
 
 		$sql = "CREATE TABLE {$table_name} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -63,8 +64,32 @@ class DatabaseManager {
 			KEY status (status)
 		) $charset_collate;";
 
+		$jobs_sql = "CREATE TABLE {$jobs_table_name} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			type varchar(20) NOT NULL,
+			status varchar(20) NOT NULL DEFAULT 'pending',
+			cursor_id bigint(20) unsigned NOT NULL DEFAULT 0,
+			total int unsigned NOT NULL DEFAULT 0,
+			processed int unsigned NOT NULL DEFAULT 0,
+			skipped int unsigned NOT NULL DEFAULT 0,
+			failed_count int unsigned NOT NULL DEFAULT 0,
+			created_count int unsigned NOT NULL DEFAULT 0,
+			deleted_count int unsigned NOT NULL DEFAULT 0,
+			settings_snapshot longtext NULL,
+			profile_hash varchar(64) NOT NULL DEFAULT '',
+			last_error text NULL,
+			started_at datetime NULL,
+			updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			finished_at datetime NULL,
+			PRIMARY KEY  (id),
+			KEY type_status (type, status),
+			KEY status_updated (status, updated_at),
+			KEY cursor_id (cursor_id)
+		) $charset_collate;";
+
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
+		dbDelta( $jobs_sql );
 	}
 
 	/**
