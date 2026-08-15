@@ -214,15 +214,15 @@ class ImageOptimizationService {
 		$desired_variants = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
 		$actual_variants  = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
 
-		$delete_keys     = array_diff( array_keys( $actual_variants ), array_keys( $desired_variants ) );
-		$delete_variants = $this->filter_variants_by_keys( $actual_variants, $delete_keys );
-		$errors          = array();
-		$completed       = 0;
-		$skipped         = 0;
-		$deleted         = 0;
+		$delete_keys      = array_diff( array_keys( $actual_variants ), array_keys( $desired_variants ) );
+		$delete_variants  = $this->filter_variants_by_keys( $actual_variants, $delete_keys );
+		$errors           = array();
+		$completed        = 0;
+		$skipped          = 0;
+		$deleted          = 0;
+		$pending_variants = array();
 
 		$this->image_model->update_profile_hash( $attachment_id, $profile->get_hash() );
-		$this->image_model->update_status( $attachment_id, 'processing', count( $desired_variants ) );
 
 		if ( ! empty( $delete_variants ) ) {
 			$cleanup_result = $this->get_cleanup_service()->cleanup_variants( $attachment_id, $delete_variants );
@@ -248,6 +248,10 @@ class ImageOptimizationService {
 				return OptimizeResult::skipped(
 					'no_desired_variants',
 					array(
+						'completed'    => 0,
+						'skipped'      => 0,
+						'failed'       => 0,
+						'processed'    => 0,
 						'deleted'      => $deleted,
 						'profile_hash' => $profile->get_hash(),
 					)
@@ -258,6 +262,10 @@ class ImageOptimizationService {
 				'completed_with_errors',
 				$errors,
 				array(
+					'completed'    => 0,
+					'skipped'      => 0,
+					'failed'       => count( $errors ),
+					'processed'    => count( $errors ),
 					'deleted'      => $deleted,
 					'profile_hash' => $profile->get_hash(),
 				)
@@ -272,6 +280,43 @@ class ImageOptimizationService {
 				continue;
 			}
 
+			$pending_variants[ $key ] = $variant;
+		}
+
+		$this->image_model->update_status( $attachment_id, 'processing', count( $pending_variants ) );
+
+		if ( empty( $pending_variants ) ) {
+			if ( empty( $errors ) ) {
+				$this->image_model->update_status( $attachment_id, 'completed' );
+				return OptimizeResult::success(
+					'completed',
+					array(
+						'completed'    => 0,
+						'skipped'      => $skipped,
+						'failed'       => 0,
+						'processed'    => $skipped,
+						'deleted'      => $deleted,
+						'profile_hash' => $profile->get_hash(),
+					)
+				);
+			}
+
+			$this->image_model->update_status( $attachment_id, 'completed_with_errors' );
+			return OptimizeResult::partial(
+				'completed_with_errors',
+				$errors,
+				array(
+					'completed'    => 0,
+					'skipped'      => $skipped,
+					'failed'       => count( $errors ),
+					'processed'    => $skipped + count( $errors ),
+					'deleted'      => $deleted,
+					'profile_hash' => $profile->get_hash(),
+				)
+			);
+		}
+
+		foreach ( $pending_variants as $variant ) {
 			$result = $this->get_converter()->convert_single_size(
 				$attachment_id,
 				$variant['size_name'],
@@ -286,6 +331,14 @@ class ImageOptimizationService {
 			}
 
 			$errors[] = $variant;
+			$message  = sprintf(
+				'Synchronous conversion failed for attachment %d, size "%s", format "%s".',
+				$attachment_id,
+				$variant['size_name'],
+				$variant['target_format']
+			);
+
+			$this->image_model->record_failed_task( $attachment_id, $variant['size_name'], $variant['target_format'], $variant['target_mime'], $message );
 		}
 
 		if ( empty( $errors ) ) {
@@ -295,6 +348,8 @@ class ImageOptimizationService {
 				array(
 					'completed'    => $completed,
 					'skipped'      => $skipped,
+					'failed'       => 0,
+					'processed'    => $completed + $skipped,
 					'deleted'      => $deleted,
 					'profile_hash' => $profile->get_hash(),
 				)
@@ -311,13 +366,25 @@ class ImageOptimizationService {
 					'skipped'      => $skipped,
 					'deleted'      => $deleted,
 					'failed'       => count( $errors ),
+					'processed'    => $completed + $skipped + count( $errors ),
 					'profile_hash' => $profile->get_hash(),
 				)
 			);
 		}
 
 		$this->image_model->update_status( $attachment_id, 'failed' );
-		return OptimizeResult::failed( 'conversion_failed', $errors );
+		return OptimizeResult::failed(
+			'conversion_failed',
+			$errors,
+			array(
+				'completed'    => $completed,
+				'skipped'      => $skipped,
+				'failed'       => count( $errors ),
+				'processed'    => $completed + $skipped + count( $errors ),
+				'deleted'      => $deleted,
+				'profile_hash' => $profile->get_hash(),
+			)
+		);
 	}
 
 	/**
