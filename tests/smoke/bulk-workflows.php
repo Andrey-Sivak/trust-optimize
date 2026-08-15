@@ -319,9 +319,11 @@ $trust_optimize_smoke = new class() {
 		$metadata = wp_get_attachment_metadata( $attachment_id );
 		$profile  = ( new ImageProfileFactory( new Settings() ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
 		$data     = $profile->to_array();
+		$formats  = isset( $data['formats'] ) && is_array( $data['formats'] ) ? $data['formats'] : array();
 
 		if ( empty( $data['options']['unsupported_output_formats'] ) ) {
-			$this->pass( 'WebP/AVIF output formats are supported in this environment; unsupported-format branch skipped.' );
+			$this->assert_supported_formats_do_not_fail_conversion( $attachment_id, $formats );
+			$this->pass( 'Supported WebP/AVIF output formats convert without failed tasks.' );
 			return;
 		}
 
@@ -332,7 +334,40 @@ $trust_optimize_smoke = new class() {
 			throw new Exception( 'Unsupported output formats were not exposed in sync result.' );
 		}
 
+		$this->assert_supported_formats_do_not_fail_conversion( $attachment_id, $formats );
 		$this->pass( 'Unsupported WebP/AVIF output formats are reported.' );
+	}
+
+	/**
+	 * Assert formats reported as supported do not fail during conversion.
+	 *
+	 * @param int   $attachment_id Attachment ID.
+	 * @param array $formats       Supported output formats from the profile.
+	 */
+	private function assert_supported_formats_do_not_fail_conversion( $attachment_id, array $formats ) {
+		if ( empty( $formats ) ) {
+			return;
+		}
+
+		$image_data = ( new ImageModel() )->get_by_attachment_id( $attachment_id );
+		$metadata   = $image_data && isset( $image_data['metadata'] ) && is_array( $image_data['metadata'] ) ? $image_data['metadata'] : array();
+		$failed     = isset( $metadata['failed_tasks'] ) && is_array( $metadata['failed_tasks'] ) ? $metadata['failed_tasks'] : array();
+
+		foreach ( $failed as $task ) {
+			if ( ! is_array( $task ) || empty( $task['format'] ) ) {
+				continue;
+			}
+
+			if ( in_array( $task['format'], $formats, true ) ) {
+				throw new Exception(
+					sprintf(
+						'Format "%s" was reported supported but conversion failed: %s',
+						$task['format'],
+						wp_json_encode( $task )
+					)
+				);
+			}
+		}
 	}
 
 	/**
