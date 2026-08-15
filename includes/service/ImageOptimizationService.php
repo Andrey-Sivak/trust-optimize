@@ -119,13 +119,20 @@ class ImageOptimizationService {
 		$size_names = $this->get_size_names( is_array( $metadata ) ? $metadata : array() );
 		$variants   = array();
 
+		$quality = $profile->get_quality();
+
 		foreach ( $size_names as $size_name ) {
 			foreach ( $strategies as $strategy ) {
+				$target_format = $strategy['target_format'];
+
 				$variants[] = array(
 					'attachment_id' => (int) $attachment_id,
 					'size_name'     => $size_name,
-					'target_format' => $strategy['target_format'],
+					'target_format' => $target_format,
 					'target_mime'   => $strategy['target_mime'],
+					'quality'       => isset( $quality[ $target_format ] ) ? (int) $quality[ $target_format ] : null,
+					'source_path'   => $this->get_source_path_for_size( $file_path, is_array( $metadata ) ? $metadata : array(), $size_name ),
+					'size_info'     => $this->get_size_info( is_array( $metadata ) ? $metadata : array(), $size_name ),
 					'profile_hash'  => $profile->get_hash(),
 				);
 			}
@@ -159,7 +166,7 @@ class ImageOptimizationService {
 		$this->image_model->update_status( $attachment_id, 'pending', count( $variants ) );
 
 		$queue = new ConversionQueue( $this->get_converter() );
-		$queue->schedule_conversions( $attachment_id, $this->get_unique_size_names( $variants ), $this->get_unique_strategies( $variants ) );
+		$queue->schedule_variants( $attachment_id, $variants );
 
 		return OptimizeResult::success(
 			'scheduled',
@@ -462,38 +469,46 @@ class ImageOptimizationService {
 	}
 
 	/**
-	 * Get unique size names from variant plan.
+	 * Get source path for a planned image size.
 	 *
-	 * @param array $variants Variant plan records.
-	 * @return array Size names.
+	 * @param string $file_path Original attached file path.
+	 * @param array  $metadata  WordPress attachment metadata.
+	 * @param string $size_name Attachment size name.
+	 * @return string Source path or empty string.
 	 */
-	private function get_unique_size_names( array $variants ) {
-		return array_values( array_unique( wp_list_pluck( $variants, 'size_name' ) ) );
+	private function get_source_path_for_size( $file_path, array $metadata, $size_name ) {
+		if ( 'original' === $size_name ) {
+			return $file_path;
+		}
+
+		if ( empty( $metadata['sizes'][ $size_name ]['file'] ) ) {
+			return '';
+		}
+
+		return trailingslashit( dirname( $file_path ) ) . $metadata['sizes'][ $size_name ]['file'];
 	}
 
 	/**
-	 * Get unique conversion strategies from variant plan.
+	 * Get metadata for a planned image size.
 	 *
-	 * @param array $variants Variant plan records.
-	 * @return array Conversion strategies.
+	 * @param array  $metadata  WordPress attachment metadata.
+	 * @param string $size_name Attachment size name.
+	 * @return array Size info for queue payload/debugging.
 	 */
-	private function get_unique_strategies( array $variants ) {
-		$strategies = array();
-
-		foreach ( $variants as $variant ) {
-			$key = $variant['target_format'] . ':' . $variant['target_mime'];
-
-			if ( isset( $strategies[ $key ] ) ) {
-				continue;
-			}
-
-			$strategies[ $key ] = array(
-				'target_format' => $variant['target_format'],
-				'target_mime'   => $variant['target_mime'],
+	private function get_size_info( array $metadata, $size_name ) {
+		if ( 'original' === $size_name ) {
+			return array(
+				'width'  => isset( $metadata['width'] ) ? (int) $metadata['width'] : 0,
+				'height' => isset( $metadata['height'] ) ? (int) $metadata['height'] : 0,
+				'file'   => isset( $metadata['file'] ) ? basename( $metadata['file'] ) : '',
 			);
 		}
 
-		return array_values( $strategies );
+		if ( isset( $metadata['sizes'][ $size_name ] ) && is_array( $metadata['sizes'][ $size_name ] ) ) {
+			return $metadata['sizes'][ $size_name ];
+		}
+
+		return array();
 	}
 
 	/**

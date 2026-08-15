@@ -11,6 +11,7 @@ namespace TrustOptimize\Queue;
 
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Value\ImageVariant;
 
 /**
  * Class ConversionQueue
@@ -96,24 +97,57 @@ class ConversionQueue {
 	}
 
 	/**
+	 * Schedule conversion tasks for specific image variants.
+	 *
+	 * @param int   $attachment_id The attachment ID.
+	 * @param array $variants      Variant plan records or ImageVariant instances.
+	 */
+	public function schedule_variants( $attachment_id, array $variants ) {
+		foreach ( $variants as $variant ) {
+			$this->schedule_variant_conversion( $attachment_id, $variant );
+		}
+	}
+
+	/**
+	 * Schedule conversion for one concrete image variant.
+	 *
+	 * @param int                $attachment_id The attachment ID.
+	 * @param array|ImageVariant $variant       Variant payload.
+	 */
+	public function schedule_variant_conversion( $attachment_id, $variant ) {
+		$payload = $this->normalize_variant_payload( $attachment_id, $variant );
+
+		if ( empty( $payload['size_name'] ) || empty( $payload['target_format'] ) || empty( $payload['target_mime'] ) ) {
+			return;
+		}
+
+		as_enqueue_async_action(
+			self::HOOK_CONVERT,
+			array( $payload ),
+			self::GROUP
+		);
+	}
+
+	/**
 	 * Schedule conversion tasks for all sizes and formats of an attachment.
 	 *
-	 * @param int   $attachment_id       The attachment ID.
-	 * @param array $size_names          Array of size names to convert (e.g., ['original', 'thumbnail', 'medium']).
-	 * @param array $conversion_strategies Array of strategies with 'target_format' and 'target_mime' keys.
+	 * Backward-compatible wrapper for legacy callers. New code should schedule
+	 * explicit variants to avoid accidental size x format fan-out.
+	 *
+	 * @param int   $attachment_id          The attachment ID.
+	 * @param array $size_names             Array of size names to convert.
+	 * @param array $conversion_strategies  Conversion strategies.
 	 */
 	public function schedule_conversions( $attachment_id, array $size_names, array $conversion_strategies ) {
 		foreach ( $size_names as $size_name ) {
 			foreach ( $conversion_strategies as $strategy ) {
-				as_enqueue_async_action(
-					self::HOOK_CONVERT,
+				$this->schedule_variant_conversion(
+					$attachment_id,
 					array(
-						$attachment_id,
-						$size_name,
-						$strategy['target_format'],
-						$strategy['target_mime'],
-					),
-					self::GROUP
+						'size_name'     => $size_name,
+						'target_format' => isset( $strategy['target_format'] ) ? $strategy['target_format'] : '',
+						'target_mime'   => isset( $strategy['target_mime'] ) ? $strategy['target_mime'] : '',
+					)
 				);
 			}
 		}
@@ -122,14 +156,25 @@ class ConversionQueue {
 	/**
 	 * Process a single conversion task.
 	 *
-	 * Called by Action Scheduler when the task is ready to run.
+	 * Called by Action Scheduler when the task is ready to run. Supports the new
+	 * single-payload variant format and already scheduled legacy positional args.
 	 *
-	 * @param int    $attachment_id The attachment ID.
-	 * @param string $size_name     The size name (e.g., 'original', 'thumbnail').
-	 * @param string $target_format The target format (e.g., 'webp', 'avif').
-	 * @param string $target_mime   The target MIME type (e.g., 'image/webp').
+	 * @param int|array $attachment_id The attachment ID or variant payload.
+	 * @param string    $size_name     The size name (legacy payload).
+	 * @param string    $target_format The target format (legacy payload).
+	 * @param string    $target_mime   The target MIME type (legacy payload).
 	 */
-	public function process_task( $attachment_id, $size_name, $target_format, $target_mime ) {
+	public function process_task( $attachment_id, $size_name = null, $target_format = null, $target_mime = null ) {
+		$payload       = $this->normalize_task_payload( $attachment_id, $size_name, $target_format, $target_mime );
+		$attachment_id = $payload['attachment_id'];
+		$size_name     = $payload['size_name'];
+		$target_format = $payload['target_format'];
+		$target_mime   = $payload['target_mime'];
+
+		if ( empty( $attachment_id ) || empty( $size_name ) || empty( $target_format ) || empty( $target_mime ) ) {
+			return;
+		}
+
 		$result = $this->converter->convert_single_size( $attachment_id, $size_name, $target_format, $target_mime );
 
 		if ( $result ) {
@@ -145,7 +190,65 @@ class ConversionQueue {
 		);
 
 		$this->image_model->record_failed_task( $attachment_id, $size_name, $target_format, $target_mime, $message );
+	}
 
+	/**
+	 * Normalize a variant into the Action Scheduler payload shape.
+	 *
+	 * @param int                $attachment_id Attachment ID.
+	 * @param array|ImageVariant $variant       Variant data.
+	 * @return array Normalized payload.
+	 */
+	private function normalize_variant_payload( $attachment_id, $variant ) {
+		if ( $variant instanceof ImageVariant ) {
+			$variant = $variant->to_array();
+		}
+
+		if ( ! is_array( $variant ) ) {
+			$variant = array();
+		}
+
+		$payload = array(
+			'attachment_id' => (int) $attachment_id,
+			'size_name'     => isset( $variant['size_name'] ) ? (string) $variant['size_name'] : '',
+			'target_format' => isset( $variant['target_format'] ) ? (string) $variant['target_format'] : '',
+			'target_mime'   => isset( $variant['target_mime'] ) ? (string) $variant['target_mime'] : '',
+		);
+
+		foreach ( array( 'quality', 'source_path', 'target_path', 'size_info', 'profile_hash' ) as $key ) {
+			if ( array_key_exists( $key, $variant ) ) {
+				$payload[ $key ] = $variant[ $key ];
+			}
+		}
+
+		return $payload;
+	}
+
+	/**
+	 * Normalize current and legacy Action Scheduler task payloads.
+	 *
+	 * @param int|array $attachment_id Attachment ID or new variant payload.
+	 * @param string    $size_name     Legacy size name.
+	 * @param string    $target_format Legacy target format.
+	 * @param string    $target_mime   Legacy target MIME.
+	 * @return array Normalized payload.
+	 */
+	private function normalize_task_payload( $attachment_id, $size_name = null, $target_format = null, $target_mime = null ) {
+		if ( is_array( $attachment_id ) ) {
+			return $this->normalize_variant_payload(
+				isset( $attachment_id['attachment_id'] ) ? (int) $attachment_id['attachment_id'] : 0,
+				$attachment_id
+			);
+		}
+
+		return $this->normalize_variant_payload(
+			(int) $attachment_id,
+			array(
+				'size_name'     => $size_name,
+				'target_format' => $target_format,
+				'target_mime'   => $target_mime,
+			)
+		);
 	}
 
 	/**
@@ -182,12 +285,28 @@ class ConversionQueue {
 			}
 
 			$args = $action->get_args();
-			if ( empty( $args ) || (int) reset( $args ) !== (int) $attachment_id ) {
+			if ( empty( $args ) || self::get_attachment_id_from_action_args( $args ) !== (int) $attachment_id ) {
 				continue;
 			}
 
 			as_unschedule_action( self::HOOK_CONVERT, $args, self::GROUP );
 		}
+	}
+
+	/**
+	 * Extract attachment ID from current or legacy scheduled action args.
+	 *
+	 * @param array $args Action Scheduler args.
+	 * @return int Attachment ID or zero.
+	 */
+	private static function get_attachment_id_from_action_args( array $args ) {
+		$first = reset( $args );
+
+		if ( is_array( $first ) ) {
+			return isset( $first['attachment_id'] ) ? (int) $first['attachment_id'] : 0;
+		}
+
+		return (int) $first;
 	}
 
 	/**
