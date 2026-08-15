@@ -196,22 +196,73 @@ class ImageOptimizationService {
 			return OptimizeResult::failed( 'missing_metadata' );
 		}
 
-		$profile  = isset( $args['profile'] ) && $args['profile'] instanceof ImageProfile ? $args['profile'] : $this->profile_factory->from_wp_metadata( $metadata );
-		$variants = $this->plan_variants( $attachment_id, $profile );
-
-		if ( empty( $variants ) ) {
-			$this->image_model->update_status( $attachment_id, 'completed' );
-			return OptimizeResult::skipped( 'no_variants' );
+		$image_data = $this->image_model->get_by_attachment_id( $attachment_id );
+		if ( ! $image_data ) {
+			$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
 		}
 
-		$errors    = array();
-		$completed = 0;
+		$profile          = isset( $args['profile'] ) && $args['profile'] instanceof ImageProfile ? $args['profile'] : $this->profile_factory->from_wp_metadata( $metadata );
+		$desired_variants = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
+		$actual_variants  = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
 
-		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
+		$delete_keys     = array_diff( array_keys( $actual_variants ), array_keys( $desired_variants ) );
+		$delete_variants = $this->filter_variants_by_keys( $actual_variants, $delete_keys );
+		$errors          = array();
+		$completed       = 0;
+		$skipped         = 0;
+		$deleted         = 0;
+
 		$this->image_model->update_profile_hash( $attachment_id, $profile->get_hash() );
-		$this->image_model->update_status( $attachment_id, 'processing', count( $variants ) );
+		$this->image_model->update_status( $attachment_id, 'processing', count( $desired_variants ) );
 
-		foreach ( $variants as $variant ) {
+		if ( ! empty( $delete_variants ) ) {
+			$cleanup_result = $this->get_cleanup_service()->cleanup_variants( $attachment_id, $delete_variants );
+			$cleanup_data   = $cleanup_result->get_data();
+
+			$deleted = isset( $cleanup_data['deleted'] ) && is_array( $cleanup_data['deleted'] ) ? count( $cleanup_data['deleted'] ) : 0;
+
+			if ( $cleanup_result->is_failed() || $cleanup_result->is_partial() ) {
+				$errors[] = array(
+					'operation' => 'delete_no_longer_desired',
+					'errors'    => $cleanup_result->get_errors(),
+				);
+			} else {
+				$this->image_model->remove_generated_variants( $attachment_id, $delete_keys );
+			}
+		}
+
+		if ( empty( $desired_variants ) ) {
+			$status = empty( $errors ) ? 'skipped' : 'completed_with_errors';
+			$this->image_model->update_status( $attachment_id, $status );
+
+			if ( empty( $errors ) ) {
+				return OptimizeResult::skipped(
+					'no_desired_variants',
+					array(
+						'deleted'      => $deleted,
+						'profile_hash' => $profile->get_hash(),
+					)
+				);
+			}
+
+			return OptimizeResult::partial(
+				'completed_with_errors',
+				$errors,
+				array(
+					'deleted'      => $deleted,
+					'profile_hash' => $profile->get_hash(),
+				)
+			);
+		}
+
+		foreach ( $desired_variants as $key => $variant ) {
+			$actual = isset( $actual_variants[ $key ] ) ? $actual_variants[ $key ] : null;
+
+			if ( $actual && ! $this->image_model->is_variant_stale( $actual, $profile->get_hash() ) && $this->variant_file_exists( $actual, $attachment_id ) ) {
+				++$skipped;
+				continue;
+			}
+
 			$result = $this->get_converter()->convert_single_size(
 				$attachment_id,
 				$variant['size_name'],
@@ -229,21 +280,27 @@ class ImageOptimizationService {
 		}
 
 		if ( empty( $errors ) ) {
+			$this->image_model->update_status( $attachment_id, 'completed' );
 			return OptimizeResult::success(
 				'completed',
 				array(
 					'completed'    => $completed,
+					'skipped'      => $skipped,
+					'deleted'      => $deleted,
 					'profile_hash' => $profile->get_hash(),
 				)
 			);
 		}
 
-		if ( $completed > 0 ) {
+		if ( $completed > 0 || $skipped > 0 || $deleted > 0 ) {
+			$this->image_model->update_status( $attachment_id, 'completed_with_errors' );
 			return OptimizeResult::partial(
 				'completed_with_errors',
 				$errors,
 				array(
 					'completed'    => $completed,
+					'skipped'      => $skipped,
+					'deleted'      => $deleted,
 					'failed'       => count( $errors ),
 					'profile_hash' => $profile->get_hash(),
 				)
@@ -252,6 +309,108 @@ class ImageOptimizationService {
 
 		$this->image_model->update_status( $attachment_id, 'failed' );
 		return OptimizeResult::failed( 'conversion_failed', $errors );
+	}
+
+	/**
+	 * Map variants by size/format key.
+	 *
+	 * @param array  $variants    Variant records.
+	 * @param string $format_key  Field containing the format value.
+	 * @return array Variants keyed by "size:format".
+	 */
+	private function map_variants_by_key( array $variants, $format_key ) {
+		$mapped = array();
+
+		foreach ( $variants as $variant ) {
+			if ( empty( $variant['size_name'] ) || empty( $variant[ $format_key ] ) ) {
+				continue;
+			}
+
+			$mapped[ $variant['size_name'] . ':' . $variant[ $format_key ] ] = $variant;
+		}
+
+		return $mapped;
+	}
+
+	/**
+	 * Filter mapped variants by keys.
+	 *
+	 * @param array $variants Variant records keyed by "size:format".
+	 * @param array $keys     Keys to include.
+	 * @return array Filtered variant records.
+	 */
+	private function filter_variants_by_keys( array $variants, array $keys ) {
+		$filtered = array();
+
+		foreach ( $keys as $key ) {
+			if ( isset( $variants[ $key ] ) ) {
+				$filtered[] = $variants[ $key ];
+			}
+		}
+
+		return $filtered;
+	}
+
+	/**
+	 * Check whether a manifest variant file exists inside uploads.
+	 *
+	 * @param array $variant       Generated variant manifest record.
+	 * @param int   $attachment_id Attachment ID.
+	 * @return bool
+	 */
+	private function variant_file_exists( array $variant, $attachment_id ) {
+		$path = $this->resolve_variant_path( $variant, $attachment_id );
+
+		return '' !== $path && $this->is_inside_uploads( $path ) && file_exists( $path );
+	}
+
+	/**
+	 * Resolve a manifest variant to an absolute path.
+	 *
+	 * @param array $variant       Generated variant manifest record.
+	 * @param int   $attachment_id Attachment ID.
+	 * @return string Absolute target path or empty string.
+	 */
+	private function resolve_variant_path( array $variant, $attachment_id ) {
+		if ( empty( $variant['file'] ) ) {
+			return '';
+		}
+
+		$upload_dir = wp_upload_dir();
+		if ( empty( $upload_dir['basedir'] ) ) {
+			return '';
+		}
+
+		$file = basename( $variant['file'] );
+
+		if ( isset( $variant['relative_dir'] ) && '' !== $variant['relative_dir'] ) {
+			return trailingslashit( $upload_dir['basedir'] ) . trim( $variant['relative_dir'], '/' ) . '/' . $file;
+		}
+
+		$attached_file = get_attached_file( $attachment_id );
+		if ( $attached_file ) {
+			return trailingslashit( dirname( $attached_file ) ) . $file;
+		}
+
+		return '';
+	}
+
+	/**
+	 * Check whether a path is inside uploads basedir.
+	 *
+	 * @param string $path Absolute path.
+	 * @return bool
+	 */
+	private function is_inside_uploads( $path ) {
+		$upload_dir = wp_upload_dir();
+		if ( empty( $upload_dir['basedir'] ) ) {
+			return false;
+		}
+
+		$base = untrailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
+		$path = wp_normalize_path( $path );
+
+		return $path === $base || 0 === strpos( $path, trailingslashit( $base ) );
 	}
 
 	/**
@@ -348,5 +507,14 @@ class ImageOptimizationService {
 		}
 
 		return $this->converter;
+	}
+
+	/**
+	 * Get cleanup service instance.
+	 *
+	 * @return ImageCleanupService
+	 */
+	private function get_cleanup_service() {
+		return new ImageCleanupService( $this->image_model );
 	}
 }

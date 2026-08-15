@@ -337,6 +337,37 @@ class ImageModel {
 	}
 
 	/**
+	 * Remove generated variant records from plugin metadata.
+	 *
+	 * @param int   $attachment_id Attachment ID.
+	 * @param array $variant_keys  Variant keys in "size:format" form.
+	 * @return bool Success or failure.
+	 */
+	public function remove_generated_variants( $attachment_id, array $variant_keys ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+
+		if ( ! $image_data ) {
+			return false;
+		}
+
+		$metadata = $this->normalize_metadata( $image_data['metadata'] );
+
+		foreach ( $variant_keys as $variant_key ) {
+			if ( isset( $metadata['generated_variants'][ $variant_key ] ) ) {
+				$variant = $metadata['generated_variants'][ $variant_key ];
+				unset( $metadata['generated_variants'][ $variant_key ] );
+
+				if ( ! empty( $variant['size_name'] ) && ! empty( $variant['format'] ) ) {
+					unset( $metadata['sizes'][ $variant['size_name'] ]['formats'][ $variant['format'] ] );
+				}
+			}
+		}
+
+		self::clear_cache( $attachment_id );
+		return $this->save( $attachment_id, $metadata ) ? true : false;
+	}
+
+	/**
 	 * Normalize metadata into the current structure.
 	 *
 	 * @param array|null $metadata Stored metadata.
