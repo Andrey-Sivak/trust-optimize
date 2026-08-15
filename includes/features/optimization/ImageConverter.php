@@ -10,8 +10,8 @@ namespace TrustOptimize\Features\Optimization;
 use Imagick;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Admin\Settings;
-use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageProfileFactory;
+use TrustOptimize\Service\ImageOptimizationService;
 
 /**
  * Class ImageConverter
@@ -59,42 +59,8 @@ class ImageConverter {
 	 * @return array The modified attachment metadata.
 	 */
 	public function handle_image_upload( $metadata, $attachment_id ) {
-		// Get the file path of the original uploaded image
-		$file_path = get_attached_file( $attachment_id );
-
-		if ( ! $file_path ) {
-			return $metadata; // Should not happen, but good to check
-		}
-
-		// Get the file type
-		$file_type = wp_check_filetype( $file_path );
-		$mime_type = $file_type['type'];
-
-		// Initialize base metadata in our custom table
-		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
-		$this->image_model->update_profile_hash( $attachment_id, $this->profile_factory->from_wp_metadata( $metadata )->get_hash() );
-
-		// Get conversion strategies based on mime type
-		$conversion_strategies = $this->get_conversion_strategies( $mime_type );
-
-		if ( empty( $conversion_strategies ) ) {
-			$this->image_model->update_status( $attachment_id, 'completed' );
-			return $metadata;
-		}
-
-		// Collect all size names to process
-		$size_names = array( 'original' );
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			$size_names = array_merge( $size_names, array_keys( $metadata['sizes'] ) );
-		}
-
-		// Calculate total tasks and set status to pending
-		$total_tasks = count( $size_names ) * count( $conversion_strategies );
-		$this->image_model->update_status( $attachment_id, 'pending', $total_tasks );
-
-		// Schedule async conversions via Action Scheduler
-		$queue = new ConversionQueue( $this );
-		$queue->schedule_conversions( $attachment_id, $size_names, $conversion_strategies );
+		$service = new ImageOptimizationService( $this, $this->image_model, $this->profile_factory );
+		$service->schedule_attachment_async( $attachment_id, $metadata );
 
 		// Return metadata immediately without waiting for conversions
 		return $metadata;
@@ -157,49 +123,6 @@ class ImageConverter {
 		}
 
 		return $result;
-	}
-
-	/**
-	 * Determine what formats to convert to based on original mime type and settings
-	 *
-	 * @param string $mime_type Original image mime type
-	 * @return array Array of conversion strategies or empty array if no conversion needed
-	 */
-	private function get_conversion_strategies( $mime_type ) {
-		$strategies = array();
-
-		// Skip conversion if the image is already in one of our target formats
-		if ( in_array( $mime_type, array( 'image/webp', 'image/avif' ), true ) ) {
-			return array(
-				array(
-					'target_format' => 'png',
-					'target_mime'   => 'image/png',
-				),
-			);
-		}
-
-		// Only convert jpeg and png images
-		if ( ! in_array( $mime_type, array( 'image/jpeg', 'image/png' ), true ) ) {
-			return array();
-		}
-
-		// Add AVIF strategy if enabled
-		if ( $this->is_avif_conversion_enabled() ) {
-			$strategies[] = array(
-				'target_format' => 'avif',
-				'target_mime'   => 'image/avif',
-			);
-		}
-
-		// Add WebP strategy if enabled
-		if ( $this->is_webp_conversion_enabled() ) {
-			$strategies[] = array(
-				'target_format' => 'webp',
-				'target_mime'   => 'image/webp',
-			);
-		}
-
-		return $strategies;
 	}
 
 	/**
