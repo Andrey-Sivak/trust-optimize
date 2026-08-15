@@ -146,9 +146,22 @@ class Admin {
 			wp_enqueue_script(
 				'trust-optimize-admin',
 				TRUST_OPTIMIZE_PLUGIN_URL . 'assets/js/admin.js',
-				array( 'jquery' ),
+				array( 'jquery', 'wp-api-fetch' ),
 				TRUST_OPTIMIZE_VERSION,
 				true
+			);
+
+			wp_localize_script(
+				'trust-optimize-admin',
+				'trustOptimizeAdmin',
+				array(
+					'restUrl' => rest_url( 'trust-optimize/v1/' ),
+					'nonce'   => wp_create_nonce( 'wp_rest' ),
+					'i18n'    => array(
+						'confirmRemove' => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
+						'confirmCancel' => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
+					),
+				)
 			);
 		}
 
