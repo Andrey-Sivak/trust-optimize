@@ -103,9 +103,11 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/ImageProfile.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OperationResult.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OptimizeResult.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/DeleteResult.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/CapabilityCheck.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageProfileFactory.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageOptimizationService.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageCleanupService.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/frontend/Frontend.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';

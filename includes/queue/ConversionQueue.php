@@ -155,9 +155,39 @@ class ConversionQueue {
 	 * @param int $attachment_id The attachment ID.
 	 */
 	public function cancel_attachment_tasks( $attachment_id ) {
-		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			// Unschedule all pending tasks for this attachment across all formats/sizes.
-			as_unschedule_all_actions( self::HOOK_CONVERT, null, self::GROUP );
+		self::cancel_tasks_for_attachment( $attachment_id );
+	}
+
+	/**
+	 * Cancel pending conversion tasks for a specific attachment.
+	 *
+	 * @param int $attachment_id The attachment ID.
+	 */
+	public static function cancel_tasks_for_attachment( $attachment_id ) {
+		if ( ! function_exists( 'as_get_scheduled_actions' ) || ! function_exists( 'as_unschedule_action' ) ) {
+			return;
+		}
+
+		$actions = as_get_scheduled_actions(
+			array(
+				'hook'     => self::HOOK_CONVERT,
+				'group'    => self::GROUP,
+				'status'   => \ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => -1,
+			)
+		);
+
+		foreach ( $actions as $action ) {
+			if ( ! is_object( $action ) || ! is_callable( array( $action, 'get_args' ) ) ) {
+				continue;
+			}
+
+			$args = $action->get_args();
+			if ( empty( $args ) || (int) reset( $args ) !== (int) $attachment_id ) {
+				continue;
+			}
+
+			as_unschedule_action( self::HOOK_CONVERT, $args, self::GROUP );
 		}
 	}
 }
