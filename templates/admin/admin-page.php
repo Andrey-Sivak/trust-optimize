@@ -20,6 +20,9 @@ $trust_optimize_uploads_writable        = ! empty( $trust_optimize_upload_dir['b
 $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
 $trust_optimize_eligibility             = class_exists( 'TrustOptimize\\Bulk\\EligibilityQuery' ) ? new \TrustOptimize\Bulk\EligibilityQuery() : null;
 $trust_optimize_total_eligible          = $trust_optimize_eligibility ? $trust_optimize_eligibility->count_eligible_attachments() : 0;
+$trust_optimize_profile_factory         = class_exists( 'TrustOptimize\\Service\\ImageProfileFactory' ) ? new \TrustOptimize\Service\ImageProfileFactory() : null;
+$trust_optimize_webp_supported          = $trust_optimize_profile_factory ? $trust_optimize_profile_factory->is_output_format_supported( 'webp' ) : false;
+$trust_optimize_avif_supported          = $trust_optimize_profile_factory ? $trust_optimize_profile_factory->is_output_format_supported( 'avif' ) : false;
 ?>
 
 <div class="wrap trust-optimize-admin-wrap">
@@ -109,8 +112,8 @@ $trust_optimize_total_eligible          = $trust_optimize_eligibility ? $trust_o
 							<li><?php esc_html_e( 'Eligible image attachments:', 'trust-optimize' ); ?> <strong><?php echo esc_html( number_format_i18n( $trust_optimize_total_eligible ) ); ?></strong></li>
 							<li><?php esc_html_e( 'GD:', 'trust-optimize' ); ?> <strong><?php echo extension_loaded( 'gd' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
 							<li><?php esc_html_e( 'Imagick:', 'trust-optimize' ); ?> <strong><?php echo extension_loaded( 'imagick' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'WebP generation:', 'trust-optimize' ); ?> <strong><?php echo function_exists( 'imagewebp' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'not detected', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'AVIF generation:', 'trust-optimize' ); ?> <strong><?php echo function_exists( 'imageavif' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'not detected', 'trust-optimize' ); ?></strong></li>
+							<li><?php esc_html_e( 'WebP output:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_webp_supported ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'unsupported by WP editor', 'trust-optimize' ); ?></strong></li>
+							<li><?php esc_html_e( 'AVIF output:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_avif_supported ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'unsupported by WP editor', 'trust-optimize' ); ?></strong></li>
 							<li><?php esc_html_e( 'Uploads writable:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_uploads_writable ? esc_html__( 'yes', 'trust-optimize' ) : esc_html__( 'no', 'trust-optimize' ); ?></strong></li>
 							<li><?php esc_html_e( 'Action Scheduler:', 'trust-optimize' ); ?> <strong><?php echo function_exists( 'as_enqueue_async_action' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
 							<li><?php esc_html_e( 'Approx. free disk:', 'trust-optimize' ); ?> <strong><?php echo false !== $trust_optimize_disk_free ? esc_html( size_format( $trust_optimize_disk_free, 1 ) ) : esc_html__( 'unknown', 'trust-optimize' ); ?></strong></li>

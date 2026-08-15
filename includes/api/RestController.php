@@ -275,6 +275,12 @@ class RestController extends WP_REST_Controller {
 		$repository = new BulkJobRepository();
 		$job        = $repository->get_active_job();
 
+		if ( $job && in_array( $job->get_status(), array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING ), true ) ) {
+			$runner = new BulkJobRunner( $repository );
+			$this->run_status_bounded_tick( $runner, $job );
+			$job = $repository->get( $job->get_id() );
+		}
+
 		if ( ! $job ) {
 			$job = $repository->get_latest_job();
 		}
@@ -387,7 +393,7 @@ class RestController extends WP_REST_Controller {
 
 		$runner = new BulkJobRunner( $repository, $eligibility );
 		$runner->start( $job->get_id() );
-		$this->run_initial_bounded_tick( $runner, $job->get_id() );
+		$this->run_bounded_tick( $runner, $job->get_id(), 1, 3 );
 
 		return rest_ensure_response(
 			array(
@@ -397,22 +403,49 @@ class RestController extends WP_REST_Controller {
 	}
 
 	/**
-	 * Run one bounded tick immediately after REST start.
+	 * Run one bounded tick from REST status polling.
 	 *
 	 * Action Scheduler/WP-Cron may not dispatch during admin REST requests in
-	 * local Docker or locked-down hosting environments. This first tick makes
-	 * observable progress while keeping the request bounded; normal scheduled
-	 * continuation remains responsible for subsequent work.
+	 * local Docker or locked-down hosting environments. Polling status can
+	 * safely advance one bounded tick while keeping resumability and avoiding
+	 * duplicate concurrent ticks.
 	 *
 	 * @param BulkJobRunner $runner Runner instance.
-	 * @param int           $job_id Job ID.
+	 * @param BulkJob       $job    Job value object.
 	 */
-	private function run_initial_bounded_tick( BulkJobRunner $runner, $job_id ) {
-		$batch_filter = function () {
-			return 1;
+	private function run_status_bounded_tick( BulkJobRunner $runner, BulkJob $job ) {
+		$lock_key = 'trust_optimize_bulk_status_tick_' . $job->get_id();
+
+		if ( get_transient( $lock_key ) ) {
+			return;
+		}
+
+		set_transient( $lock_key, 1, 15 );
+		try {
+			if ( BulkJob::STATUS_PENDING === $job->get_status() ) {
+				$runner->start( $job->get_id() );
+			}
+
+			$this->run_bounded_tick( $runner, $job->get_id(), 1, 3 );
+		} finally {
+			delete_transient( $lock_key );
+		}
+	}
+
+	/**
+	 * Run one bounded bulk tick with temporary limits.
+	 *
+	 * @param BulkJobRunner $runner      Runner instance.
+	 * @param int           $job_id      Job ID.
+	 * @param int           $batch_size  Max attachments for this tick.
+	 * @param int           $time_budget Max seconds for this tick.
+	 */
+	private function run_bounded_tick( BulkJobRunner $runner, $job_id, $batch_size, $time_budget ) {
+		$batch_filter = function () use ( $batch_size ) {
+			return $batch_size;
 		};
-		$time_filter  = function () {
-			return 3;
+		$time_filter  = function () use ( $time_budget ) {
+			return $time_budget;
 		};
 
 		add_filter( 'trust_optimize_bulk_batch_size', $batch_filter, 99 );

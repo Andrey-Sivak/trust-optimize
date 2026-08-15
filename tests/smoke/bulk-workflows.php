@@ -499,12 +499,27 @@ $trust_optimize_smoke = new class() {
 		}
 
 		if ( BulkJob::STATUS_RUNNING === $status ) {
+			$status_response = $this->dispatch_rest_request( 'GET', '/trust-optimize/v1/bulk/status' );
+			$status_data     = $status_response->get_data();
+			$status_job      = isset( $status_data['job'] ) && is_array( $status_data['job'] ) ? $status_data['job'] : array();
+			$status_processed = isset( $status_job['processed'] ) ? (int) $status_job['processed'] : 0;
+			$status_status    = isset( $status_job['status'] ) ? $status_job['status'] : '';
+
+			if ( BulkJob::STATUS_RUNNING === $status_status && $status_processed <= $processed ) {
+				throw new Exception( 'REST status polling did not advance a running inventory job.' );
+			}
+
+			$job    = $status_job;
+			$status = $status_status;
+		}
+
+		if ( BulkJob::STATUS_RUNNING === $status ) {
 			$repository = new BulkJobRepository();
 			$runner     = new BulkJobRunner( $repository );
 			$runner->cancel( (int) $job['id'] );
 		}
 
-		$this->pass( 'REST-started inventory job makes immediate bounded progress.' );
+		$this->pass( 'REST-started inventory job makes immediate bounded progress and status polling advances it.' );
 	}
 
 	/**
