@@ -329,25 +329,25 @@ class ImageConverter {
 	 * @return int The quality value to use
 	 */
 	private function get_quality_for_format( $format ) {
-		// Get the base quality from settings
-		$base_quality = (int) $this->settings->get( 'image_quality', 100 );
+		$options        = $this->settings->get_all();
+		$legacy_quality = isset( $options['image_quality'] ) ? (int) $options['image_quality'] : 85;
 
-		// You might want different quality settings for different formats
-		// AVIF often requires less quality for similar visual results
 		switch ( $format ) {
 			case 'avif':
-				// AVIF typically needs lower quality values for similar visual results
-				$quality = min( $base_quality, 85 ); // Cap at 85 for AVIF
+				$quality = isset( $options['avif_quality'] ) ? (int) $options['avif_quality'] : min( $legacy_quality, 85 );
 				break;
 			case 'webp':
-				// WebP can use slightly lower quality than JPEG for similar results
-				$quality = min( $base_quality, 90 ); // Cap at 90 for WebP
+				$quality = isset( $options['webp_quality'] ) ? (int) $options['webp_quality'] : min( $legacy_quality, 90 );
+				break;
+			case 'jpeg':
+			case 'jpg':
+				$quality = isset( $options['jpeg_quality'] ) ? (int) $options['jpeg_quality'] : $legacy_quality;
 				break;
 			default:
-				$quality = $base_quality;
+				$quality = $legacy_quality;
 		}
 
-		return apply_filters( "trust_optimize_{$format}_quality", $quality );
+		return max( 1, min( 100, (int) apply_filters( "trust_optimize_{$format}_quality", $quality ) ) );
 	}
 
 	/**

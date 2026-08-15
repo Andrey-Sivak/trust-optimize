@@ -93,6 +93,17 @@ class Admin {
 			'trust_optimize_settings',
 			'trust_optimize_general_section'
 		);
+
+		foreach ( array( 'webp_quality', 'avif_quality', 'jpeg_quality' ) as $quality_field ) {
+			add_settings_field(
+				$quality_field,
+				$this->get_quality_label( $quality_field ),
+				array( $this, 'render_quality_field' ),
+				'trust_optimize_settings',
+				'trust_optimize_general_section',
+				array( 'key' => $quality_field )
+			);
+		}
 	}
 
 	/**
@@ -114,16 +125,62 @@ class Admin {
 	}
 
 	/**
+	 * Render a quality field.
+	 *
+	 * @param array $args Field args.
+	 */
+	public function render_quality_field( $args ) {
+		$key      = isset( $args['key'] ) ? $args['key'] : '';
+		$settings = new Settings();
+		$options  = $settings->get_all();
+		$defaults = $settings->get_defaults();
+		$value    = isset( $options[ $key ] ) ? (int) $options[ $key ] : ( isset( $defaults[ $key ] ) ? (int) $defaults[ $key ] : 85 );
+
+		printf(
+			'<input type="number" min="1" max="100" id="%1$s" name="trust_optimize_options[%1$s]" value="%2$d" class="small-text">',
+			esc_attr( $key ),
+			(int) $value
+		);
+		echo '<p class="description">' . esc_html__( 'Lower values reduce file size and CPU work during bulk jobs; higher values preserve more detail but produce larger files.', 'trust-optimize' ) . '</p>';
+	}
+
+	/**
+	 * Get label for a quality field.
+	 *
+	 * @param string $key Field key.
+	 * @return string
+	 */
+	private function get_quality_label( $key ) {
+		$labels = array(
+			'webp_quality' => __( 'WebP Quality', 'trust-optimize' ),
+			'avif_quality' => __( 'AVIF Quality', 'trust-optimize' ),
+			'jpeg_quality' => __( 'JPEG Fallback Quality', 'trust-optimize' ),
+		);
+
+		return isset( $labels[ $key ] ) ? $labels[ $key ] : $key;
+	}
+
+	/**
 	 * Validate settings before saving.
 	 *
 	 * @param array $input The input array to validate.
 	 * @return array
 	 */
 	public function validate_settings( $input ) {
-		$output = array();
+		$settings = new Settings();
+		$existing = $settings->get_all();
+		$output   = is_array( $existing ) ? $existing : array();
 
 		// Validate enable_adaptive_images
 		$output['enable_adaptive_images'] = isset( $input['enable_adaptive_images'] ) ? 1 : 0;
+
+		foreach ( array( 'webp_quality', 'avif_quality', 'jpeg_quality', 'image_quality' ) as $quality_key ) {
+			if ( ! isset( $input[ $quality_key ] ) ) {
+				continue;
+			}
+
+			$output[ $quality_key ] = max( 1, min( 100, (int) $input[ $quality_key ] ) );
+		}
 
 		return $output;
 	}

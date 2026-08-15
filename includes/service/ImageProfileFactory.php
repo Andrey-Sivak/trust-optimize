@@ -197,14 +197,16 @@ class ImageProfileFactory {
 	 * @return array
 	 */
 	private function get_effective_quality() {
-		$base_quality = (int) $this->settings->get( 'image_quality', 100 );
-		$quality      = array(
-			'avif' => min( $base_quality, 85 ),
-			'webp' => min( $base_quality, 90 ),
+		$options        = $this->settings->get_all();
+		$legacy_quality = isset( $options['image_quality'] ) ? (int) $options['image_quality'] : 85;
+		$quality        = array(
+			'avif' => isset( $options['avif_quality'] ) ? (int) $options['avif_quality'] : min( $legacy_quality, 85 ),
+			'jpeg' => isset( $options['jpeg_quality'] ) ? (int) $options['jpeg_quality'] : $legacy_quality,
+			'webp' => isset( $options['webp_quality'] ) ? (int) $options['webp_quality'] : min( $legacy_quality, 90 ),
 		);
 
 		foreach ( $quality as $format => $value ) {
-			$quality[ $format ] = (int) apply_filters( "trust_optimize_{$format}_quality", $value );
+			$quality[ $format ] = max( 1, min( 100, (int) apply_filters( "trust_optimize_{$format}_quality", $value ) ) );
 		}
 
 		return $quality;

@@ -13,10 +13,19 @@ if ( ! defined( 'WPINC' ) ) {
 
 <div class="wrap trust-optimize-settings-wrap">
 	<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
-	
+
 	<?php settings_errors(); ?>
-	
+
 	<div class="trust-optimize-settings-container">
+		<div class="notice notice-info inline">
+			<p>
+				<?php esc_html_e( 'Default quality for new installs is tuned for practical bulk optimization: WebP 85, AVIF 80, and JPEG fallback 85. Lower quality usually means smaller files and faster bulk jobs; higher quality increases file size and processing cost.', 'trust-optimize' ); ?>
+			</p>
+			<p>
+				<?php esc_html_e( 'Existing saved quality settings are preserved until you change them or reset settings to defaults.', 'trust-optimize' ); ?>
+			</p>
+		</div>
+
 		<form method="post" action="options.php" id="trust-optimize-settings-form">
 			<?php
 			// Output security fields
@@ -29,20 +38,20 @@ if ( ! defined( 'WPINC' ) ) {
 			submit_button( __( 'Save Settings', 'trust-optimize' ) );
 			?>
 		</form>
-		
+
 		<!-- Reset Settings Form -->
 		<form method="post" action="options.php" id="trust-optimize-reset-form" style="display:none;">
 			<input type="hidden" name="trust_optimize_reset_settings" value="1">
 			<?php wp_nonce_field( 'trust_optimize_reset_nonce', 'trust_optimize_reset_nonce' ); ?>
 		</form>
-		
+
 		<p>
 			<a href="#" id="trust-optimize-reset-settings" class="button button-secondary">
 				<?php esc_html_e( 'Reset to Defaults', 'trust-optimize' ); ?>
 			</a>
 		</p>
 	</div>
-	
+
 	<div class="trust-optimize-sidebar">
 		<div class="trust-optimize-box">
 			<h3><?php esc_html_e( 'About TrustOptimize', 'trust-optimize' ); ?></h3>
