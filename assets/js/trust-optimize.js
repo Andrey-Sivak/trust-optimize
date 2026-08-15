@@ -1,159 +1,121 @@
 /**
- * TrustOptimize Frontend JavaScript
+ * TrustOptimize Frontend JavaScript (Vanilla JS)
  *
  * Handles dynamic image adaptation based on viewport and container size
  */
-(function($) {
+(function () {
     'use strict';
 
-    // TrustOptimize main object
-    var TrustOptimize = {
-        /**
-         * Initialize the functionality
-         */
-        init: function() {
+    const TrustOptimize = {
+
+        init() {
             this.initAdaptiveImages();
             this.bindEvents();
         },
 
-        /**
-         * Initialize adaptive images
-         */
-        initAdaptiveImages: function() {
-            // Find all images with data-adaptive attribute
-            var adaptiveImages = $('img[data-adaptive="true"]');
-            
-            // Process each image
-            adaptiveImages.each(function() {
-                TrustOptimize.setupAdaptiveImage($(this));
+        initAdaptiveImages() {
+            const adaptiveImages = document.querySelectorAll('img[data-adaptive="true"]');
+
+            adaptiveImages.forEach((img) => {
+                this.setupAdaptiveImage(img);
             });
         },
 
-        /**
-         * Bind events
-         */
-        bindEvents: function() {
-            // Handle window resize
-            var resizeTimer;
-            $(window).on('resize', function() {
+        bindEvents() {
+            let resizeTimer;
+
+            window.addEventListener('resize', () => {
                 clearTimeout(resizeTimer);
-                resizeTimer = setTimeout(function() {
-                    TrustOptimize.refreshAdaptiveImages();
+                resizeTimer = setTimeout(() => {
+                    this.refreshAdaptiveImages();
                 }, 250);
             });
-            
-            // Handle orientation change
-            $(window).on('orientationchange', function() {
-                TrustOptimize.refreshAdaptiveImages();
+
+            window.addEventListener('orientationchange', () => {
+                this.refreshAdaptiveImages();
             });
         },
 
-        /**
-         * Set up an individual adaptive image
-         * 
-         * @param {jQuery} $img The image element
-         */
-        setupAdaptiveImage: function($img) {
+        setupAdaptiveImage(img) {
             // Store original dimensions
-            var originalWidth = $img.attr('width') || '';
-            var originalHeight = $img.attr('height') || '';
-            
-            $img.attr('data-original-width', originalWidth);
-            $img.attr('data-original-height', originalHeight);
-            
-            // Set container-based size
-            this.updateImageSize($img);
-            
-            // Set up lazy loading if enabled
-            if (typeof IntersectionObserver !== 'undefined') {
-                var observer = new IntersectionObserver(function(entries) {
-                    entries.forEach(function(entry) {
+            const originalWidth = img.getAttribute('width') || '';
+            const originalHeight = img.getAttribute('height') || '';
+
+            img.setAttribute('data-original-width', originalWidth);
+            img.setAttribute('data-original-height', originalHeight);
+
+            // Initial sizing
+            this.updateImageSize(img);
+
+            // Lazy loading via IntersectionObserver
+            if ('IntersectionObserver' in window) {
+                const observer = new IntersectionObserver((entries, obs) => {
+                    entries.forEach((entry) => {
                         if (entry.isIntersecting) {
-                            TrustOptimize.loadAdaptiveImage($(entry.target));
-                            observer.unobserve(entry.target);
+                            this.loadAdaptiveImage(entry.target);
+                            obs.unobserve(entry.target);
                         }
                     });
                 });
-                
-                observer.observe($img[0]);
+
+                observer.observe(img);
             } else {
-                // Fallback for browsers without IntersectionObserver
-                this.loadAdaptiveImage($img);
+                // Fallback
+                this.loadAdaptiveImage(img);
             }
         },
 
-        /**
-         * Update image size based on container
-         * 
-         * @param {jQuery} $img The image element
-         */
-        updateImageSize: function($img) {
-            // Get container width
-            var $container = $img.parent();
-            var containerWidth = $container.width();
-            
-            // Get device pixel ratio
-            var dpr = window.devicePixelRatio || 1;
-            
-            // Calculate optimal width
-            var optimalWidth = Math.round(containerWidth * dpr);
-            
-            // Update src attribute with optimal size
-            var currentWidth = $img.attr('data-current-width') || 0;
-            
-            // Only update if significantly different (to avoid thrashing)
-            if (Math.abs(optimalWidth - currentWidth) > 50) {
-                var originalSrc = $img.attr('data-original-src');
-                if (originalSrc) {
-                    var newSrc = this.getAdaptiveUrl(originalSrc, optimalWidth);
-                    $img.attr('src', newSrc);
-                    $img.attr('data-current-width', optimalWidth);
-                }
-            }
+        updateImageSize(img) {
+            const container = img.parentElement;
+            if (!container) return;
+
+            const containerWidth = container.clientWidth;
+            if (!containerWidth) return;
+
+            const dpr = window.devicePixelRatio || 1;
+            const optimalWidth = Math.round(containerWidth * dpr);
+
+            const currentWidth = parseInt(img.getAttribute('data-current-width')) || 0;
+
+            // Avoid unnecessary updates
+            if (Math.abs(optimalWidth - currentWidth) <= 50) return;
+
+            const originalSrc = img.getAttribute('data-original-src');
+            if (!originalSrc) return;
+
+            const newSrc = this.getAdaptiveUrl(originalSrc, optimalWidth);
+
+            img.src = newSrc;
+            img.setAttribute('data-current-width', optimalWidth);
         },
 
-        /**
-         * Load adaptive image
-         * 
-         * @param {jQuery} $img The image element
-         */
-        loadAdaptiveImage: function($img) {
-            $img.addClass('trust-optimize-loading');
-            this.updateImageSize($img);
+        loadAdaptiveImage(img) {
+            img.classList.add('trust-optimize-loading');
+            this.updateImageSize(img);
         },
 
-        /**
-         * Refresh all adaptive images
-         */
-        refreshAdaptiveImages: function() {
-            $('img[data-adaptive="true"]').each(function() {
-                TrustOptimize.updateImageSize($(this));
+        refreshAdaptiveImages() {
+            const images = document.querySelectorAll('img[data-adaptive="true"]');
+
+            images.forEach((img) => {
+                this.updateImageSize(img);
             });
         },
 
-        /**
-         * Get adaptive URL for an image
-         * 
-         * @param {string} originalSrc The original image URL
-         * @param {number} width The target width
-         * @return {string} The adaptive URL
-         */
-        getAdaptiveUrl: function(originalSrc, width) {
-            // Parse the URL
-            var url = new URL(originalSrc, window.location.href);
-            
-            // Add or update parameters
+        getAdaptiveUrl(originalSrc, width) {
+            const url = new URL(originalSrc, window.location.href);
+
             url.searchParams.set('width', width);
-            url.searchParams.set('trust_optimize', 1);
+            url.searchParams.set('trust_optimize', '1');
             url.searchParams.set('dpr', window.devicePixelRatio || 1);
-            
+
             return url.href;
         }
     };
 
-    // Initialize when DOM is ready
-    $(document).ready(function() {
+    // DOM ready
+    document.addEventListener('DOMContentLoaded', () => {
         TrustOptimize.init();
     });
 
-})(jQuery);
+})();

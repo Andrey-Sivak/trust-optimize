@@ -28,7 +28,7 @@ class Frontend {
 		wp_enqueue_script(
 			'trust-optimize',
 			TRUST_OPTIMIZE_PLUGIN_URL . 'assets/js/trust-optimize.js',
-			array( 'jquery' ),
+			array(),
 			TRUST_OPTIMIZE_VERSION,
 			true
 		);

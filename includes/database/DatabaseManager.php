@@ -16,7 +16,7 @@ class DatabaseManager {
 	/**
 	 * Current database version
 	 */
-	const DB_VERSION = '1.0.0';
+	const DB_VERSION = '1.1.0';
 
 	/**
 	 * Initialize the database manager
@@ -52,11 +52,15 @@ class DatabaseManager {
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			attachment_id bigint(20) unsigned NOT NULL,
 			metadata longtext NOT NULL,
+			status varchar(20) NOT NULL DEFAULT 'completed',
+			total_tasks int unsigned NOT NULL DEFAULT 0,
+			completed_tasks int unsigned NOT NULL DEFAULT 0,
 			date_created datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			date_modified datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			UNIQUE KEY attachment_id (attachment_id),
-			KEY date_modified (date_modified)
+			KEY date_modified (date_modified),
+			KEY status (status)
 		) $charset_collate;";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';

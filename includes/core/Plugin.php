@@ -14,6 +14,7 @@ use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Queue\ConversionQueue;
 
 /**
  * Class Plugin
@@ -77,6 +78,13 @@ class Plugin {
 	public $db_manager;
 
 	/**
+	 * Conversion queue instance.
+	 *
+	 * @var ConversionQueue
+	 */
+	public $conversion_queue;
+
+	/**
 	 * Plugin constructor.
 	 */
 	public function __construct() {
@@ -131,6 +139,10 @@ class Plugin {
 
 		// Initialize settings
 		$this->settings = new Settings();
+
+		// Initialize conversion queue (registers Action Scheduler hook)
+		$this->conversion_queue = new ConversionQueue( $this->image_converter );
+		$this->conversion_queue->init();
 	}
 
 	/**
@@ -142,6 +154,9 @@ class Plugin {
 
 		// Filter for post thumbnails (frontend processing)
 		$this->loader->add_filter( 'post_thumbnail_html', $this->image_processor, 'process_thumbnail', 999 );
+
+		// Filter for direct wp_get_attachment_image() output (frontend processing)
+		$this->loader->add_filter( 'wp_get_attachment_image', $this->image_processor, 'process_attachment_image_html', 999, 5 );
 
 		// Hook for generating WebP on image upload (backend conversion)
 		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'handle_image_upload', 10, 2 );

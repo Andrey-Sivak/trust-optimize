@@ -13,7 +13,7 @@
  * Description:       Advanced media optimization for WordPress. Dynamically resizes images based on visitor's device and viewport.
  * Version:           1.0.0
  * Requires at least: 5.6
- * Requires PHP:      7.4
+ * Requires PHP:      8.0
  * Author:            Andrii Sivak
  * Author URI:        https://github.com/Andrey-Sivak
  * Text Domain:       trust-optimize
@@ -39,6 +39,11 @@ define( 'TRUST_OPTIMIZE_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 // Use composer autoloader
 if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 	require_once __DIR__ . '/vendor/autoload.php';
+}
+
+// Load Action Scheduler library
+if ( file_exists( __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php' ) ) {
+	require_once __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 }
 
 // Activation and deactivation hooks
@@ -102,6 +107,7 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/DatabaseManager.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
 }
 
 /**

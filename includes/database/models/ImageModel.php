@@ -28,6 +28,13 @@ class ImageModel {
 	protected $db_manager;
 
 	/**
+	 * Per-request cache for attachment data.
+	 *
+	 * @var array
+	 */
+	protected static $cache = array();
+
+	/**
 	 * Constructor
 	 */
 	public function __construct() {
@@ -41,6 +48,10 @@ class ImageModel {
 	 * @return array|null Image data or null if not found
 	 */
 	public function get_by_attachment_id( $attachment_id ) {
+		if ( isset( self::$cache[ $attachment_id ] ) ) {
+			return self::$cache[ $attachment_id ];
+		}
+
 		global $wpdb;
 
 		$table  = $this->db_manager->get_table_name( $this->table );
@@ -50,11 +61,14 @@ class ImageModel {
 		);
 
 		if ( ! $result ) {
+			self::$cache[ $attachment_id ] = null;
 			return null;
 		}
 
 		// Decode the metadata JSON
 		$result['metadata'] = json_decode( $result['metadata'], true );
+
+		self::$cache[ $attachment_id ] = $result;
 		return $result;
 	}
 
@@ -75,6 +89,8 @@ class ImageModel {
 			'attachment_id' => $attachment_id,
 			'metadata'      => wp_json_encode( $metadata ),
 		);
+
+		self::clear_cache( $attachment_id );
 
 		// Update if exists, insert if not
 		if ( $existing ) {
@@ -105,6 +121,8 @@ class ImageModel {
 			$table,
 			array( 'attachment_id' => $attachment_id )
 		);
+
+		self::clear_cache( $attachment_id );
 
 		return $result !== false;
 	}
@@ -231,6 +249,7 @@ class ImageModel {
 		);
 
 		// Save updated metadata
+		self::clear_cache( $attachment_id );
 		return $this->save( $attachment_id, $metadata ) ? true : false;
 	}
 
@@ -438,5 +457,111 @@ class ImageModel {
 		}
 
 		return $formats;
+	}
+
+	/**
+	 * Update the queue status for an attachment
+	 *
+	 * @param int    $attachment_id WordPress attachment ID.
+	 * @param string $status        Status value: 'pending', 'processing', 'completed', 'failed'.
+	 * @param int    $total_tasks   Total number of conversion tasks (set only when status is 'pending').
+	 * @return bool Success or failure
+	 */
+	public function update_status( $attachment_id, $status, $total_tasks = null ) {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+		$data  = array( 'status' => $status );
+
+		if ( null !== $total_tasks ) {
+			$data['total_tasks']     = $total_tasks;
+			$data['completed_tasks'] = 0;
+		}
+
+		self::clear_cache( $attachment_id );
+
+		$result = $wpdb->update(
+			$table,
+			$data,
+			array( 'attachment_id' => $attachment_id )
+		);
+
+		return $result !== false;
+	}
+
+	/**
+	 * Increment the completed task count and update status accordingly
+	 *
+	 * @param int $attachment_id WordPress attachment ID.
+	 * @return bool True if all tasks are completed, false otherwise
+	 */
+	public function increment_completed_tasks( $attachment_id ) {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$table} SET completed_tasks = completed_tasks + 1, status = 'processing', date_modified = %s WHERE attachment_id = %d",
+				current_time( 'mysql' ),
+				$attachment_id
+			)
+		);
+
+		self::clear_cache( $attachment_id );
+
+		// Check if all tasks are completed
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT total_tasks, completed_tasks FROM {$table} WHERE attachment_id = %d",
+				$attachment_id
+			)
+		);
+
+		if ( $row && (int) $row->completed_tasks >= (int) $row->total_tasks ) {
+			$wpdb->update(
+				$table,
+				array( 'status' => 'completed' ),
+				array( 'attachment_id' => $attachment_id )
+			);
+			self::clear_cache( $attachment_id );
+			delete_transient( 'trust_optimize_formats_' . $attachment_id );
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get the queue status for an attachment
+	 *
+	 * @param int $attachment_id WordPress attachment ID.
+	 * @return array|null Status data or null if not found
+	 */
+	public function get_status( $attachment_id ) {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+
+		return $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT status, total_tasks, completed_tasks FROM {$table} WHERE attachment_id = %d",
+				$attachment_id
+			),
+			ARRAY_A
+		);
+	}
+
+	/**
+	 * Clear per-request cache
+	 *
+	 * @param int|null $attachment_id Specific attachment ID to clear, or null to clear all.
+	 */
+	public static function clear_cache( $attachment_id = null ) {
+		if ( null !== $attachment_id ) {
+			unset( self::$cache[ $attachment_id ] );
+		} else {
+			self::$cache = array();
+		}
 	}
 }

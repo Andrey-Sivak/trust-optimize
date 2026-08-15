@@ -10,6 +10,7 @@ namespace TrustOptimize\Features\Optimization;
 use Imagick;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Queue\ConversionQueue;
 
 /**
  * Class ImageConverter
@@ -67,21 +68,85 @@ class ImageConverter {
 		$conversion_strategies = $this->get_conversion_strategies( $mime_type );
 
 		if ( empty( $conversion_strategies ) ) {
+			$this->image_model->update_status( $attachment_id, 'completed' );
 			return $metadata;
 		}
 
-		// Process each conversion strategy
-		foreach ( $conversion_strategies as $strategy ) {
-			$metadata = $this->convert_image_formats(
-				$metadata,
-				$attachment_id,
-				$file_path,
-				$strategy['target_format'],
-				$strategy['target_mime']
-			);
+		// Collect all size names to process
+		$size_names = array( 'original' );
+		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
+			$size_names = array_merge( $size_names, array_keys( $metadata['sizes'] ) );
 		}
 
+		// Calculate total tasks and set status to pending
+		$total_tasks = count( $size_names ) * count( $conversion_strategies );
+		$this->image_model->update_status( $attachment_id, 'pending', $total_tasks );
+
+		// Schedule async conversions via Action Scheduler
+		$queue = new ConversionQueue( $this );
+		$queue->schedule_conversions( $attachment_id, $size_names, $conversion_strategies );
+
+		// Return metadata immediately without waiting for conversions
 		return $metadata;
+	}
+
+	/**
+	 * Convert a single size to a specific format.
+	 *
+	 * Public entry point for the ConversionQueue to call during async processing.
+	 *
+	 * @param int    $attachment_id The attachment ID.
+	 * @param string $size_name     The size name (e.g., 'original', 'thumbnail').
+	 * @param string $target_format The target format (e.g., 'webp', 'avif').
+	 * @param string $target_mime   The target MIME type (e.g., 'image/webp').
+	 * @return bool Success or failure.
+	 */
+	public function convert_single_size( $attachment_id, $size_name, $target_format, $target_mime ) {
+		$file_path = get_attached_file( $attachment_id );
+
+		if ( ! $file_path || ! file_exists( $file_path ) ) {
+			return false;
+		}
+
+		$metadata  = wp_get_attachment_metadata( $attachment_id );
+		$image_dir = dirname( $file_path );
+
+		if ( ! $metadata || ! is_array( $metadata ) ) {
+			return false;
+		}
+
+		$size_info   = null;
+		$source_path = $file_path;
+
+		if ( 'original' !== $size_name ) {
+			if ( ! isset( $metadata['sizes'][ $size_name ] ) ) {
+				return false;
+			}
+			$size_info   = $metadata['sizes'][ $size_name ];
+			$source_path = trailingslashit( $image_dir ) . $size_info['file'];
+		}
+
+		if ( ! file_exists( $source_path ) ) {
+			return false;
+		}
+
+		$result = $this->convert_single_image(
+			$metadata,
+			$attachment_id,
+			$source_path,
+			$image_dir,
+			$size_name,
+			$target_format,
+			$target_mime,
+			$size_info
+		);
+
+		// Persist the converted format info into WP attachment metadata
+		if ( $result ) {
+			$this->update_wp_metadata_async( $attachment_id, $size_name, $target_format );
+		}
+
+		return $result;
 	}
 
 	/**
@@ -190,14 +255,15 @@ class ImageConverter {
 		$original_filename = basename( $source_path );
 		$target_path       = trailingslashit( $dest_dir ) . pathinfo( $original_filename, PATHINFO_FILENAME ) . '.' . $target_format;
 
-		$editor = wp_get_image_editor( $source_path );
+		$editor = $this->get_editor_for_target_mime( $source_path, $target_mime );
 
 		if ( is_wp_error( $editor ) ) {
 			error_log(
 				sprintf(
-					'TrustOptimize: Failed to get image editor for %s (%s): %s',
+					'TrustOptimize: Failed to get compatible image editor for %s (%s, %s): %s',
 					$size_name,
 					$source_path,
+					$target_mime,
 					$editor->get_error_message()
 				)
 			);
@@ -224,22 +290,98 @@ class ImageConverter {
 			return false;
 		}
 
+		$saved_path = isset( $saved['path'] ) ? $saved['path'] : $target_path;
+		$saved_mime = isset( $saved['mime-type'] ) ? $saved['mime-type'] : '';
+
+		if ( $saved_mime !== $target_mime || ! file_exists( $saved_path ) ) {
+			error_log(
+				sprintf(
+					'TrustOptimize: Expected %s output for %s (%s), got mime=%s path=%s',
+					$target_mime,
+					$size_name,
+					$source_path,
+					$saved_mime,
+					$saved_path
+				)
+			);
+			return false;
+		}
+
+		$file_size = wp_filesize( $saved_path );
+		if ( false === $file_size ) {
+			$file_size = 0;
+		}
+
 		// Add information to our custom format database
 		$this->image_model->add_format_variation(
 			$attachment_id,
 			$size_name,
 			$target_format,
 			array(
-				'file'      => basename( $target_path ),
+				'file'      => basename( $saved_path ),
 				'mime_type' => $target_mime,
-				'file_size' => filesize( $target_path ),
+				'file_size' => $file_size,
 			)
 		);
 
 		// For backward compatibility, also update WordPress metadata
-		$this->update_wp_metadata( $metadata, $size_name, $target_format, $target_path, $size_info );
+		$this->update_wp_metadata( $metadata, $size_name, $target_format, $saved_path, $size_info );
 
 		return true;
+	}
+
+	/**
+	 * Get an image editor that supports the requested output mime type.
+	 *
+	 * @param string $source_path Source image path.
+	 * @param string $target_mime Required output mime type.
+	 * @return \WP_Image_Editor|\WP_Error
+	 */
+	private function get_editor_for_target_mime( $source_path, $target_mime ) {
+		$editor = wp_get_image_editor( $source_path );
+
+		if ( is_wp_error( $editor ) ) {
+			return $editor;
+		}
+
+		$editor_class = get_class( $editor );
+
+		if ( is_callable( array( $editor_class, 'supports_mime_type' ) )
+			&& call_user_func( array( $editor_class, 'supports_mime_type' ), $target_mime ) ) {
+			return $editor;
+		}
+
+		$implementations = apply_filters( 'wp_image_editors', array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' ) );
+
+		foreach ( $implementations as $implementation ) {
+			if ( $implementation === $editor_class ) {
+				continue;
+			}
+
+			if ( ! class_exists( $implementation ) ) {
+				continue;
+			}
+
+			if ( ! is_callable( array( $implementation, 'test' ) ) || ! call_user_func( array( $implementation, 'test' ) ) ) {
+				continue;
+			}
+
+			if ( ! is_callable( array( $implementation, 'supports_mime_type' ) ) || ! call_user_func( array( $implementation, 'supports_mime_type' ), $target_mime ) ) {
+				continue;
+			}
+
+			$candidate = new $implementation( $source_path );
+			$loaded    = $candidate->load();
+
+			if ( ! is_wp_error( $loaded ) ) {
+				return $candidate;
+			}
+		}
+
+		return new \WP_Error(
+			'trust_optimize_unsupported_target_mime',
+			sprintf( 'No available image editor supports target mime type: %s', $target_mime )
+		);
 	}
 
 	/**
@@ -280,10 +422,15 @@ class ImageConverter {
 	 * @param array  $size_info Size info reference for non-original sizes
 	 */
 	private function update_wp_metadata( &$metadata, $size_name, $format, $file_path, &$size_info = null ) {
+		$file_size = wp_filesize( $file_path );
+		if ( false === $file_size ) {
+			$file_size = 0;
+		}
+
 		$format_data = array(
 			'file'      => basename( $file_path ),
 			'mime-type' => 'image/' . $format,
-			'filesize'  => filesize( $file_path ),
+			'filesize'  => $file_size,
 		);
 
 		if ( $size_name === 'original' ) {
@@ -307,6 +454,62 @@ class ImageConverter {
 			}
 			$size_info['trust_optimize_converted'][ $format ] = $format_data;
 		}
+	}
+
+	/**
+	 * Persist converted format info into WP attachment metadata.
+	 *
+	 * Used by async processing to update WP metadata after each conversion.
+	 *
+	 * @param int    $attachment_id The attachment ID.
+	 * @param string $size_name     The size name.
+	 * @param string $target_format The converted format.
+	 */
+	private function update_wp_metadata_async( $attachment_id, $size_name, $target_format ) {
+		$metadata = wp_get_attachment_metadata( $attachment_id );
+
+		if ( ! $metadata || ! is_array( $metadata ) ) {
+			return;
+		}
+
+		// Get the saved format data from our custom table
+		$format_data = $this->image_model->get_format( $attachment_id, $size_name, $target_format );
+
+		if ( ! $format_data || ! isset( $format_data['file'] ) ) {
+			return;
+		}
+
+		$file_path = get_attached_file( $attachment_id );
+		$image_dir = dirname( $file_path );
+		$full_path = trailingslashit( $image_dir ) . $format_data['file'];
+
+		$file_size = file_exists( $full_path ) ? wp_filesize( $full_path ) : 0;
+
+		$wp_format_data = array(
+			'file'      => $format_data['file'],
+			'mime-type' => 'image/' . $target_format,
+			'filesize'  => $file_size,
+		);
+
+		if ( 'original' === $size_name ) {
+			$wp_format_data['width']  = $metadata['width'];
+			$wp_format_data['height'] = $metadata['height'];
+
+			if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
+				$metadata['trust_optimize_converted'] = array();
+			}
+			$metadata['trust_optimize_converted'][ 'original_' . $target_format ] = $wp_format_data;
+		} elseif ( isset( $metadata['sizes'][ $size_name ] ) ) {
+			$wp_format_data['width']  = $metadata['sizes'][ $size_name ]['width'];
+			$wp_format_data['height'] = $metadata['sizes'][ $size_name ]['height'];
+
+			if ( ! isset( $metadata['sizes'][ $size_name ]['trust_optimize_converted'] ) ) {
+				$metadata['sizes'][ $size_name ]['trust_optimize_converted'] = array();
+			}
+			$metadata['sizes'][ $size_name ]['trust_optimize_converted'][ $target_format ] = $wp_format_data;
+		}
+
+		wp_update_attachment_metadata( $attachment_id, $metadata );
 	}
 
 	/**

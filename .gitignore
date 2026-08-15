@@ -45,3 +45,5 @@ yarn-debug.log
 # Local development files
 *.log
 debug.log
+# Local analysis workspace
+.info/
