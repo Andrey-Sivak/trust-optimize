@@ -15,6 +15,7 @@ use TrustOptimize\Admin\Settings;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
+use TrustOptimize\Bulk\BulkJobRunner;
 
 /**
  * Class Plugin
@@ -85,6 +86,13 @@ class Plugin {
 	public $conversion_queue;
 
 	/**
+	 * Bulk job runner instance.
+	 *
+	 * @var BulkJobRunner
+	 */
+	public $bulk_runner;
+
+	/**
 	 * Plugin constructor.
 	 */
 	public function __construct() {
@@ -143,6 +151,10 @@ class Plugin {
 		// Initialize conversion queue (registers Action Scheduler hook)
 		$this->conversion_queue = new ConversionQueue( $this->image_converter );
 		$this->conversion_queue->init();
+
+		// Initialize bulk runner (registers self-chaining Action Scheduler hook)
+		$this->bulk_runner = new BulkJobRunner();
+		$this->bulk_runner->init();
 	}
 
 	/**

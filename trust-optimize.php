@@ -117,6 +117,8 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJob.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRepository.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/EligibilityQuery.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRunner.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
 }
 
