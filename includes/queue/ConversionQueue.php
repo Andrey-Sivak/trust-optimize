@@ -190,4 +190,13 @@ class ConversionQueue {
 			as_unschedule_action( self::HOOK_CONVERT, $args, self::GROUP );
 		}
 	}
+
+	/**
+	 * Cancel all pending TrustOptimize conversion tasks.
+	 */
+	public static function cancel_all_tasks() {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::HOOK_CONVERT, null, self::GROUP );
+		}
+	}
 }

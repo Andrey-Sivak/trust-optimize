@@ -258,6 +258,15 @@ class BulkJobRunner {
 	}
 
 	/**
+	 * Cancel all pending TrustOptimize bulk ticks.
+	 */
+	public static function cancel_all_ticks() {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::HOOK_BULK_TICK, null, self::GROUP );
+		}
+	}
+
+	/**
 	 * Check time and memory guards.
 	 *
 	 * @param int $started_at  Tick start timestamp.
