@@ -125,36 +125,41 @@ function trust_optimize_missing_class_notice() {
 
 // If composer autoload isn't available or if it fails to load the class
 if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
-	// Manually include the class files
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Admin.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Helper.php';
+	// Manually include class files in dependency order.
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/ImageProfile.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/ImageVariant.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OperationResult.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OptimizeResult.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/DeleteResult.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/CapabilityCheck.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageProfileFactory.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageOptimizationService.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageCleanupService.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/frontend/Frontend.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/DatabaseManager.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Helper.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Logger.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageConverter.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/DatabaseManager.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageProfileFactory.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageOptimizationService.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageCleanupService.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJob.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRepository.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/EligibilityQuery.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRunner.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Admin.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/frontend/Frontend.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
 }
 
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/cli/Command.php';
+	if ( ! class_exists( 'TrustOptimize\\CLI\\Command' ) ) {
+		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/cli/Command.php';
+	}
+
 	WP_CLI::add_command( 'trust-optimize', 'TrustOptimize\\CLI\\Command' );
 }
 
