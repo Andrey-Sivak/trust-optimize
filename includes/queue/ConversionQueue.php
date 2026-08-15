@@ -134,19 +134,18 @@ class ConversionQueue {
 
 		if ( $result ) {
 			$this->image_model->increment_completed_tasks( $attachment_id );
-		} else {
-			// Even on failure, count the task as completed to avoid stuck queues.
-			$this->image_model->increment_completed_tasks( $attachment_id );
-
-			error_log(
-				sprintf(
-					'TrustOptimize: Background conversion failed for attachment %d, size "%s", format "%s".',
-					$attachment_id,
-					$size_name,
-					$target_format
-				)
-			);
+			return;
 		}
+
+		$message = sprintf(
+			'Background conversion failed for attachment %d, size "%s", format "%s".',
+			$attachment_id,
+			$size_name,
+			$target_format
+		);
+
+		$this->image_model->record_failed_task( $attachment_id, $size_name, $target_format, $target_mime, $message );
+
 	}
 
 	/**

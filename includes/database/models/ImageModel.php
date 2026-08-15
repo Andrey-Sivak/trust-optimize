@@ -142,6 +142,8 @@ class ImageModel {
 			return array(
 				'sizes'              => array(),
 				'generated_variants' => array(),
+				'failed_tasks'       => array(),
+				'conversion_errors'  => array(),
 			);
 		}
 
@@ -190,6 +192,8 @@ class ImageModel {
 		return array(
 			'sizes'              => $sizes,
 			'generated_variants' => array(),
+			'failed_tasks'       => array(),
+			'conversion_errors'  => array(),
 		);
 	}
 
@@ -368,6 +372,53 @@ class ImageModel {
 	}
 
 	/**
+	 * Record a failed conversion task without counting it as completed.
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $size_name     Size name.
+	 * @param string $format        Target format.
+	 * @param string $mime_type     Target MIME type.
+	 * @param string $message       Error message.
+	 * @return bool True when all queued tasks have reached a terminal state.
+	 */
+	public function record_failed_task( $attachment_id, $size_name, $format, $mime_type, $message = '' ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+
+		if ( ! $image_data ) {
+			$wp_metadata = wp_get_attachment_metadata( $attachment_id );
+			if ( ! $wp_metadata ) {
+				return false;
+			}
+
+			$metadata = $this->create_base_metadata( $wp_metadata );
+		} else {
+			$metadata = $image_data['metadata'];
+		}
+
+		$metadata = $this->normalize_metadata( $metadata );
+
+		$key = $size_name . ':' . $format;
+		$now = current_time( 'mysql' );
+
+		$failure = array(
+			'attachment_id' => (int) $attachment_id,
+			'size_name'     => $size_name,
+			'format'        => $format,
+			'mime_type'     => $mime_type,
+			'message'       => $message,
+			'failed_at'     => $now,
+		);
+
+		$metadata['failed_tasks'][ $key ] = $failure;
+		$metadata['conversion_errors'][]  = $failure;
+
+		self::clear_cache( $attachment_id );
+		$this->save( $attachment_id, $metadata );
+
+		return $this->update_status_after_failed_task( $attachment_id );
+	}
+
+	/**
 	 * Normalize metadata into the current structure.
 	 *
 	 * @param array|null $metadata Stored metadata.
@@ -384,6 +435,14 @@ class ImageModel {
 
 		if ( ! isset( $metadata['generated_variants'] ) || ! is_array( $metadata['generated_variants'] ) ) {
 			$metadata['generated_variants'] = array();
+		}
+
+		if ( ! isset( $metadata['failed_tasks'] ) || ! is_array( $metadata['failed_tasks'] ) ) {
+			$metadata['failed_tasks'] = array();
+		}
+
+		if ( ! isset( $metadata['conversion_errors'] ) || ! is_array( $metadata['conversion_errors'] ) ) {
+			$metadata['conversion_errors'] = array();
 		}
 
 		return $metadata;
@@ -414,6 +473,8 @@ class ImageModel {
 		if ( isset( $metadata['generated_variants'][ $key ] ) && is_array( $metadata['generated_variants'][ $key ] ) ) {
 			$existing = $metadata['generated_variants'][ $key ];
 		}
+
+		unset( $metadata['failed_tasks'][ $key ] );
 
 		$created_at = isset( $existing['created_at'] ) ? $existing['created_at'] : $now;
 		$file_path  = isset( $format_data['path'] ) ? $format_data['path'] : '';
@@ -758,6 +819,52 @@ class ImageModel {
 		}
 
 		return false;
+	}
+
+	/**
+	 * Update status after a conversion task failed.
+	 *
+	 * @param int $attachment_id WordPress attachment ID.
+	 * @return bool True if all tasks reached a terminal state.
+	 */
+	private function update_status_after_failed_task( $attachment_id ) {
+		global $wpdb;
+
+		$table = $this->db_manager->get_table_name( $this->table );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT metadata, total_tasks, completed_tasks FROM {$table} WHERE attachment_id = %d",
+				$attachment_id
+			)
+		);
+		// phpcs:enable
+
+		if ( ! $row ) {
+			return false;
+		}
+
+		$metadata     = $this->normalize_metadata( json_decode( $row->metadata, true ) );
+		$failed_count = count( $metadata['failed_tasks'] );
+		$total_tasks  = (int) $row->total_tasks;
+		$completed    = (int) $row->completed_tasks;
+		$status       = $completed > 0 ? 'completed_with_errors' : 'failed';
+
+		if ( 0 < $total_tasks && ( $completed + $failed_count ) < $total_tasks ) {
+			$status = 'processing';
+		}
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->update(
+			$table,
+			array( 'status' => $status ),
+			array( 'attachment_id' => $attachment_id )
+		);
+
+		self::clear_cache( $attachment_id );
+
+		return 0 < $total_tasks && ( $completed + $failed_count ) >= $total_tasks;
 	}
 
 	/**
