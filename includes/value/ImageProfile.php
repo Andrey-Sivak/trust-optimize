@@ -115,7 +115,34 @@ class ImageProfile {
 	 * @return string
 	 */
 	public function get_hash() {
-		return hash( 'sha256', wp_json_encode( $this->canonicalize( $this->to_array() ) ) );
+		return hash( 'sha256', wp_json_encode( $this->canonicalize( $this->get_effective_hash_data() ) ) );
+	}
+
+	/**
+	 * Get effective data that should invalidate generated variants.
+	 *
+	 * Requested-but-unsupported formats and diagnostic capability metadata are
+	 * intentionally excluded. The hash represents only the variants the plugin
+	 * will actually plan: schema, supported target formats, their quality, and
+	 * the attachment size set.
+	 *
+	 * @return array Effective profile hash data.
+	 */
+	private function get_effective_hash_data() {
+		$quality = array();
+
+		foreach ( $this->formats as $format ) {
+			if ( array_key_exists( $format, $this->quality ) ) {
+				$quality[ $format ] = $this->quality[ $format ];
+			}
+		}
+
+		return array(
+			'schema_version' => $this->schema_version,
+			'formats'        => $this->formats,
+			'quality'        => $quality,
+			'size_names'     => isset( $this->options['size_names'] ) && is_array( $this->options['size_names'] ) ? $this->options['size_names'] : array(),
+		);
 	}
 
 	/**

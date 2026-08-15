@@ -86,4 +86,55 @@ class ImageProfileTest extends TestCase {
 
 		$this->assertNotSame( $first->get_hash(), $second->get_hash() );
 	}
+
+	/**
+	 * Unsupported format metadata should not change the effective profile hash.
+	 */
+	public function test_hash_ignores_unsupported_output_format_metadata() {
+		$first = new ImageProfile(
+			'1',
+			array( 'webp' ),
+			array(
+				'webp' => 90,
+				'avif' => 75,
+			),
+			array(
+				'size_names'                 => array( 'original' ),
+				'unsupported_output_formats' => array( 'avif' ),
+				'output_format_support'      => array(
+					'webp' => true,
+					'avif' => false,
+				),
+			)
+		);
+
+		$second = new ImageProfile(
+			'1',
+			array( 'webp' ),
+			array(
+				'webp' => 90,
+				'avif' => 60,
+			),
+			array(
+				'size_names'                 => array( 'original' ),
+				'unsupported_output_formats' => array(),
+				'output_format_support'      => array(
+					'webp' => true,
+					'avif' => false,
+				),
+			)
+		);
+
+		$this->assertSame( $first->get_hash(), $second->get_hash() );
+	}
+
+	/**
+	 * Quality changes for an effective planned format should change the hash.
+	 */
+	public function test_hash_changes_when_effective_format_quality_changes() {
+		$first  = new ImageProfile( '1', array( 'webp' ), array( 'webp' => 90, 'avif' => 75 ) );
+		$second = new ImageProfile( '1', array( 'webp' ), array( 'webp' => 80, 'avif' => 75 ) );
+
+		$this->assertNotSame( $first->get_hash(), $second->get_hash() );
+	}
 }

@@ -83,6 +83,7 @@ $trust_optimize_smoke = new class() {
 			$this->check_missing_source_file( $missing_id );
 			$this->check_unsupported_mime( $svg_id );
 			$this->check_output_format_capabilities( $second_id );
+			$this->check_unsupported_format_setting_does_not_change_hash( $second_id );
 			$this->check_rest_endpoints( $second_id );
 			$this->check_bulk_inventory_and_sync();
 			$this->check_reprocess_after_profile_change( $second_id );
@@ -368,6 +369,42 @@ $trust_optimize_smoke = new class() {
 				);
 			}
 		}
+	}
+
+	/**
+	 * Check unsupported output format settings do not affect effective hash.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 */
+	private function check_unsupported_format_setting_does_not_change_hash( $attachment_id ) {
+		$metadata = wp_get_attachment_metadata( $attachment_id );
+		$settings = new Settings();
+		$options  = get_option( 'trust_optimize_options', array() );
+
+		$options['convert_to_avif'] = 1;
+		update_option( 'trust_optimize_options', $options );
+
+		$enabled_profile = ( new ImageProfileFactory( $settings ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
+		$enabled_data    = $enabled_profile->to_array();
+
+		if ( empty( $enabled_data['options']['unsupported_output_formats'] ) || ! in_array( 'avif', $enabled_data['options']['unsupported_output_formats'], true ) ) {
+			$this->skip( 'Unsupported AVIF hash stability check skipped because AVIF is supported in this environment.' );
+			return;
+		}
+
+		$options['convert_to_avif'] = 0;
+		update_option( 'trust_optimize_options', $options );
+
+		$disabled_profile = ( new ImageProfileFactory( $settings ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
+
+		if ( $enabled_profile->get_hash() !== $disabled_profile->get_hash() ) {
+			throw new Exception( 'Disabling unsupported AVIF changed effective profile hash.' );
+		}
+
+		$options['convert_to_avif'] = 1;
+		update_option( 'trust_optimize_options', $options );
+
+		$this->pass( 'Unsupported AVIF setting does not change effective profile hash.' );
 	}
 
 	/**
