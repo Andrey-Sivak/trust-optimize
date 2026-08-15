@@ -109,6 +109,8 @@ class BulkJobRepository {
 	 * @return BulkJob|null
 	 */
 	public function get_active_job() {
+		$this->recover_stale_running();
+
 		global $wpdb;
 
 		$table    = $this->get_table_name();
@@ -270,7 +272,7 @@ class BulkJobRepository {
 		global $wpdb;
 
 		$table     = $this->get_table_name();
-		$threshold = gmdate( 'Y-m-d H:i:s', time() - (int) $stale_after_seconds );
+		$threshold = gmdate( 'Y-m-d H:i:s', strtotime( current_time( 'mysql' ) ) - (int) $stale_after_seconds );
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$rows = $wpdb->get_results(
@@ -284,6 +286,55 @@ class BulkJobRepository {
 		// phpcs:enable
 
 		return array_map( array( $this, 'hydrate' ), $rows );
+	}
+
+	/**
+	 * Recover stale running jobs so they can be resumed manually.
+	 *
+	 * Stale jobs are moved to paused instead of pending to avoid starting work
+	 * unexpectedly on admin/status requests.
+	 *
+	 * @param int|null $stale_after_seconds Stale threshold in seconds.
+	 * @return int Number of recovered jobs.
+	 */
+	public function recover_stale_running( $stale_after_seconds = null ) {
+		$stale_after_seconds = null === $stale_after_seconds ? $this->get_stale_after_seconds() : (int) $stale_after_seconds;
+		$recovered           = 0;
+
+		foreach ( $this->find_stale_running( $stale_after_seconds ) as $job ) {
+			$data    = $job->to_array();
+			$message = sprintf(
+				'Bulk job recovered from stale running state after %d seconds of inactivity. Resume is required.',
+				$stale_after_seconds
+			);
+
+			if ( ! empty( $data['last_error'] ) ) {
+				$message = $data['last_error'] . "\n" . $message;
+			}
+
+			if ( $this->update(
+				$job->get_id(),
+				array(
+					'status'     => BulkJob::STATUS_PAUSED,
+					'last_error' => $message,
+				)
+			) ) {
+				++$recovered;
+			}
+		}
+
+		return $recovered;
+	}
+
+	/**
+	 * Get stale running job threshold.
+	 *
+	 * @return int Threshold in seconds.
+	 */
+	private function get_stale_after_seconds() {
+		$threshold = (int) apply_filters( 'trust_optimize_bulk_stale_after_seconds', 15 * MINUTE_IN_SECONDS );
+
+		return max( MINUTE_IN_SECONDS, $threshold );
 	}
 
 	/**

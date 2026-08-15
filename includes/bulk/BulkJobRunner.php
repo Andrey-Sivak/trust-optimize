@@ -69,6 +69,7 @@ class BulkJobRunner {
 	 */
 	public function init() {
 		add_action( self::HOOK_BULK_TICK, array( $this, 'tick' ), 10, 1 );
+		add_action( 'admin_init', array( $this, 'recover_stale_jobs' ) );
 	}
 
 	/**
@@ -78,6 +79,8 @@ class BulkJobRunner {
 	 * @return bool
 	 */
 	public function start( $job_id ) {
+		$this->recover_stale_jobs();
+
 		$job = $this->jobs->get( $job_id );
 		if ( ! $job || BulkJob::STATUS_CANCELLED === $job->get_status() ) {
 			return false;
@@ -106,6 +109,8 @@ class BulkJobRunner {
 	 * @return bool
 	 */
 	public function resume( $job_id ) {
+		$this->recover_stale_jobs();
+
 		$updated = $this->jobs->mark_running( $job_id );
 		if ( $updated ) {
 			$this->schedule_tick( $job_id );
@@ -125,11 +130,22 @@ class BulkJobRunner {
 	}
 
 	/**
+	 * Recover stale running jobs.
+	 *
+	 * @return int Number of recovered jobs.
+	 */
+	public function recover_stale_jobs() {
+		return $this->jobs->recover_stale_running();
+	}
+
+	/**
 	 * Process one bulk job tick.
 	 *
 	 * @param int $job_id Job ID.
 	 */
 	public function tick( $job_id ) {
+		$this->recover_stale_jobs();
+
 		$job = $this->jobs->get( $job_id );
 
 		if ( ! $job || BulkJob::STATUS_RUNNING !== $job->get_status() ) {
@@ -443,4 +459,5 @@ class BulkJobRunner {
 
 		return memory_get_usage( true ) >= (int) ( $memory_limit * 0.8 );
 	}
+
 }
