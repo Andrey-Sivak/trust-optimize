@@ -152,7 +152,8 @@ class ImageOptimizationService {
 	 * @return OptimizeResult
 	 */
 	public function schedule_attachment_async( $attachment_id, array $metadata ) {
-		$profile = $this->profile_factory->from_wp_metadata( $metadata );
+		$profile             = $this->profile_factory->from_wp_metadata( $metadata );
+		$unsupported_formats = $this->get_unsupported_output_formats( $profile );
 
 		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
 		$this->image_model->update_profile_hash( $attachment_id, $profile->get_hash() );
@@ -160,7 +161,13 @@ class ImageOptimizationService {
 		$variants = $this->plan_variants( $attachment_id, $profile );
 		if ( empty( $variants ) ) {
 			$this->image_model->update_status( $attachment_id, 'completed' );
-			return OptimizeResult::skipped( 'no_variants' );
+			return OptimizeResult::skipped(
+				empty( $unsupported_formats ) ? 'no_variants' : 'unsupported_output_formats',
+				array(
+					'unsupported_output_formats' => $unsupported_formats,
+					'profile_hash'               => $profile->get_hash(),
+				)
+			);
 		}
 
 		$this->image_model->update_status( $attachment_id, 'pending', count( $variants ) );
@@ -171,8 +178,9 @@ class ImageOptimizationService {
 		return OptimizeResult::success(
 			'scheduled',
 			array(
-				'total_tasks'  => count( $variants ),
-				'profile_hash' => $profile->get_hash(),
+				'total_tasks'                => count( $variants ),
+				'profile_hash'               => $profile->get_hash(),
+				'unsupported_output_formats' => $unsupported_formats,
 			)
 		);
 	}
@@ -210,9 +218,10 @@ class ImageOptimizationService {
 			$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
 		}
 
-		$profile          = isset( $args['profile'] ) && $args['profile'] instanceof ImageProfile ? $args['profile'] : $this->profile_factory->from_wp_metadata( $metadata );
-		$desired_variants = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
-		$actual_variants  = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
+		$profile             = isset( $args['profile'] ) && $args['profile'] instanceof ImageProfile ? $args['profile'] : $this->profile_factory->from_wp_metadata( $metadata );
+		$unsupported_formats = $this->get_unsupported_output_formats( $profile );
+		$desired_variants    = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
+		$actual_variants     = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
 
 		$delete_keys      = array_diff( array_keys( $actual_variants ), array_keys( $desired_variants ) );
 		$delete_variants  = $this->filter_variants_by_keys( $actual_variants, $delete_keys );
@@ -241,19 +250,21 @@ class ImageOptimizationService {
 		}
 
 		if ( empty( $desired_variants ) ) {
-			$status = empty( $errors ) ? 'skipped' : 'completed_with_errors';
+			$message = empty( $unsupported_formats ) ? 'no_desired_variants' : 'unsupported_output_formats';
+			$status  = empty( $errors ) ? 'skipped' : 'completed_with_errors';
 			$this->image_model->update_status( $attachment_id, $status );
 
 			if ( empty( $errors ) ) {
 				return OptimizeResult::skipped(
-					'no_desired_variants',
+					$message,
 					array(
-						'completed'    => 0,
-						'skipped'      => 0,
-						'failed'       => 0,
-						'processed'    => 0,
-						'deleted'      => $deleted,
-						'profile_hash' => $profile->get_hash(),
+						'completed'                  => 0,
+						'skipped'                    => 0,
+						'failed'                     => 0,
+						'processed'                  => 0,
+						'deleted'                    => $deleted,
+						'profile_hash'               => $profile->get_hash(),
+						'unsupported_output_formats' => $unsupported_formats,
 					)
 				);
 			}
@@ -262,12 +273,13 @@ class ImageOptimizationService {
 				'completed_with_errors',
 				$errors,
 				array(
-					'completed'    => 0,
-					'skipped'      => 0,
-					'failed'       => count( $errors ),
-					'processed'    => count( $errors ),
-					'deleted'      => $deleted,
-					'profile_hash' => $profile->get_hash(),
+					'completed'                  => 0,
+					'skipped'                    => 0,
+					'failed'                     => count( $errors ),
+					'processed'                  => count( $errors ),
+					'deleted'                    => $deleted,
+					'profile_hash'               => $profile->get_hash(),
+					'unsupported_output_formats' => $unsupported_formats,
 				)
 			);
 		}
@@ -291,12 +303,13 @@ class ImageOptimizationService {
 				return OptimizeResult::success(
 					'completed',
 					array(
-						'completed'    => 0,
-						'skipped'      => $skipped,
-						'failed'       => 0,
-						'processed'    => $skipped,
-						'deleted'      => $deleted,
-						'profile_hash' => $profile->get_hash(),
+						'completed'                  => 0,
+						'skipped'                    => $skipped,
+						'failed'                     => 0,
+						'processed'                  => $skipped,
+						'deleted'                    => $deleted,
+						'profile_hash'               => $profile->get_hash(),
+						'unsupported_output_formats' => $unsupported_formats,
 					)
 				);
 			}
@@ -306,12 +319,13 @@ class ImageOptimizationService {
 				'completed_with_errors',
 				$errors,
 				array(
-					'completed'    => 0,
-					'skipped'      => $skipped,
-					'failed'       => count( $errors ),
-					'processed'    => $skipped + count( $errors ),
-					'deleted'      => $deleted,
-					'profile_hash' => $profile->get_hash(),
+					'completed'                  => 0,
+					'skipped'                    => $skipped,
+					'failed'                     => count( $errors ),
+					'processed'                  => $skipped + count( $errors ),
+					'deleted'                    => $deleted,
+					'profile_hash'               => $profile->get_hash(),
+					'unsupported_output_formats' => $unsupported_formats,
 				)
 			);
 		}
@@ -346,12 +360,13 @@ class ImageOptimizationService {
 			return OptimizeResult::success(
 				'completed',
 				array(
-					'completed'    => $completed,
-					'skipped'      => $skipped,
-					'failed'       => 0,
-					'processed'    => $completed + $skipped,
-					'deleted'      => $deleted,
-					'profile_hash' => $profile->get_hash(),
+					'completed'                  => $completed,
+					'skipped'                    => $skipped,
+					'failed'                     => 0,
+					'processed'                  => $completed + $skipped,
+					'deleted'                    => $deleted,
+					'profile_hash'               => $profile->get_hash(),
+					'unsupported_output_formats' => $unsupported_formats,
 				)
 			);
 		}
@@ -362,12 +377,13 @@ class ImageOptimizationService {
 				'completed_with_errors',
 				$errors,
 				array(
-					'completed'    => $completed,
-					'skipped'      => $skipped,
-					'deleted'      => $deleted,
-					'failed'       => count( $errors ),
-					'processed'    => $completed + $skipped + count( $errors ),
-					'profile_hash' => $profile->get_hash(),
+					'completed'                  => $completed,
+					'skipped'                    => $skipped,
+					'deleted'                    => $deleted,
+					'failed'                     => count( $errors ),
+					'processed'                  => $completed + $skipped + count( $errors ),
+					'profile_hash'               => $profile->get_hash(),
+					'unsupported_output_formats' => $unsupported_formats,
 				)
 			);
 		}
@@ -377,12 +393,13 @@ class ImageOptimizationService {
 			'conversion_failed',
 			$errors,
 			array(
-				'completed'    => $completed,
-				'skipped'      => $skipped,
-				'failed'       => count( $errors ),
-				'processed'    => $completed + $skipped + count( $errors ),
-				'deleted'      => $deleted,
-				'profile_hash' => $profile->get_hash(),
+				'completed'                  => $completed,
+				'skipped'                    => $skipped,
+				'failed'                     => count( $errors ),
+				'processed'                  => $completed + $skipped + count( $errors ),
+				'deleted'                    => $deleted,
+				'profile_hash'               => $profile->get_hash(),
+				'unsupported_output_formats' => $unsupported_formats,
 			)
 		);
 	}
@@ -416,6 +433,7 @@ class ImageOptimizationService {
 			'plugin_managed_variants'            => 0,
 			'estimated_variants_to_create'       => 0,
 			'estimated_stale_variants_to_delete' => 0,
+			'unsupported_output_formats'         => array(),
 			'warnings'                           => array(),
 			'errors'                             => array(),
 		);
@@ -452,9 +470,10 @@ class ImageOptimizationService {
 
 		$summary['eligible'] = true;
 
-		$profile          = $this->profile_factory->from_wp_metadata( $metadata );
-		$desired_variants = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
-		$actual_variants  = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
+		$profile                               = $this->profile_factory->from_wp_metadata( $metadata );
+		$summary['unsupported_output_formats'] = $this->get_unsupported_output_formats( $profile );
+		$desired_variants                      = $this->map_variants_by_key( $this->plan_variants( $attachment_id, $profile ), 'target_format' );
+		$actual_variants                       = $this->map_variants_by_key( $this->image_model->get_generated_variants( $attachment_id ), 'format' );
 
 		$summary['plugin_managed_variants'] = count( $actual_variants );
 
@@ -640,11 +659,13 @@ class ImageOptimizationService {
 	 */
 	private function get_conversion_strategies( $mime_type, ImageProfile $profile ) {
 		if ( in_array( $mime_type, array( 'image/webp', 'image/avif' ), true ) ) {
-			return array(
+			return $this->filter_supported_strategies(
 				array(
-					'target_format' => 'png',
-					'target_mime'   => 'image/png',
-				),
+					array(
+						'target_format' => 'png',
+						'target_mime'   => 'image/png',
+					),
+				)
 			);
 		}
 
@@ -660,7 +681,43 @@ class ImageOptimizationService {
 			);
 		}
 
-		return $strategies;
+		return $this->filter_supported_strategies( $strategies );
+	}
+
+	/**
+	 * Remove strategies unsupported by the current image editor stack.
+	 *
+	 * @param array $strategies Conversion strategies.
+	 * @return array Supported conversion strategies.
+	 */
+	private function filter_supported_strategies( array $strategies ) {
+		$supported = array();
+
+		foreach ( $strategies as $strategy ) {
+			if ( empty( $strategy['target_format'] ) || ! $this->profile_factory->is_output_format_supported( $strategy['target_format'] ) ) {
+				continue;
+			}
+
+			$supported[] = $strategy;
+		}
+
+		return $supported;
+	}
+
+	/**
+	 * Get unsupported output formats recorded in the profile.
+	 *
+	 * @param ImageProfile $profile Image optimization profile.
+	 * @return array Unsupported requested output formats.
+	 */
+	private function get_unsupported_output_formats( ImageProfile $profile ) {
+		$options = $profile->get_options();
+
+		if ( empty( $options['unsupported_output_formats'] ) || ! is_array( $options['unsupported_output_formats'] ) ) {
+			return array();
+		}
+
+		return array_values( array_unique( $options['unsupported_output_formats'] ) );
 	}
 
 	/**

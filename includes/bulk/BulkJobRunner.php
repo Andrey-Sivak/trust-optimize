@@ -333,6 +333,7 @@ class BulkJobRunner {
 			'total_image_attachments'            => isset( $job['total'] ) ? (int) $job['total'] : 0,
 			'eligible_attachments'               => 0,
 			'unsupported_mime_types'             => array(),
+			'unsupported_output_formats'         => array(),
 			'missing_source_files'               => 0,
 			'already_optimized_current_profile'  => 0,
 			'outdated_profile'                   => 0,
@@ -368,6 +369,16 @@ class BulkJobRunner {
 			}
 
 			++$summary['unsupported_mime_types'][ $mime ];
+		}
+
+		if ( ! empty( $data['unsupported_output_formats'] ) && is_array( $data['unsupported_output_formats'] ) ) {
+			foreach ( $data['unsupported_output_formats'] as $format ) {
+				if ( ! isset( $summary['unsupported_output_formats'][ $format ] ) ) {
+					$summary['unsupported_output_formats'][ $format ] = 0;
+				}
+
+				++$summary['unsupported_output_formats'][ $format ];
+			}
 		}
 
 		if ( ! empty( $data['missing_source_file'] ) ) {
