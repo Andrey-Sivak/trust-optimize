@@ -243,7 +243,12 @@ class BulkJobRepository {
 				continue;
 			}
 
-			$sets[]   = "{$counter} = {$counter} + %d";
+			if ( 'processed' === $counter ) {
+				$sets[] = "{$counter} = LEAST(total, {$counter} + %d)";
+			} else {
+				$sets[] = "{$counter} = {$counter} + %d";
+			}
+
 			$values[] = (int) $increments[ $counter ];
 		}
 

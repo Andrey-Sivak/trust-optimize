@@ -183,8 +183,12 @@ class ImageProfileFactory {
 			return false;
 		}
 
-		$probe_dir = trailingslashit( $upload_dir['basedir'] ) . 'trust-optimize-capability';
+		$probe_dir = trailingslashit( $upload_dir['basedir'] ) . 'trust-optimize-capability-' . wp_generate_uuid4();
 		if ( ! wp_mkdir_p( $probe_dir ) ) {
+			return false;
+		}
+
+		if ( ! wp_is_writable( $probe_dir ) ) {
 			return false;
 		}
 
@@ -206,6 +210,10 @@ class ImageProfileFactory {
 
 		if ( file_exists( $source_path ) ) {
 			wp_delete_file( $source_path );
+		}
+
+		if ( is_dir( $probe_dir ) ) {
+			rmdir( $probe_dir );
 		}
 
 		return $supported;

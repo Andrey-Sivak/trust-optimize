@@ -154,6 +154,24 @@ class BulkJobRunner {
 	 * @param int $job_id Job ID.
 	 */
 	public function tick( $job_id ) {
+		if ( ! $this->acquire_tick_lock( $job_id ) ) {
+			return;
+		}
+
+		try {
+			$this->run_tick( $job_id );
+		} finally {
+			$this->release_tick_lock( $job_id );
+		}
+	}
+
+	/**
+	 * Process one bulk job tick while caller holds the job lock.
+	 *
+	 * @param int $job_id Job ID.
+	 * @return void
+	 */
+	private function run_tick( $job_id ) {
 		$this->recover_stale_jobs();
 
 		$job = $this->jobs->get( $job_id );
@@ -213,6 +231,50 @@ class BulkJobRunner {
 
 			$this->schedule_tick( $job_id );
 		}
+	}
+
+	/**
+	 * Acquire a short per-job tick lock.
+	 *
+	 * @param int $job_id Job ID.
+	 * @return bool True when the lock was acquired.
+	 */
+	private function acquire_tick_lock( $job_id ) {
+		$key      = $this->get_tick_lock_key( $job_id );
+		$now      = time();
+		$acquired = add_option( $key, $now, '', 'no' );
+
+		if ( $acquired ) {
+			return true;
+		}
+
+		$locked_at = (int) get_option( $key, 0 );
+		if ( $locked_at > 0 && $locked_at < ( $now - 60 ) ) {
+			delete_option( $key );
+			return (bool) add_option( $key, $now, '', 'no' );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Release a per-job tick lock.
+	 *
+	 * @param int $job_id Job ID.
+	 * @return void
+	 */
+	private function release_tick_lock( $job_id ) {
+		delete_option( $this->get_tick_lock_key( $job_id ) );
+	}
+
+	/**
+	 * Get tick lock option key.
+	 *
+	 * @param int $job_id Job ID.
+	 * @return string Lock key.
+	 */
+	private function get_tick_lock_key( $job_id ) {
+		return 'trust_optimize_bulk_tick_lock_' . (int) $job_id;
 	}
 
 	/**
