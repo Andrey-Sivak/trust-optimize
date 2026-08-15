@@ -99,7 +99,12 @@ class BulkJobRunner {
 	 * @return bool
 	 */
 	public function pause( $job_id ) {
-		return $this->jobs->pause( $job_id );
+		$updated = $this->jobs->pause( $job_id );
+		if ( $updated ) {
+			$this->unschedule_tick( $job_id );
+		}
+
+		return $updated;
 	}
 
 	/**
@@ -126,7 +131,12 @@ class BulkJobRunner {
 	 * @return bool
 	 */
 	public function cancel( $job_id ) {
-		return $this->jobs->cancel( $job_id );
+		$updated = $this->jobs->cancel( $job_id );
+		if ( $updated ) {
+			$this->unschedule_tick( $job_id );
+		}
+
+		return $updated;
 	}
 
 	/**
@@ -429,6 +439,23 @@ class BulkJobRunner {
 		}
 
 		as_enqueue_async_action( self::HOOK_BULK_TICK, $args, self::GROUP );
+	}
+
+	/**
+	 * Unschedule pending ticks for one job.
+	 *
+	 * @param int $job_id Job ID.
+	 */
+	private function unschedule_tick( $job_id ) {
+		if ( ! function_exists( 'as_unschedule_action' ) ) {
+			return;
+		}
+
+		as_unschedule_action(
+			self::HOOK_BULK_TICK,
+			array( (int) $job_id ),
+			self::GROUP
+		);
 	}
 
 	/**
