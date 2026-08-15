@@ -84,6 +84,7 @@ $trust_optimize_smoke = new class() {
 			$this->check_unsupported_mime( $svg_id );
 			$this->check_output_format_capabilities( $second_id );
 			$this->check_unsupported_format_setting_does_not_change_hash( $second_id );
+			$this->check_wp_cli_remove_synopsis();
 			$this->check_rest_endpoints( $second_id );
 			$this->check_bulk_inventory_and_sync();
 			$this->check_reprocess_after_profile_change( $second_id );
@@ -405,6 +406,30 @@ $trust_optimize_smoke = new class() {
 		update_option( 'trust_optimize_options', $options );
 
 		$this->pass( 'Unsupported AVIF setting does not change effective profile hash.' );
+	}
+
+	/**
+	 * Check destructive remove command flags are declared in WP-CLI synopsis.
+	 */
+	private function check_wp_cli_remove_synopsis() {
+		if ( ! defined( 'WP_CLI' ) || ! WP_CLI ) {
+			$this->skip( 'WP-CLI remove synopsis check skipped outside WP-CLI.' );
+			return;
+		}
+
+		$output = \WP_CLI::runcommand(
+			'help trust-optimize remove',
+			array(
+				'return'     => true,
+				'exit_error' => false,
+			)
+		);
+
+		if ( false === strpos( $output, 'wp trust-optimize remove [--all] [--yes] [--batch-size=<number>]' ) ) {
+			throw new Exception( 'WP-CLI remove synopsis does not declare --all/--yes flags correctly.' );
+		}
+
+		$this->pass( 'WP-CLI remove synopsis accepts --all and --yes flags.' );
 	}
 
 	/**

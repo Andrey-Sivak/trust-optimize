@@ -103,10 +103,10 @@ class Command {
 	 *
 	 * ## OPTIONS
 	 *
-	 * --all
+	 * [--all]
 	 * : Confirm all-library scope.
 	 *
-	 * --yes
+	 * [--yes]
 	 * : Confirm destructive cleanup.
 	 *
 	 * [--batch-size=<number>]
