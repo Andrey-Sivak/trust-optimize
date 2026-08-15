@@ -321,6 +321,7 @@ class ImageConverter {
 				'file'      => basename( $saved_path ),
 				'mime_type' => $target_mime,
 				'file_size' => $file_size,
+				'path'      => $saved_path,
 			)
 		);
 

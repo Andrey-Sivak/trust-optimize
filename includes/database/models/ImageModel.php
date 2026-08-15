@@ -65,8 +65,9 @@ class ImageModel {
 			return null;
 		}
 
-		// Decode the metadata JSON
-		$result['metadata'] = json_decode( $result['metadata'], true );
+		// Decode and normalize the metadata JSON. Legacy rows may not contain
+		// newer manifest keys, so reads must remain non-fatal.
+		$result['metadata'] = $this->normalize_metadata( json_decode( $result['metadata'], true ) );
 
 		self::$cache[ $attachment_id ] = $result;
 		return $result;
@@ -138,7 +139,10 @@ class ImageModel {
 	 */
 	public function create_base_metadata( $wp_metadata ) {
 		if ( ! is_array( $wp_metadata ) || empty( $wp_metadata ) ) {
-			return array( 'sizes' => array() );
+			return array(
+				'sizes'              => array(),
+				'generated_variants' => array(),
+			);
 		}
 
 		$sizes = array();
@@ -184,7 +188,8 @@ class ImageModel {
 		}
 
 		return array(
-			'sizes' => $sizes,
+			'sizes'              => $sizes,
+			'generated_variants' => array(),
 		);
 	}
 
@@ -248,9 +253,143 @@ class ImageModel {
 			'file_size' => $format_data['file_size'] ?? 0,
 		);
 
+		$metadata = $this->upsert_generated_variant(
+			$metadata,
+			$attachment_id,
+			$size_name,
+			$format,
+			$format_data
+		);
+
 		// Save updated metadata
 		self::clear_cache( $attachment_id );
 		return $this->save( $attachment_id, $metadata ) ? true : false;
+	}
+
+	/**
+	 * Get all plugin-generated variant records for an attachment.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return array Generated variant manifest records.
+	 */
+	public function get_generated_variants( $attachment_id ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+
+		if ( ! $image_data || ! isset( $image_data['metadata']['generated_variants'] ) ) {
+			return array();
+		}
+
+		return is_array( $image_data['metadata']['generated_variants'] ) ? $image_data['metadata']['generated_variants'] : array();
+	}
+
+	/**
+	 * Normalize metadata into the current structure.
+	 *
+	 * @param array|null $metadata Stored metadata.
+	 * @return array Normalized metadata.
+	 */
+	private function normalize_metadata( $metadata ) {
+		if ( ! is_array( $metadata ) ) {
+			$metadata = array();
+		}
+
+		if ( ! isset( $metadata['sizes'] ) || ! is_array( $metadata['sizes'] ) ) {
+			$metadata['sizes'] = array();
+		}
+
+		if ( ! isset( $metadata['generated_variants'] ) || ! is_array( $metadata['generated_variants'] ) ) {
+			$metadata['generated_variants'] = array();
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Add or update a plugin-generated variant in metadata manifest.
+	 *
+	 * @param array  $metadata      Current plugin metadata.
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $size_name     Size name.
+	 * @param string $format        Generated format.
+	 * @param array  $format_data   Generated format data.
+	 * @return array Updated plugin metadata.
+	 */
+	private function upsert_generated_variant( $metadata, $attachment_id, $size_name, $format, $format_data ) {
+		$metadata = $this->normalize_metadata( $metadata );
+
+		$file = isset( $format_data['file'] ) ? $format_data['file'] : '';
+		if ( '' === $file ) {
+			return $metadata;
+		}
+
+		$now      = current_time( 'mysql' );
+		$existing = null;
+		$key      = $size_name . ':' . $format;
+
+		if ( isset( $metadata['generated_variants'][ $key ] ) && is_array( $metadata['generated_variants'][ $key ] ) ) {
+			$existing = $metadata['generated_variants'][ $key ];
+		}
+
+		$created_at = isset( $existing['created_at'] ) ? $existing['created_at'] : $now;
+		$file_path  = isset( $format_data['path'] ) ? $format_data['path'] : '';
+
+		$metadata['generated_variants'][ $key ] = array(
+			'attachment_id' => (int) $attachment_id,
+			'size_name'     => $size_name,
+			'format'        => $format,
+			'mime_type'     => $format_data['mime_type'],
+			'file'          => $file,
+			'relative_dir'  => $this->get_relative_upload_dir( $file_path ),
+			'file_size'     => $format_data['file_size'] ?? 0,
+			'file_hash'     => $this->get_file_hash( $file_path ),
+			'profile_hash'  => $format_data['profile_hash'] ?? '',
+			'created_at'    => $created_at,
+			'updated_at'    => $now,
+		);
+
+		return $metadata;
+	}
+
+	/**
+	 * Get a path's directory relative to uploads basedir.
+	 *
+	 * @param string $file_path Absolute generated file path.
+	 * @return string Relative upload directory, or empty string when unavailable.
+	 */
+	private function get_relative_upload_dir( $file_path ) {
+		if ( '' === $file_path ) {
+			return '';
+		}
+
+		$upload_dir = wp_upload_dir();
+		if ( empty( $upload_dir['basedir'] ) ) {
+			return '';
+		}
+
+		$base_dir = untrailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
+		$file_dir = untrailingslashit( wp_normalize_path( dirname( $file_path ) ) );
+
+		if ( 0 !== strpos( $file_dir, $base_dir ) ) {
+			return '';
+		}
+
+		return ltrim( substr( $file_dir, strlen( $base_dir ) ), '/' );
+	}
+
+	/**
+	 * Compute generated file hash when the file is available locally.
+	 *
+	 * @param string $file_path Absolute generated file path.
+	 * @return string File hash or empty string.
+	 */
+	private function get_file_hash( $file_path ) {
+		if ( '' === $file_path || ! is_readable( $file_path ) ) {
+			return '';
+		}
+
+		$hash = hash_file( 'sha256', $file_path );
+
+		return false === $hash ? '' : $hash;
 	}
 
 	/**
@@ -328,7 +467,10 @@ class ImageModel {
 	 */
 	public function convert_from_wp_metadata( $wp_metadata ) {
 		if ( ! is_array( $wp_metadata ) || empty( $wp_metadata ) ) {
-			return array( 'sizes' => array() );
+			return array(
+				'sizes'              => array(),
+				'generated_variants' => array(),
+			);
 		}
 
 		$sizes = array();
@@ -403,7 +545,8 @@ class ImageModel {
 		}
 
 		return array(
-			'sizes' => $sizes,
+			'sizes'              => $sizes,
+			'generated_variants' => array(),
 		);
 	}
 

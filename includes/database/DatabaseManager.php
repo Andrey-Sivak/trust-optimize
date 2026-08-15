@@ -16,7 +16,7 @@ class DatabaseManager {
 	/**
 	 * Current database version
 	 */
-	const DB_VERSION = '1.1.0';
+	const DB_VERSION = '1.2.0';
 
 	/**
 	 * Initialize the database manager
