@@ -453,6 +453,8 @@ $trust_optimize_smoke = new class() {
 			return;
 		}
 
+		$this->check_rest_start_runs_initial_tick();
+
 		$scope = $this->get_smoke_attachment_scope();
 		$job   = $repository->create(
 			BulkJob::TYPE_SYNC,
@@ -475,6 +477,34 @@ $trust_optimize_smoke = new class() {
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/cancel', array( 'confirm' => true ) );
 
 		$this->pass( 'REST status, single sync/remove, pause/resume/cancel endpoints respond.' );
+	}
+
+	/**
+	 * Check REST-started jobs make immediate bounded progress.
+	 */
+	private function check_rest_start_runs_initial_tick() {
+		$response = $this->dispatch_rest_request( 'POST', '/trust-optimize/v1/bulk/inventory' );
+		$data     = $response->get_data();
+		$job      = isset( $data['job'] ) && is_array( $data['job'] ) ? $data['job'] : array();
+
+		if ( empty( $job ) ) {
+			throw new Exception( 'REST inventory start did not return a job.' );
+		}
+
+		$processed = isset( $job['processed'] ) ? (int) $job['processed'] : 0;
+		$status    = isset( $job['status'] ) ? $job['status'] : '';
+
+		if ( BulkJob::STATUS_RUNNING === $status && 0 === $processed ) {
+			throw new Exception( 'REST-started inventory job remained running with processed=0.' );
+		}
+
+		if ( BulkJob::STATUS_RUNNING === $status ) {
+			$repository = new BulkJobRepository();
+			$runner     = new BulkJobRunner( $repository );
+			$runner->cancel( (int) $job['id'] );
+		}
+
+		$this->pass( 'REST-started inventory job makes immediate bounded progress.' );
 	}
 
 	/**
@@ -589,17 +619,29 @@ $trust_optimize_smoke = new class() {
 	 * @param array  $params Request params.
 	 */
 	private function assert_rest_ok( $method, $route, array $params = array() ) {
+		$response = $this->dispatch_rest_request( $method, $route, $params );
+
+		if ( $response->is_error() || $response->get_status() >= 400 ) {
+			throw new Exception( sprintf( 'REST %s %s failed: %s', $method, $route, wp_json_encode( $response->as_error() ? $response->as_error()->get_error_messages() : $response->get_data() ) ) );
+		}
+	}
+
+	/**
+	 * Dispatch REST request.
+	 *
+	 * @param string $method REST method.
+	 * @param string $route  REST route.
+	 * @param array  $params Request params.
+	 * @return WP_REST_Response REST response.
+	 */
+	private function dispatch_rest_request( $method, $route, array $params = array() ) {
 		$request = new WP_REST_Request( $method, $route );
 
 		foreach ( $params as $key => $value ) {
 			$request->set_param( $key, $value );
 		}
 
-		$response = rest_do_request( $request );
-
-		if ( $response->is_error() || $response->get_status() >= 400 ) {
-			throw new Exception( sprintf( 'REST %s %s failed: %s', $method, $route, wp_json_encode( $response->as_error() ? $response->as_error()->get_error_messages() : $response->get_data() ) ) );
-		}
+		return rest_do_request( $request );
 	}
 
 	/**

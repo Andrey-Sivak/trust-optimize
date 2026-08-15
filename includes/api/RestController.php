@@ -387,12 +387,43 @@ class RestController extends WP_REST_Controller {
 
 		$runner = new BulkJobRunner( $repository, $eligibility );
 		$runner->start( $job->get_id() );
+		$this->run_initial_bounded_tick( $runner, $job->get_id() );
 
 		return rest_ensure_response(
 			array(
 				'job' => $repository->get( $job->get_id() )->to_array(),
 			)
 		);
+	}
+
+	/**
+	 * Run one bounded tick immediately after REST start.
+	 *
+	 * Action Scheduler/WP-Cron may not dispatch during admin REST requests in
+	 * local Docker or locked-down hosting environments. This first tick makes
+	 * observable progress while keeping the request bounded; normal scheduled
+	 * continuation remains responsible for subsequent work.
+	 *
+	 * @param BulkJobRunner $runner Runner instance.
+	 * @param int           $job_id Job ID.
+	 */
+	private function run_initial_bounded_tick( BulkJobRunner $runner, $job_id ) {
+		$batch_filter = function () {
+			return 1;
+		};
+		$time_filter  = function () {
+			return 3;
+		};
+
+		add_filter( 'trust_optimize_bulk_batch_size', $batch_filter, 99 );
+		add_filter( 'trust_optimize_bulk_time_budget', $time_filter, 99 );
+
+		try {
+			$runner->tick( $job_id );
+		} finally {
+			remove_filter( 'trust_optimize_bulk_batch_size', $batch_filter, 99 );
+			remove_filter( 'trust_optimize_bulk_time_budget', $time_filter, 99 );
+		}
 	}
 
 	/**
