@@ -103,6 +103,58 @@ class ImageCleanupService {
 	}
 
 	/**
+	 * Clean plugin-managed files for a bounded batch of image records.
+	 *
+	 * This is intended for uninstall/maintenance paths where loading every
+	 * record into memory or running until timeout would be unsafe.
+	 *
+	 * @param int $cursor_id Last processed attachment ID.
+	 * @param int $limit     Maximum records to process.
+	 * @return array Batch summary.
+	 */
+	public function cleanup_managed_records_batch( $cursor_id = 0, $limit = 100 ) {
+		$limit          = max( 1, (int) $limit );
+		$attachment_ids = $this->image_model->get_attachment_ids_with_generated_variants( (int) $cursor_id, $limit );
+		$summary        = array(
+			'cursor_id' => (int) $cursor_id,
+			'processed' => 0,
+			'deleted'   => 0,
+			'skipped'   => 0,
+			'failed'    => 0,
+			'errors'    => array(),
+			'done'      => count( $attachment_ids ) < $limit,
+		);
+
+		foreach ( $attachment_ids as $attachment_id ) {
+			$summary['cursor_id'] = (int) $attachment_id;
+			++$summary['processed'];
+
+			$result = $this->cleanup_attachment( (int) $attachment_id );
+
+			if ( $result->is_success() ) {
+				$data                = $result->get_data();
+				$summary['deleted'] += isset( $data['deleted'] ) && is_array( $data['deleted'] ) ? count( $data['deleted'] ) : 0;
+				continue;
+			}
+
+			if ( $result->is_skipped() ) {
+				++$summary['skipped'];
+				continue;
+			}
+
+			++$summary['failed'];
+			$summary['errors'][] = array(
+				'attachment_id' => (int) $attachment_id,
+				'status'        => $result->get_status(),
+				'message'       => $result->get_message(),
+				'errors'        => $result->get_errors(),
+			);
+		}
+
+		return $summary;
+	}
+
+	/**
 	 * Cancel pending conversion actions for one attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

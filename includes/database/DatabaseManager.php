@@ -102,4 +102,37 @@ class DatabaseManager {
 		global $wpdb;
 		return $wpdb->prefix . $table;
 	}
+
+	/**
+	 * Get TrustOptimize custom table names.
+	 *
+	 * @return array Custom table names keyed by logical table identifier.
+	 */
+	public function get_plugin_table_names() {
+		return array(
+			'images' => $this->get_table_name( 'trust_optimize_images' ),
+			'jobs'   => $this->get_table_name( 'trust_optimize_jobs' ),
+		);
+	}
+
+	/**
+	 * Check whether a database table exists.
+	 *
+	 * @param string $table Full table name.
+	 * @return bool True when the table exists.
+	 */
+	public function table_exists( $table ) {
+		global $wpdb;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$found = $wpdb->get_var(
+			$wpdb->prepare(
+				'SHOW TABLES LIKE %s',
+				$wpdb->esc_like( $table )
+			)
+		);
+		// phpcs:enable
+
+		return $found === $table;
+	}
 }
