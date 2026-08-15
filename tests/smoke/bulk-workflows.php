@@ -391,7 +391,16 @@ $trust_optimize_smoke = new class() {
 			return;
 		}
 
-		$job        = $repository->create( BulkJob::TYPE_SYNC, array( 'smoke' => true ), '', 1 );
+		$scope = $this->get_smoke_attachment_scope();
+		$job   = $repository->create(
+			BulkJob::TYPE_SYNC,
+			array(
+				'smoke'          => true,
+				'attachment_ids' => array_slice( $scope, 0, 1 ),
+			),
+			'',
+			min( 1, count( $scope ) )
+		);
 
 		if ( ! $job ) {
 			throw new Exception( 'Unable to create REST control smoke job; active job may already exist.' );
@@ -419,7 +428,17 @@ $trust_optimize_smoke = new class() {
 			return;
 		}
 
-		$inventory = $repository->create( BulkJob::TYPE_INVENTORY, array( 'smoke' => true ), '', 1 );
+		$scope = $this->get_smoke_attachment_scope();
+
+		$inventory = $repository->create(
+			BulkJob::TYPE_INVENTORY,
+			array(
+				'smoke'          => true,
+				'attachment_ids' => $scope,
+			),
+			'',
+			count( $scope )
+		);
 		if ( ! $inventory ) {
 			throw new Exception( 'Unable to create inventory smoke job; active job may already exist.' );
 		}
@@ -429,12 +448,23 @@ $trust_optimize_smoke = new class() {
 		$runner->tick( $inventory->get_id() );
 		$inventory = $repository->get( $inventory->get_id() );
 		$this->assert_job_progressed( $inventory, 'inventory' );
+		$this->assert_job_counters_within_total( $inventory );
+		$this->assert_inventory_counts_within_total( $inventory );
 
 		if ( BulkJob::STATUS_RUNNING === $inventory->get_status() ) {
 			$runner->cancel( $inventory->get_id() );
 		}
 
-		$sync = $repository->create( BulkJob::TYPE_SYNC, array( 'smoke' => true ), '', 2 );
+		$sync_scope = array_slice( $scope, 0, 2 );
+		$sync       = $repository->create(
+			BulkJob::TYPE_SYNC,
+			array(
+				'smoke'          => true,
+				'attachment_ids' => $sync_scope,
+			),
+			'',
+			count( $sync_scope )
+		);
 		if ( ! $sync ) {
 			throw new Exception( 'Unable to create sync smoke job; active job may already exist.' );
 		}
@@ -443,6 +473,7 @@ $trust_optimize_smoke = new class() {
 		$runner->tick( $sync->get_id() );
 		$sync = $repository->get( $sync->get_id() );
 		$this->assert_job_progressed( $sync, 'sync' );
+		$this->assert_job_counters_within_total( $sync );
 
 		if ( BulkJob::STATUS_RUNNING === $sync->get_status() ) {
 			$runner->cancel( $sync->get_id() );
@@ -525,6 +556,64 @@ $trust_optimize_smoke = new class() {
 		if ( (int) $data['processed'] < 1 && BulkJob::STATUS_COMPLETED !== $job->get_status() ) {
 			throw new Exception( sprintf( 'Bulk %s job did not progress: %s', $type, wp_json_encode( $data ) ) );
 		}
+	}
+
+	/**
+	 * Assert job counters do not exceed total.
+	 *
+	 * @param BulkJob $job Job.
+	 */
+	private function assert_job_counters_within_total( BulkJob $job ) {
+		$data      = $job->to_array();
+		$total     = isset( $data['total'] ) ? (int) $data['total'] : 0;
+		$processed = isset( $data['processed'] ) ? (int) $data['processed'] : 0;
+
+		if ( $processed > $total ) {
+			throw new Exception( 'Bulk job processed more attachments than total: ' . wp_json_encode( $data ) );
+		}
+	}
+
+	/**
+	 * Assert scoped inventory counters do not exceed total.
+	 *
+	 * @param BulkJob $job Inventory job.
+	 */
+	private function assert_inventory_counts_within_total( BulkJob $job ) {
+		$data      = $job->to_array();
+		$total     = isset( $data['total'] ) ? (int) $data['total'] : 0;
+		$snapshot  = isset( $data['settings_snapshot'] ) && is_array( $data['settings_snapshot'] ) ? $data['settings_snapshot'] : array();
+		$inventory = isset( $snapshot['inventory'] ) && is_array( $snapshot['inventory'] ) ? $snapshot['inventory'] : array();
+
+		foreach ( array( 'total_image_attachments', 'eligible_attachments', 'missing_source_files' ) as $key ) {
+			if ( isset( $inventory[ $key ] ) && (int) $inventory[ $key ] > $total ) {
+				throw new Exception( sprintf( 'Inventory counter %s exceeds job total: %s', $key, wp_json_encode( $inventory ) ) );
+			}
+		}
+	}
+
+	/**
+	 * Get current smoke image attachment scope.
+	 *
+	 * @return array Attachment IDs.
+	 */
+	private function get_smoke_attachment_scope() {
+		$scope = array();
+
+		foreach ( $this->attachments as $attachment_id ) {
+			if ( ! get_post( $attachment_id ) || 'attachment' !== get_post_type( $attachment_id ) ) {
+				continue;
+			}
+
+			if ( 0 !== strpos( (string) get_post_mime_type( $attachment_id ), 'image/' ) ) {
+				continue;
+			}
+
+			$scope[] = (int) $attachment_id;
+		}
+
+		sort( $scope );
+
+		return $scope;
 	}
 
 	/**

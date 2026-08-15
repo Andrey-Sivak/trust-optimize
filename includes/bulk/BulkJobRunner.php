@@ -184,15 +184,15 @@ class BulkJobRunner {
 			);
 
 			if ( BulkJob::TYPE_INVENTORY === $job->get_type() ) {
-				$inventory = $this->merge_inventory_result( $inventory, $result );
+				$inventory             = $this->merge_inventory_result( $inventory, $result );
+				$job_data              = $job->to_array();
+				$snapshot              = isset( $job_data['settings_snapshot'] ) && is_array( $job_data['settings_snapshot'] ) ? $job_data['settings_snapshot'] : array();
+				$snapshot['inventory'] = $inventory;
+
 				$this->jobs->update(
 					$job_id,
 					array(
-						'settings_snapshot' => wp_json_encode(
-							array(
-								'inventory' => $inventory,
-							)
-						),
+						'settings_snapshot' => wp_json_encode( $snapshot ),
 					)
 				);
 			}
@@ -255,11 +255,63 @@ class BulkJobRunner {
 	 * @return array Attachment IDs.
 	 */
 	private function get_next_attachment_ids( BulkJob $job, $limit ) {
+		$scoped_ids = $this->get_scoped_attachment_ids( $job );
+
+		if ( ! empty( $scoped_ids ) ) {
+			$next_ids = array();
+			$cursor   = $job->get_cursor_id();
+
+			foreach ( $scoped_ids as $attachment_id ) {
+				if ( $attachment_id <= $cursor ) {
+					continue;
+				}
+
+				$next_ids[] = $attachment_id;
+
+				if ( count( $next_ids ) >= $limit ) {
+					break;
+				}
+			}
+
+			return $next_ids;
+		}
+
 		if ( BulkJob::TYPE_REMOVE === $job->get_type() ) {
 			return $this->eligibility->get_next_plugin_managed_attachment_ids( $job->get_cursor_id(), $limit );
 		}
 
 		return $this->eligibility->get_next_attachment_ids( $job->get_cursor_id(), $limit );
+	}
+
+	/**
+	 * Get optional attachment scope from a job snapshot.
+	 *
+	 * MVP bulk jobs normally stream from EligibilityQuery. Smoke/integration
+	 * jobs may store explicit attachment IDs in settings_snapshot to keep the
+	 * job total and processed stream aligned without adding a job_items table.
+	 *
+	 * @param BulkJob $job Job value object.
+	 * @return array Attachment IDs.
+	 */
+	private function get_scoped_attachment_ids( BulkJob $job ) {
+		$data     = $job->to_array();
+		$snapshot = isset( $data['settings_snapshot'] ) && is_array( $data['settings_snapshot'] ) ? $data['settings_snapshot'] : array();
+
+		if ( empty( $snapshot['attachment_ids'] ) || ! is_array( $snapshot['attachment_ids'] ) ) {
+			return array();
+		}
+
+		$ids = array_values( array_unique( array_map( 'intval', $snapshot['attachment_ids'] ) ) );
+		$ids = array_filter(
+			$ids,
+			function ( $attachment_id ) {
+				return $attachment_id > 0;
+			}
+		);
+
+		sort( $ids );
+
+		return array_values( $ids );
 	}
 
 	/**
