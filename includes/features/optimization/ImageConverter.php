@@ -11,6 +11,7 @@ use Imagick;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Service\ImageProfileFactory;
 
 /**
  * Class ImageConverter
@@ -32,11 +33,19 @@ class ImageConverter {
 	protected $settings;
 
 	/**
+	 * Image profile factory instance
+	 *
+	 * @var ImageProfileFactory
+	 */
+	protected $profile_factory;
+
+	/**
 	 * Constructor
 	 */
 	public function __construct() {
-		$this->image_model = new ImageModel();
-		$this->settings    = new Settings();
+		$this->image_model     = new ImageModel();
+		$this->settings        = new Settings();
+		$this->profile_factory = new ImageProfileFactory( $this->settings );
 	}
 
 	/**
@@ -63,6 +72,7 @@ class ImageConverter {
 
 		// Initialize base metadata in our custom table
 		$this->image_model->save( $attachment_id, $this->image_model->create_base_metadata( $metadata ) );
+		$this->image_model->update_profile_hash( $attachment_id, $this->profile_factory->from_wp_metadata( $metadata )->get_hash() );
 
 		// Get conversion strategies based on mime type
 		$conversion_strategies = $this->get_conversion_strategies( $mime_type );
@@ -312,18 +322,22 @@ class ImageConverter {
 			$file_size = 0;
 		}
 
+		$profile_hash = $this->profile_factory->from_wp_metadata( $metadata )->get_hash();
+
 		// Add information to our custom format database
 		$this->image_model->add_format_variation(
 			$attachment_id,
 			$size_name,
 			$target_format,
 			array(
-				'file'      => basename( $saved_path ),
-				'mime_type' => $target_mime,
-				'file_size' => $file_size,
-				'path'      => $saved_path,
+				'file'         => basename( $saved_path ),
+				'mime_type'    => $target_mime,
+				'file_size'    => $file_size,
+				'path'         => $saved_path,
+				'profile_hash' => $profile_hash,
 			)
 		);
+		$this->image_model->update_profile_hash( $attachment_id, $profile_hash );
 
 		// For backward compatibility, also update WordPress metadata
 		$this->update_wp_metadata( $metadata, $size_name, $target_format, $saved_path, $size_info );

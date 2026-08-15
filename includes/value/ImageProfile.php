@@ -13,6 +13,13 @@ namespace TrustOptimize\Value;
 class ImageProfile {
 
 	/**
+	 * Conversion schema version.
+	 *
+	 * @var string
+	 */
+	private $schema_version;
+
+	/**
 	 * Target formats.
 	 *
 	 * @var array
@@ -36,14 +43,29 @@ class ImageProfile {
 	/**
 	 * Constructor.
 	 *
-	 * @param array $formats Target formats.
-	 * @param array $quality Quality settings keyed by format.
-	 * @param array $options Additional profile options.
+	 * @param string $schema_version Conversion schema version.
+	 * @param array  $formats        Target formats.
+	 * @param array  $quality        Quality settings keyed by format.
+	 * @param array  $options        Additional profile options.
 	 */
-	public function __construct( array $formats, array $quality = array(), array $options = array() ) {
-		$this->formats = array_values( $formats );
-		$this->quality = $quality;
-		$this->options = $options;
+	public function __construct( $schema_version, array $formats, array $quality = array(), array $options = array() ) {
+		$this->schema_version = $schema_version;
+		$this->formats        = array_values( $formats );
+		$this->quality        = $quality;
+		$this->options        = $options;
+
+		sort( $this->formats );
+		ksort( $this->quality );
+		ksort( $this->options );
+	}
+
+	/**
+	 * Get conversion schema version.
+	 *
+	 * @return string
+	 */
+	public function get_schema_version() {
+		return $this->schema_version;
 	}
 
 	/**
@@ -80,9 +102,41 @@ class ImageProfile {
 	 */
 	public function to_array() {
 		return array(
-			'formats' => $this->formats,
-			'quality' => $this->quality,
-			'options' => $this->options,
+			'schema_version' => $this->schema_version,
+			'formats'        => $this->formats,
+			'quality'        => $this->quality,
+			'options'        => $this->options,
 		);
+	}
+
+	/**
+	 * Get deterministic profile hash.
+	 *
+	 * @return string
+	 */
+	public function get_hash() {
+		return hash( 'sha256', wp_json_encode( $this->canonicalize( $this->to_array() ) ) );
+	}
+
+	/**
+	 * Recursively sort associative arrays for stable hashing.
+	 *
+	 * @param mixed $value Value to canonicalize.
+	 * @return mixed Canonicalized value.
+	 */
+	private function canonicalize( $value ) {
+		if ( ! is_array( $value ) ) {
+			return $value;
+		}
+
+		if ( array_keys( $value ) !== range( 0, count( $value ) - 1 ) ) {
+			ksort( $value );
+		}
+
+		foreach ( $value as $key => $item ) {
+			$value[ $key ] = $this->canonicalize( $item );
+		}
+
+		return $value;
 	}
 }

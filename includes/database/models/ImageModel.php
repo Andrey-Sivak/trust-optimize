@@ -283,6 +283,60 @@ class ImageModel {
 	}
 
 	/**
+	 * Store current attachment profile hash.
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $profile_hash  Current profile hash.
+	 * @return bool Success or failure.
+	 */
+	public function update_profile_hash( $attachment_id, $profile_hash ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+
+		if ( ! $image_data ) {
+			$wp_metadata = wp_get_attachment_metadata( $attachment_id );
+			if ( ! $wp_metadata ) {
+				return false;
+			}
+
+			$metadata = $this->create_base_metadata( $wp_metadata );
+		} else {
+			$metadata = $image_data['metadata'];
+		}
+
+		$metadata['profile_hash'] = $profile_hash;
+
+		self::clear_cache( $attachment_id );
+		return $this->save( $attachment_id, $metadata ) ? true : false;
+	}
+
+	/**
+	 * Get current attachment profile hash.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return string Profile hash or empty string.
+	 */
+	public function get_profile_hash( $attachment_id ) {
+		$image_data = $this->get_by_attachment_id( $attachment_id );
+
+		if ( ! $image_data || empty( $image_data['metadata']['profile_hash'] ) ) {
+			return '';
+		}
+
+		return $image_data['metadata']['profile_hash'];
+	}
+
+	/**
+	 * Check whether a generated variant manifest record is stale.
+	 *
+	 * @param array  $variant      Generated variant manifest record.
+	 * @param string $profile_hash Current profile hash.
+	 * @return bool True when variant profile differs from current profile.
+	 */
+	public function is_variant_stale( array $variant, $profile_hash ) {
+		return empty( $variant['profile_hash'] ) || $profile_hash !== $variant['profile_hash'];
+	}
+
+	/**
 	 * Normalize metadata into the current structure.
 	 *
 	 * @param array|null $metadata Stored metadata.
