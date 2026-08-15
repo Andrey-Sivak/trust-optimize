@@ -425,7 +425,13 @@ $trust_optimize_smoke = new class() {
 			)
 		);
 
-		if ( false === strpos( $output, 'wp trust-optimize remove [--all] [--yes] [--batch-size=<number>]' ) ) {
+		foreach ( array( 'wp trust-optimize remove', '[--all]', '[--yes]', '[--batch-size=<number>]' ) as $expected ) {
+			if ( false === strpos( $output, $expected ) ) {
+				throw new Exception( 'WP-CLI remove synopsis does not declare --all/--yes flags correctly.' );
+			}
+		}
+
+		if ( false === strpos( $output, 'Confirm destructive cleanup' ) ) {
 			throw new Exception( 'WP-CLI remove synopsis does not declare --all/--yes flags correctly.' );
 		}
 
@@ -882,6 +888,24 @@ $trust_optimize_smoke = new class() {
 			return base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lGq6HgAAAABJRU5ErkJggg==' );
 		}
 
+		if ( function_exists( 'imagecreatetruecolor' ) && function_exists( 'imagejpeg' ) ) {
+			$image = imagecreatetruecolor( 16, 16 );
+
+			if ( false !== $image ) {
+				$color = imagecolorallocate( $image, 120, 30, 200 );
+				imagefilledrectangle( $image, 0, 0, 15, 15, $color );
+
+				ob_start();
+				imagejpeg( $image, null, 90 );
+				$bytes = ob_get_clean();
+				imagedestroy( $image );
+
+				if ( is_string( $bytes ) && '' !== $bytes ) {
+					return $bytes;
+				}
+			}
+		}
+
 		return base64_decode( '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Aqf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/ISP/2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z' );
 	}
 
@@ -912,6 +936,8 @@ $trust_optimize_smoke = new class() {
 			require_once ABSPATH . 'wp-admin/includes/user.php';
 			wp_delete_user( $this->created_user_id );
 		}
+
+		$this->cleanup_existing_fixtures();
 	}
 
 	/**

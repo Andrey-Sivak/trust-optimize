@@ -28,6 +28,7 @@ use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Service\ImageProfileFactory;
 
 // If this file is called directly, abort.
 if ( ! defined( 'WPINC' ) ) {
@@ -69,13 +70,15 @@ function trust_optimize_activate() {
 		$settings->add_default_settings();
 	}
 
+	$profile_factory = class_exists( 'TrustOptimize\\Service\\ImageProfileFactory' ) ? new ImageProfileFactory() : null;
+
 	update_option(
 		'trust_optimize_preflight',
 		array(
 			'gd'               => extension_loaded( 'gd' ),
 			'imagick'          => extension_loaded( 'imagick' ),
-			'webp'             => function_exists( 'imagewebp' ),
-			'avif'             => function_exists( 'imageavif' ),
+			'webp'             => $profile_factory ? $profile_factory->is_output_format_supported( 'webp' ) : false,
+			'avif'             => $profile_factory ? $profile_factory->is_output_format_supported( 'avif' ) : false,
 			'action_scheduler' => function_exists( 'as_enqueue_async_action' ),
 			'checked_at'       => current_time( 'mysql' ),
 		)

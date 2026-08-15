@@ -24,9 +24,9 @@
     "dealerdirect/phpcodesniffer-composer-installer": "^1.0"
   },
   "autoload": {
-    "psr-4": {
-      "TrustOptimize\\": "includes/"
-    }
+    "classmap": [
+      "includes/"
+    ]
   },
   "scripts": {
     "phpcs": "phpcs",

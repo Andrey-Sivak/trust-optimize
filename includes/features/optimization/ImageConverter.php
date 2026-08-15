@@ -276,6 +276,8 @@ class ImageConverter {
 	 * @return \WP_Image_Editor|\WP_Error
 	 */
 	private function get_editor_for_target_mime( $source_path, $target_mime ) {
+		$this->load_image_editor_classes();
+
 		$editor = wp_get_image_editor( $source_path );
 
 		if ( is_wp_error( $editor ) ) {
@@ -289,7 +291,11 @@ class ImageConverter {
 			return $editor;
 		}
 
-		$implementations = apply_filters( 'wp_image_editors', array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' ) );
+		$implementations = array_merge(
+			(array) apply_filters( 'wp_image_editors', array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' ) ),
+			array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' )
+		);
+		$implementations = array_values( array_unique( array_filter( $implementations ) ) );
 
 		foreach ( $implementations as $implementation ) {
 			if ( $implementation === $editor_class ) {
@@ -320,6 +326,23 @@ class ImageConverter {
 			'trust_optimize_unsupported_target_mime',
 			sprintf( 'No available image editor supports target mime type: %s', $target_mime )
 		);
+	}
+
+	/**
+	 * Load bundled WordPress image editor classes before explicit fallback checks.
+	 *
+	 * wp_get_image_editor() may load only the selected implementation. When the
+	 * selected editor cannot save a target MIME, fallback implementations such as
+	 * GD must be loaded before class_exists()/supports_mime_type() checks.
+	 *
+	 * @return void
+	 */
+	private function load_image_editor_classes() {
+		if ( defined( 'ABSPATH' ) ) {
+			require_once ABSPATH . 'wp-includes/class-wp-image-editor.php';
+			require_once ABSPATH . 'wp-includes/class-wp-image-editor-gd.php';
+			require_once ABSPATH . 'wp-includes/class-wp-image-editor-imagick.php';
+		}
 	}
 
 	/**
