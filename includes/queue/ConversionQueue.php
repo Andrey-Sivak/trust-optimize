@@ -11,6 +11,7 @@ namespace TrustOptimize\Queue;
 
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Service\ImageOptimizationService;
 use TrustOptimize\Value\ImageVariant;
 
 /**
@@ -43,13 +44,21 @@ class ConversionQueue {
 	protected $image_model;
 
 	/**
+	 * Optimization service instance.
+	 *
+	 * @var ImageOptimizationService
+	 */
+	protected $optimization;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param ImageConverter $converter Image converter instance.
 	 */
 	public function __construct( ImageConverter $converter ) {
-		$this->converter   = $converter;
-		$this->image_model = new ImageModel();
+		$this->converter    = $converter;
+		$this->image_model  = new ImageModel();
+		$this->optimization = new ImageOptimizationService( $this->converter, $this->image_model );
 	}
 
 	/**
@@ -175,21 +184,7 @@ class ConversionQueue {
 			return;
 		}
 
-		$result = $this->converter->convert_single_size( $attachment_id, $size_name, $target_format, $target_mime );
-
-		if ( $result ) {
-			$this->image_model->increment_completed_tasks( $attachment_id );
-			return;
-		}
-
-		$message = sprintf(
-			'Background conversion failed for attachment %d, size "%s", format "%s".',
-			$attachment_id,
-			$size_name,
-			$target_format
-		);
-
-		$this->image_model->record_failed_task( $attachment_id, $size_name, $target_format, $target_mime, $message );
+		$this->optimization->process_variant_conversion( $attachment_id, $size_name, $target_format, $target_mime );
 	}
 
 	/**

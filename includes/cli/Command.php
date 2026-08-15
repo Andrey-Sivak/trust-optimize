@@ -138,7 +138,7 @@ class Command {
 		$this->validate_attachment_or_exit( $attachment_id );
 
 		$service = new ImageOptimizationService();
-		$result  = $service->sync_attachment( $attachment_id );
+		$result  = $service->optimize_attachment( $attachment_id );
 
 		\WP_CLI::line( wp_json_encode( $result->to_array() ) );
 	}

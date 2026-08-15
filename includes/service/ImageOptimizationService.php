@@ -178,13 +178,15 @@ class ImageOptimizationService {
 	}
 
 	/**
-	 * Synchronously optimize an attachment.
+	 * Optimize one attachment through the shared synchronous pipeline.
+	 *
+	 * This is the canonical single-image path used by REST, WP-CLI and bulk.
 	 *
 	 * @param int   $attachment_id Attachment ID.
 	 * @param array $args          Optional args.
 	 * @return OptimizeResult
 	 */
-	public function sync_attachment( $attachment_id, array $args = array() ) {
+	public function optimize_attachment( $attachment_id, array $args = array() ) {
 		$capability = $this->can_optimize( $attachment_id );
 
 		if ( ! $capability->is_allowed() ) {
@@ -316,6 +318,68 @@ class ImageOptimizationService {
 
 		$this->image_model->update_status( $attachment_id, 'failed' );
 		return OptimizeResult::failed( 'conversion_failed', $errors );
+	}
+
+	/**
+	 * Backward-compatible alias for the canonical single-attachment pipeline.
+	 *
+	 * @param int   $attachment_id Attachment ID.
+	 * @param array $args          Optional args.
+	 * @return OptimizeResult
+	 */
+	public function sync_attachment( $attachment_id, array $args = array() ) {
+		return $this->optimize_attachment( $attachment_id, $args );
+	}
+
+	/**
+	 * Convert one queued variant and update image task state consistently.
+	 *
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $size_name     Attachment size name.
+	 * @param string $target_format Target format.
+	 * @param string $target_mime   Target MIME type.
+	 * @return OptimizeResult
+	 */
+	public function process_variant_conversion( $attachment_id, $size_name, $target_format, $target_mime ) {
+		if ( empty( $attachment_id ) || empty( $size_name ) || empty( $target_format ) || empty( $target_mime ) ) {
+			return OptimizeResult::failed( 'invalid_variant_payload' );
+		}
+
+		$result = $this->get_converter()->convert_single_size( $attachment_id, $size_name, $target_format, $target_mime );
+
+		if ( $result ) {
+			$this->image_model->increment_completed_tasks( $attachment_id );
+			return OptimizeResult::success(
+				'variant_converted',
+				array(
+					'attachment_id' => (int) $attachment_id,
+					'size_name'     => $size_name,
+					'target_format' => $target_format,
+				)
+			);
+		}
+
+		$message = sprintf(
+			'Background conversion failed for attachment %d, size "%s", format "%s".',
+			$attachment_id,
+			$size_name,
+			$target_format
+		);
+
+		$this->image_model->record_failed_task( $attachment_id, $size_name, $target_format, $target_mime, $message );
+
+		return OptimizeResult::failed(
+			'variant_conversion_failed',
+			array(
+				array(
+					'attachment_id' => (int) $attachment_id,
+					'size_name'     => $size_name,
+					'target_format' => $target_format,
+					'target_mime'   => $target_mime,
+					'message'       => $message,
+				),
+			)
+		);
 	}
 
 	/**

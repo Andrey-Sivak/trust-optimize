@@ -191,7 +191,7 @@ class BulkJobRunner {
 				return OptimizeResult::skipped( 'inventory_only' );
 			}
 
-			return $this->optimization->sync_attachment( $attachment_id );
+			return $this->optimization->optimize_attachment( $attachment_id );
 		} catch ( Throwable $throwable ) {
 			return OptimizeResult::failed(
 				'exception',

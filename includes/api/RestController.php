@@ -335,7 +335,7 @@ class RestController extends WP_REST_Controller {
 		}
 
 		$service = new ImageOptimizationService();
-		$result  = $service->sync_attachment( $attachment_id );
+		$result  = $service->optimize_attachment( $attachment_id );
 
 		return rest_ensure_response( $result->to_array() );
 	}
