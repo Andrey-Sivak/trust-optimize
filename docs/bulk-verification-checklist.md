@@ -10,6 +10,38 @@ Run this checklist on staging before production rollout.
 - Confirm WebP and AVIF encoder support matches expectations.
 - Confirm `wp trust-optimize status` works if WP-CLI is available.
 
+## Automated smoke check
+
+Run the behavioral smoke check on a disposable local/staging WordPress install:
+
+```bash
+wp eval-file wp-content/plugins/trust-optimize/tests/smoke/bulk-workflows.php --allow-root
+```
+
+When WP-CLI is not installed in the container, run the same file through an
+available WP-CLI container pointed at this WordPress install, or install WP-CLI
+in the current PHP container before running it.
+
+The smoke script creates temporary `trust-optimize-smoke-*` media fixtures and
+checks:
+
+- plugin activation/classes and custom tables;
+- REST status, single sync/remove, and bulk pause/resume/cancel endpoints;
+- single attachment sync;
+- single attachment remove;
+- bulk inventory job tick;
+- bounded bulk sync job tick;
+- repeated sync after profile hash changes;
+- missing source file handling;
+- unsupported image MIME handling;
+- unsupported WebP/AVIF reporting when the environment lacks those encoders;
+- cleanup deletes only manifest-owned generated files and preserves originals.
+
+For the full job lifecycle coverage, run it when no bulk job is `pending`,
+`running`, or `paused`. If an existing active job is present, the script skips
+job creation/pause/resume/cancel and bounded bulk tick checks rather than
+modifying a real job.
+
 ## Upload and single attachment
 
 - Upload one JPEG and one PNG.
@@ -51,5 +83,5 @@ Run this checklist on staging before production rollout.
 
 ## Known limitations
 
-- Full uninstall cleanup runs in the uninstall request and may be unsuitable for very large libraries.
-- For large sites, run confirmed cleanup through WP-CLI or admin bulk remove before uninstalling with data removal enabled.
+- Uninstall cleanup is bounded and logs a warning under `WP_DEBUG` if it cannot finish deleting every plugin-owned file before the configured limits.
+- For very large sites, run confirmed cleanup through WP-CLI or admin bulk remove before uninstalling with data removal enabled.

@@ -172,13 +172,26 @@ class ImageOptimizationService {
 
 		$this->image_model->update_status( $attachment_id, 'pending', count( $variants ) );
 
-		$queue = new ConversionQueue( $this->get_converter() );
-		$queue->schedule_variants( $attachment_id, $variants );
+		$queue     = new ConversionQueue( $this->get_converter() );
+		$scheduled = $queue->schedule_variants( $attachment_id, $variants );
+
+		if ( 0 === $scheduled ) {
+			$this->image_model->update_status( $attachment_id, 'failed' );
+			return OptimizeResult::failed(
+				'action_scheduler_unavailable',
+				array(),
+				array(
+					'total_tasks'                => count( $variants ),
+					'profile_hash'               => $profile->get_hash(),
+					'unsupported_output_formats' => $unsupported_formats,
+				)
+			);
+		}
 
 		return OptimizeResult::success(
 			'scheduled',
 			array(
-				'total_tasks'                => count( $variants ),
+				'total_tasks'                => $scheduled,
 				'profile_hash'               => $profile->get_hash(),
 				'unsupported_output_formats' => $unsupported_formats,
 			)

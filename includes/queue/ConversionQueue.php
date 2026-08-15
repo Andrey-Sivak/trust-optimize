@@ -110,11 +110,18 @@ class ConversionQueue {
 	 *
 	 * @param int   $attachment_id The attachment ID.
 	 * @param array $variants      Variant plan records or ImageVariant instances.
+	 * @return int Number of scheduled variants.
 	 */
 	public function schedule_variants( $attachment_id, array $variants ) {
+		$scheduled = 0;
+
 		foreach ( $variants as $variant ) {
-			$this->schedule_variant_conversion( $attachment_id, $variant );
+			if ( $this->schedule_variant_conversion( $attachment_id, $variant ) ) {
+				++$scheduled;
+			}
 		}
+
+		return $scheduled;
 	}
 
 	/**
@@ -122,12 +129,17 @@ class ConversionQueue {
 	 *
 	 * @param int                $attachment_id The attachment ID.
 	 * @param array|ImageVariant $variant       Variant payload.
+	 * @return bool True when the action was scheduled.
 	 */
 	public function schedule_variant_conversion( $attachment_id, $variant ) {
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			return false;
+		}
+
 		$payload = $this->normalize_variant_payload( $attachment_id, $variant );
 
 		if ( empty( $payload['size_name'] ) || empty( $payload['target_format'] ) || empty( $payload['target_mime'] ) ) {
-			return;
+			return false;
 		}
 
 		as_enqueue_async_action(
@@ -135,6 +147,8 @@ class ConversionQueue {
 			array( $payload ),
 			self::GROUP
 		);
+
+		return true;
 	}
 
 	/**
