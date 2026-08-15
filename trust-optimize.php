@@ -122,6 +122,11 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
 }
 
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/cli/Command.php';
+	WP_CLI::add_command( 'trust-optimize', 'TrustOptimize\\CLI\\Command' );
+}
+
 /**
  * Register REST API endpoints
  */
