@@ -5,6 +5,13 @@ All notable changes to the TrustOptimize plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Frontend rewrite now serializes HTML fragments instead of leaking an HTML 4 document wrapper (`doctype` / `html` / `head`) into `the_content`.
+- Skip the DOM pass when every `<img>` is already rewritten (`data-original-src`).
+- Snapshot the image `NodeList` before replacing nodes, and drop the unused `$fallback_srcset` reference.
+
 ## [1.1.0] - 2026-05-05
 
 ### Added

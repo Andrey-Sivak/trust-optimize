@@ -10,9 +10,10 @@ namespace TrustOptimize\Features\Optimization;
 use DOMDocument;
 use DOMElement;
 use TrustOptimize\Admin\Settings;
-use TrustOptimize\Utils\Helper;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Service\ImageProfileFactory;
+use TrustOptimize\Utils\Helper;
+use TrustOptimize\Utils\HtmlFragment;
 
 /**
  * Class ImageProcessor
@@ -96,48 +97,27 @@ class ImageProcessor implements OptimizerInterface {
 			return $content;
 		}
 
-		// Use DOMDocument to parse HTML content
 		if ( ! extension_loaded( 'dom' ) ) {
 			return $content;
 		}
 
-		$dom = new DOMDocument();
+		if ( ! HtmlFragment::contains_unprocessed_img( $content ) ) {
+			return $content;
+		}
 
-		// Suppress errors from malformed HTML
-		libxml_use_internal_errors( true );
+		$loaded = HtmlFragment::load( $content );
+		if ( null === $loaded ) {
+			return $content;
+		}
 
-		// Load the content with a proper header to help DOMDocument with encoding
-		// Using a meta tag ensures DOMDocument interprets the content as UTF-8
-		$dom->loadHTML( '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">' . $content );
+		list( $dom, $root ) = $loaded;
 
-		// Reset errors
-		libxml_clear_errors();
-
-		// Find all images
-		$images = $dom->getElementsByTagName( 'img' );
-
-		// Process each image
+		$images = iterator_to_array( $root->getElementsByTagName( 'img' ) );
 		foreach ( $images as $image ) {
 			$this->process_image_element( $image );
 		}
 
-		// Save the modified HTML
-		// Use saveHTML($dom->getElementsByTagName('body')->item(0)) to get only body content
-		$body_element = $dom->getElementsByTagName( 'body' )->item( 0 );
-		if ( $body_element ) {
-			$processed_content = $dom->saveHTML( $body_element );
-			// Remove the outer <body> tags added by saveHTML when processing a fragment
-			$processed_content = preg_replace( '/^<body>(.*)<\/body>$/s', '$1', $processed_content );
-		} else {
-			// Fallback if body element is not found (shouldn't happen with typical HTML fragments)
-			$processed_content = $dom->saveHTML();
-		}
-
-		// DOMDocument outputs closing tags for HTML5 void elements (e.g., </source>).
-		// These are invalid in HTML5 and flagged by W3C validator. Remove them.
-		$processed_content = str_replace( '</source>', '', $processed_content );
-
-		return $processed_content;
+		return HtmlFragment::save( $dom, $root );
 	}
 
 	/**
@@ -267,12 +247,6 @@ class ImageProcessor implements OptimizerInterface {
 
 		// Ensure fallback img has the original src
 		$fallback_img->setAttribute( 'src', $src );
-
-		// Add srcset and sizes to the fallback img for browsers that don't support <picture> fully
-		if ( ! empty( $fallback_srcset ) ) {
-			$fallback_img->setAttribute( 'srcset', $fallback_srcset );
-			$fallback_img->setAttribute( 'sizes', $sizes_attr );
-		}
 
 		// Respect existing attributes from the original image markup.
 		// Set defaults only when attributes are missing.

@@ -22,3 +22,4 @@ require_once __DIR__ . '/../includes/value/OptimizeResult.php';
 require_once __DIR__ . '/../includes/value/DeleteResult.php';
 require_once __DIR__ . '/../includes/value/CapabilityCheck.php';
 require_once __DIR__ . '/../includes/value/ImageProfile.php';
+require_once __DIR__ . '/../includes/utils/HtmlFragment.php';

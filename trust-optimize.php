@@ -139,6 +139,7 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Helper.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/HtmlFragment.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Logger.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
