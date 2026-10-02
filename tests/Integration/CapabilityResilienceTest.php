@@ -158,6 +158,20 @@ class CapabilityResilienceTest extends WP_UnitTestCase {
 		$this->assertTrue( $service->supports( 'avif' ), 'A downgrade must only apply to the environment that recorded it.' );
 	}
 
+	public function test_a_downgrade_made_by_another_sapi_is_ignored() {
+		$service = new CapabilityService();
+		$service->recheck();
+		$service->downgrade( 'avif', 'cli without avif' );
+		$this->assertFalse( $service->supports( 'avif' ) );
+
+		// Same PHP and extensions, but the downgrade was recorded by another SAPI.
+		$stored                                       = get_option( CapabilityService::OPTION );
+		$stored['downgraded']['avif']['env']['sapi'] = 'other-sapi';
+		update_option( CapabilityService::OPTION, $stored );
+
+		$this->assertTrue( $service->supports( 'avif' ), 'A downgrade must not cross SAPIs.' );
+	}
+
 	public function test_a_file_that_cannot_be_loaded_does_not_downgrade_the_format() {
 		$dir = wp_upload_dir()['basedir'] . '/resilience-' . wp_generate_uuid4();
 		wp_mkdir_p( $dir );

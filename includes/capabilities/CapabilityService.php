@@ -147,6 +147,7 @@ class CapabilityService {
 
 		return array(
 			'php'     => PHP_VERSION,
+			'sapi'    => PHP_SAPI,
 			'wp'      => $wp_version,
 			'gd'      => $gd['GD Version'] ?? '',
 			'gd_webp' => ! empty( $gd['WebP Support'] ),
