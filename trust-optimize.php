@@ -42,15 +42,31 @@ define( 'TRUST_OPTIMIZE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
 
-// Use composer autoloader
-if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
-	require_once __DIR__ . '/vendor/autoload.php';
+/**
+ * Admin notice shown when the plugin was installed without its composer dependencies.
+ */
+function trust_optimize_missing_dependencies_notice() {
+	if ( ! current_user_can( 'activate_plugins' ) ) {
+		return;
+	}
+
+	echo '<div class="notice notice-error"><p>';
+	echo '<strong>TrustOptimize:</strong> ';
+	echo esc_html__( 'The plugin was installed without its dependencies and is disabled. Install the release archive, or run "composer install --no-dev" in the plugin directory.', 'trust-optimize' );
+	echo '</p></div>';
 }
 
-// Load Action Scheduler library
-if ( file_exists( __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php' ) ) {
-	require_once __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
+// The plugin requires its composer dependencies (autoloader and Action Scheduler).
+if (
+	! file_exists( __DIR__ . '/vendor/autoload.php' )
+	|| ! file_exists( __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php' )
+) {
+	add_action( 'admin_notices', 'trust_optimize_missing_dependencies_notice' );
+	return;
 }
+
+require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/vendor/woocommerce/action-scheduler/action-scheduler.php';
 
 // Activation and deactivation hooks
 register_activation_hook( __FILE__, 'trust_optimize_activate' );
@@ -69,26 +85,22 @@ function trust_optimize_activate() {
 		);
 	}
 
-	if ( class_exists( 'TrustOptimize\\Database\\DatabaseManager' ) ) {
-		$database_manager = new DatabaseManager();
-		$database_manager->create_tables();
-		update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
-	}
+	$database_manager = new DatabaseManager();
+	$database_manager->create_tables();
+	update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
 
-	if ( class_exists( 'TrustOptimize\\Admin\\Settings' ) ) {
-		$settings = new Settings();
-		$settings->add_default_settings();
-	}
+	$settings = new Settings();
+	$settings->add_default_settings();
 
-	$profile_factory = class_exists( 'TrustOptimize\\Service\\ImageProfileFactory' ) ? new ImageProfileFactory() : null;
+	$profile_factory = new ImageProfileFactory();
 
 	update_option(
 		'trust_optimize_preflight',
 		array(
 			'gd'               => extension_loaded( 'gd' ),
 			'imagick'          => extension_loaded( 'imagick' ),
-			'webp'             => $profile_factory ? $profile_factory->is_output_format_supported( 'webp' ) : false,
-			'avif'             => $profile_factory ? $profile_factory->is_output_format_supported( 'avif' ) : false,
+			'webp'             => $profile_factory->is_output_format_supported( 'webp' ),
+			'avif'             => $profile_factory->is_output_format_supported( 'avif' ),
 			'action_scheduler' => function_exists( 'as_enqueue_async_action' ),
 			'checked_at'       => current_time( 'mysql' ),
 		)
@@ -99,13 +111,8 @@ function trust_optimize_activate() {
  * The code that runs during plugin deactivation.
  */
 function trust_optimize_deactivate() {
-	if ( class_exists( 'TrustOptimize\\Bulk\\BulkJobRunner' ) ) {
-		BulkJobRunner::cancel_all_ticks();
-	}
-
-	if ( class_exists( 'TrustOptimize\\Queue\\ConversionQueue' ) ) {
-		ConversionQueue::cancel_all_tasks();
-	}
+	BulkJobRunner::cancel_all_ticks();
+	ConversionQueue::cancel_all_tasks();
 }
 
 /**
@@ -115,65 +122,12 @@ function trust_optimize_init() {
 	// Load text domain for internationalization
 	load_plugin_textdomain( 'trust-optimize', false, dirname( TRUST_OPTIMIZE_PLUGIN_BASENAME ) . '/languages' );
 
-	// Check if the class exists before trying to use it
-	if ( class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
-		// Initialize the main plugin class
-		$plugin = Plugin::get_instance();
-		$plugin->init();
-	} else {
-		// Add admin notice if class doesn't exist
-		add_action( 'admin_notices', 'trust_optimize_missing_class_notice' );
-	}
+	Plugin::get_instance()->init();
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );
 add_action( 'admin_notices', array( Requirements::class, 'maybe_show_admin_notice' ) );
 
-/**
- * Admin notice when main class is missing
- */
-function trust_optimize_missing_class_notice() {
-	echo '<div class="error"><p>';
-	echo '<strong>TrustOptimize Error:</strong> Main plugin class not found. Please reinstall the plugin or contact support.';
-	echo '</p></div>';
-}
-
-// If composer autoload isn't available or if it fails to load the class
-if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
-	// Manually include class files in dependency order.
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/ImageProfile.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/ImageVariant.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OperationResult.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/OptimizeResult.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/DeleteResult.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/value/CapabilityCheck.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/DatabaseManager.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/database/models/ImageModel.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Helper.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/HtmlFragment.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/UploadsPath.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageConverter.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageProfileFactory.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageOptimizationService.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageCleanupService.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJob.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRepository.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/EligibilityQuery.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/bulk/BulkJobRunner.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Admin.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Requirements.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
-}
-
 if ( defined( 'WP_CLI' ) && WP_CLI ) {
-	if ( ! class_exists( 'TrustOptimize\\CLI\\Command' ) ) {
-		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/cli/Command.php';
-	}
-
 	WP_CLI::add_command( 'trust-optimize', 'TrustOptimize\\CLI\\Command' );
 }
 

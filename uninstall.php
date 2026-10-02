@@ -9,18 +9,12 @@ if ( ! defined( 'WP_UNINSTALL_PLUGIN' ) ) {
 	exit;
 }
 
-if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
-	require_once __DIR__ . '/vendor/autoload.php';
+// Without the autoloader nothing can be cleaned up safely: leave data and files untouched.
+if ( ! file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
+	return;
 }
 
-require_once __DIR__ . '/includes/value/OperationResult.php';
-require_once __DIR__ . '/includes/value/DeleteResult.php';
-require_once __DIR__ . '/includes/utils/UploadsPath.php';
-require_once __DIR__ . '/includes/database/DatabaseManager.php';
-require_once __DIR__ . '/includes/database/models/ImageModel.php';
-require_once __DIR__ . '/includes/queue/ConversionQueue.php';
-require_once __DIR__ . '/includes/service/ImageCleanupService.php';
-require_once __DIR__ . '/includes/bulk/BulkJobRunner.php';
+require_once __DIR__ . '/vendor/autoload.php';
 
 \TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();
 \TrustOptimize\Bulk\BulkJobRunner::cancel_all_ticks();
