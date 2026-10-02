@@ -25,4 +25,8 @@ tests_add_filter(
 	}
 );
 
+// The Action Scheduler runner measures its 30 s batch limit from the start of the whole test process,
+// so late tests would process at most one action per run.
+tests_add_filter( 'action_scheduler_queue_runner_time_limit', static fn() => 3600 );
+
 require_once $trust_optimize_tests_dir . '/includes/bootstrap.php';
