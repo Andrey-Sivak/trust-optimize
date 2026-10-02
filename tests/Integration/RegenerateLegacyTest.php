@@ -53,7 +53,7 @@ class RegenerateLegacyTest extends WP_UnitTestCase {
 
 		$database       = new DatabaseManager();
 		$this->variants = new VariantRepository( $database );
-		$this->schedule = new ScheduleRegeneration( $this->variants, Plugin::get_instance()->conversion_queue );
+		$this->schedule = new ScheduleRegeneration( $this->variants, Plugin::get_instance()->conversion_queue, new ConflictReport() );
 	}
 
 	public function tear_down() {
@@ -142,6 +142,32 @@ class RegenerateLegacyTest extends WP_UnitTestCase {
 		$this->assertFileDoesNotExist( $old_file );
 		$this->assertFileExists( wp_upload_dir()['basedir'] . '/' . $relative . '.webp' );
 		$this->assertSame( $relative . '.webp', VariantRepository::servable_path( $row ) );
+	}
+
+	public function test_a_legacy_file_changed_after_the_import_is_kept_and_reported() {
+		$id       = $this->attachment();
+		$relative = get_post_meta( $id, '_wp_attached_file', true );
+		$legacy   = preg_replace( '/\.jpg$/', '.webp', $relative );
+		$old_file = $this->legacy_row( $id, $legacy );
+
+		// Another optimizer (or a restore from a backup) replaced the file.
+		file_put_contents( $old_file, 'replaced by someone else' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$this->schedule->run_batch( 0, 10 );
+		$row = $this->row( $id );
+		$this->assertNull( $row['legacy_relative_path'], 'A file that is not the one 1.x wrote is neither served nor retired.' );
+		$this->assertSame( VariantStatus::PENDING, $row['status'] );
+
+		Plugin::get_instance()->processor->run( $id );
+
+		$row = $this->row( $id );
+		$this->assertSame( VariantStatus::DONE, $row['status'], 'The 2.0 variant is created.' );
+		$this->assertFileExists( $old_file );
+		$this->assertSame( 'replaced by someone else', file_get_contents( $old_file ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_get_contents
+		$report = array_values( ( new ConflictReport() )->all() );
+		$this->assertCount( 1, $report );
+		$this->assertSame( 'hash_mismatch', $report[0]['source'] );
+		$this->assertSame( $legacy, $report[0]['path'] );
 	}
 
 	public function test_a_failed_conversion_keeps_the_legacy_file_and_keeps_serving_it() {

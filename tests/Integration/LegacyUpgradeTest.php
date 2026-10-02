@@ -440,7 +440,7 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 		$steps       = array(
 			new ImportLegacyManifest( $database, $this->variants, $this->attachments ),
 			new DetectCollisions( $this->variants, $this->attachments, $guard, $conflicts ),
-			new ScheduleRegeneration( $this->variants, $plugin->conversion_queue ),
+			new ScheduleRegeneration( $this->variants, $plugin->conversion_queue, new ConflictReport() ),
 			new RetireLegacyFiles( $this->variants, $plugin->cleanup ),
 			new StripAttachmentMetadata( $database ),
 			new CleanupLegacyRuntime( $plugin->conversion_queue ),
@@ -490,7 +490,7 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( basename( $legacy ) . ' 640w', $render(), 'After the import the 1.x file is served.' );
 
 		( new DetectCollisions( $this->variants, $this->attachments, new LegacyPathGuard( $database, $this->variants ), new ConflictReport() ) )->run_batch( 0, 10 );
-		( new ScheduleRegeneration( $this->variants, $plugin->conversion_queue ) )->run_batch( 0, 10 );
+		( new ScheduleRegeneration( $this->variants, $plugin->conversion_queue, new ConflictReport() ) )->run_batch( 0, 10 );
 		$this->assertSame( VariantStatus::PENDING, $this->rows( $id )['original|webp']['status'] );
 		$this->assertStringContainsString( basename( $legacy ) . ' 640w', $render(), 'While the 2.0 file is not there, the 1.x file is still served.' );
 

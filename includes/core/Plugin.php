@@ -142,7 +142,7 @@ class Plugin {
 			array(
 				new ImportLegacyManifest( $database, $variants, $attachments ),
 				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
-				new ScheduleRegeneration( $variants, $this->conversion_queue ),
+				new ScheduleRegeneration( $variants, $this->conversion_queue, $conflicts ),
 				new RetireLegacyFiles( $variants, $this->cleanup ),
 				new StripAttachmentMetadata( $database ),
 				$legacy_runtime,
