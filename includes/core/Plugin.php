@@ -20,6 +20,7 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Migration\DetectCollisions;
@@ -157,6 +158,7 @@ class Plugin {
 			new ImageProcessor( $variants, $settings ),
 			$this->cleanup,
 			$this->conversion_queue,
+			new SiteHealth( $capabilities ),
 			$legacy_runtime,
 			$this->bulk_runner,
 			$this->admin,
