@@ -38,6 +38,7 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
+		$this->install_legacy_table();
 		delete_option( ConflictReport::OPTION );
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
@@ -199,7 +200,6 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 	}
 
 	public function test_the_1x_registry_of_another_attachment_protects_a_file() {
-		$this->install_legacy_table();
 		$path = $this->make_legacy_file( 'legacy-test/registry.webp' );
 		$this->add_legacy_manifest( 805, array( array( 'size_name' => 'original', 'format' => 'webp', 'file' => 'legacy-test/registry.webp' ) ) );
 		$this->row( 804, array( 'format' => 'webp', 'relative_path' => 'legacy-test/registry.webp' ) );

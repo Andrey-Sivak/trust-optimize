@@ -24,6 +24,8 @@ trait Legacy_Schema_Fixture {
 
 	/**
 	 * Create the 1.x registry table.
+	 *
+	 * DDL commits the open test transaction: call it first in set_up(), before the test creates any data.
 	 */
 	private function install_legacy_table() {
 		global $wpdb;
@@ -40,9 +42,13 @@ trait Legacy_Schema_Fixture {
 
 	/**
 	 * Drop the 1.x registry table and the files of the fixture.
+	 *
+	 * Call it first in tear_down(): the data of the test is rolled back before DROP TABLE commits.
 	 */
 	private function remove_legacy_schema() {
 		global $wpdb;
+
+		$wpdb->query( 'ROLLBACK' );
 
 		$table = ( new DatabaseManager() )->get_plugin_table_names()['images'];
 

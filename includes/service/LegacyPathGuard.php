@@ -53,6 +53,13 @@ class LegacyPathGuard {
 	private $variants;
 
 	/**
+	 * Files per directory, kept while a batch runs (see begin_batch()); null when not caching.
+	 *
+	 * @var array|null
+	 */
+	private $directories = null;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param DatabaseManager   $database Database manager.
@@ -61,6 +68,23 @@ class LegacyPathGuard {
 	public function __construct( DatabaseManager $database, VariantRepository $variants ) {
 		$this->database = $database;
 		$this->variants = $variants;
+	}
+
+	/**
+	 * Remember the files of every directory until end_batch().
+	 *
+	 * For a loop over many attachments: the metadata of a directory is read once instead of once per
+	 * attachment. Nothing may be added to the media library meanwhile.
+	 */
+	public function begin_batch() {
+		$this->directories = array();
+	}
+
+	/**
+	 * Forget the remembered directories.
+	 */
+	public function end_batch() {
+		$this->directories = null;
 	}
 
 	/**
@@ -115,70 +139,73 @@ class LegacyPathGuard {
 	 * @return int[] Owner attachment ID keyed by path.
 	 */
 	private function attachment_files( $attachment_id, array $paths ) {
-		global $wpdb;
-
 		$found = array();
-		$in    = implode( ', ', array_fill( 0, count( $paths ), '%s' ) );
-		$rows  = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT post_id, meta_value AS file FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value IN ({$in}) AND post_id <> %d",
-				array_merge( $paths, array( $attachment_id ) )
-			),
-			ARRAY_A
-		);
 
-		foreach ( (array) $rows as $row ) {
-			$found[ $row['file'] ] = (int) $row['post_id'];
-		}
+		foreach ( array_unique( array_map( array( __CLASS__, 'directory_of' ), $paths ) ) as $dir ) {
+			$files = $this->directory_files( $dir );
 
-		// Thumbnails and the original of a scaled image live next to the attached file only in metadata.
-		$by_dir = array();
-		foreach ( array_diff( $paths, array_keys( $found ) ) as $path ) {
-			$by_dir[ self::directory_of( $path ) ][] = $path;
-		}
-
-		foreach ( $by_dir as $dir => $dir_paths ) {
-			$like = '' === $dir ? '%' : $wpdb->esc_like( $dir . '/' ) . '%';
-			$ids  = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT post_id, meta_value AS file FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s AND post_id <> %d",
-					$like,
-					$attachment_id
-				),
-				ARRAY_A
-			);
-
-			$ids = array_filter(
-				(array) $ids,
-				static function ( $row ) use ( $dir ) {
-					return self::directory_of( $row['file'] ) === $dir;
-				}
-			);
-
-			update_meta_cache( 'post', array_column( $ids, 'post_id' ) );
-
-			foreach ( $ids as $row ) {
-				$metadata = wp_get_attachment_metadata( (int) $row['post_id'] );
-				$files    = array();
-
-				if ( is_array( $metadata ) ) {
-					$files[] = $metadata['original_image'] ?? null;
-					foreach ( (array) ( $metadata['sizes'] ?? array() ) as $size ) {
-						$files[] = $size['file'] ?? null;
-					}
-				}
-
-				foreach ( array_filter( $files ) as $file ) {
-					$path = ( '' === $dir ? '' : $dir . '/' ) . basename( $file );
-
-					if ( in_array( $path, $dir_paths, true ) ) {
-						$found += array( $path => (int) $row['post_id'] );
+			foreach ( $paths as $path ) {
+				foreach ( $files[ $path ] ?? array() as $owner ) {
+					if ( $owner !== $attachment_id ) {
+						$found += array( $path => $owner );
 					}
 				}
 			}
 		}
 
 		return $found;
+	}
+
+	/**
+	 * Files that attachments keep in a directory: the attached file, the original of a scaled image and every size.
+	 *
+	 * @param string $dir Directory relative to uploads ('' for the uploads root).
+	 * @return int[][] Attachment IDs keyed by path relative to uploads.
+	 */
+	private function directory_files( $dir ) {
+		global $wpdb;
+
+		if ( isset( $this->directories[ $dir ] ) ) {
+			return $this->directories[ $dir ];
+		}
+
+		$like  = '' === $dir ? '%' : $wpdb->esc_like( $dir . '/' ) . '%';
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare( "SELECT post_id, meta_value AS file FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s", $like ),
+			ARRAY_A
+		);
+		$rows  = array_filter(
+			(array) $rows,
+			static function ( $row ) use ( $dir ) {
+				return self::directory_of( $row['file'] ) === $dir;
+			}
+		);
+		$files = array();
+
+		update_meta_cache( 'post', array_column( $rows, 'post_id' ) );
+
+		foreach ( $rows as $row ) {
+			$id       = (int) $row['post_id'];
+			$metadata = wp_get_attachment_metadata( $id );
+			$names    = array( basename( $row['file'] ) );
+
+			if ( is_array( $metadata ) ) {
+				$names[] = $metadata['original_image'] ?? null;
+				foreach ( (array) ( $metadata['sizes'] ?? array() ) as $size ) {
+					$names[] = $size['file'] ?? null;
+				}
+			}
+
+			foreach ( array_filter( $names ) as $name ) {
+				$files[ ( '' === $dir ? '' : $dir . '/' ) . basename( $name ) ][] = $id;
+			}
+		}
+
+		if ( null !== $this->directories ) {
+			$this->directories[ $dir ] = $files;
+		}
+
+		return $files;
 	}
 
 	/**

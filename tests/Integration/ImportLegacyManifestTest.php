@@ -46,6 +46,7 @@ class ImportLegacyManifestTest extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
+		$this->install_legacy_table();
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
 
@@ -53,7 +54,6 @@ class ImportLegacyManifestTest extends WP_UnitTestCase {
 		$this->variants    = new VariantRepository( $database );
 		$this->attachments = new AttachmentRepository( $database, $this->variants );
 		$this->step        = new ImportLegacyManifest( $database, $this->variants, $this->attachments );
-		$this->install_legacy_table();
 	}
 
 	public function tear_down() {

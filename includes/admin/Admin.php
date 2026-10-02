@@ -10,6 +10,7 @@ namespace TrustOptimize\Admin;
 use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Storage\AttachmentRepository;
 
 /**
@@ -46,18 +47,27 @@ class Admin {
 	private $capabilities;
 
 	/**
+	 * Report of 1.x files that collide with files of other attachments.
+	 *
+	 * @var ConflictReport
+	 */
+	private $conflicts;
+
+	/**
 	 * Admin constructor.
 	 *
 	 * @param Settings             $settings     Plugin settings.
 	 * @param AttachmentRepository $attachments  Attachment repository.
 	 * @param EligibilityQuery     $eligibility  Eligibility query.
 	 * @param CapabilityService    $capabilities Capability service.
+	 * @param ConflictReport       $conflicts    Conflict report.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
+		$this->conflicts    = $conflicts;
 	}
 
 	/**
@@ -108,6 +118,7 @@ class Admin {
 		$trust_optimize_total_eligible = $this->eligibility->count_eligible_attachments();
 		$trust_optimize_webp_supported = $this->capabilities->supports( 'webp' );
 		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
+		$trust_optimize_conflicts      = array_values( $this->conflicts->all() );
 
 		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}

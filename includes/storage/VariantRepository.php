@@ -360,6 +360,29 @@ class VariantRepository {
 	}
 
 	/**
+	 * IDs of attachments that have finished 1.x variants, in ascending order.
+	 *
+	 * @param int $after_id Return IDs greater than this one.
+	 * @param int $limit    Maximum number of IDs.
+	 * @return int[]
+	 */
+	public function get_legacy_attachment_ids_after( $after_id, $limit ) {
+		global $wpdb;
+
+		return array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE naming = 'legacy' AND status = %s AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					VariantStatus::DONE,
+					(int) $after_id,
+					(int) $limit
+				)
+			)
+		);
+	}
+
+	/**
 	 * Number of attachments that have variant rows.
 	 *
 	 * @return int

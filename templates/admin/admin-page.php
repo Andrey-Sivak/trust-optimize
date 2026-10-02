@@ -10,7 +10,7 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// $trust_optimize_total_eligible, $trust_optimize_webp_supported and $trust_optimize_avif_supported come from Admin::display_admin_page().
+// $trust_optimize_total_eligible, $trust_optimize_webp_supported, $trust_optimize_avif_supported and $trust_optimize_conflicts come from Admin::display_admin_page().
 // Statistics (placeholder for now).
 $trust_optimize_total_images            = 0;
 $trust_optimize_optimized_images        = 0;
@@ -36,6 +36,8 @@ $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['b
 				?>
 			</div>
 		</div>
+
+		<?php require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/migration-conflicts.php'; ?>
 
 		<div class="trust-optimize-dashboard">
 			<div class="trust-optimize-stats-row">

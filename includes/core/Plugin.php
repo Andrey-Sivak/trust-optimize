@@ -15,11 +15,13 @@ use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\CLI\Command;
+use TrustOptimize\CLI\MigrationCommand;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Migration\ConflictReport;
+use TrustOptimize\Migration\DetectCollisions;
 use TrustOptimize\Migration\ImportLegacyManifest;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Planning\VariantPlanner;
@@ -118,14 +120,22 @@ class Plugin {
 		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
-		$migration    = new MigrationRunner( $database, array( new ImportLegacyManifest( $database, $variants, $attachments ) ) );
+		$conflicts    = new ConflictReport();
+		$guard        = new LegacyPathGuard( $database, $variants );
+		$migration    = new MigrationRunner(
+			$database,
+			array(
+				new ImportLegacyManifest( $database, $variants, $attachments ),
+				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
+			)
+		);
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
-		$this->cleanup          = new ImageCleanupService( $variants, $attachments, new LegacyPathGuard( $database, $variants ), new ConflictReport() );
+		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->bulk_runner      = new BulkJobRunner( $jobs, $eligibility, $this->planner, $this->processor, $this->cleanup );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $eligibility, $this->bulk_runner );
 
 		foreach ( array(
@@ -144,6 +154,7 @@ class Plugin {
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
 			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->bulk_runner, $this->processor, $this->cleanup, $migration ) );
+			\WP_CLI::add_command( 'trust-optimize migration', new MigrationCommand( $conflicts ) );
 		}
 	}
 }

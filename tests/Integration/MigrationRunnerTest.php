@@ -5,6 +5,8 @@
  * @package TrustOptimize\Tests
  */
 
+require_once __DIR__ . '/legacy-schema-fixture.php';
+
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Migration\BatchResult;
 use TrustOptimize\Migration\MigrationRunner;
@@ -59,6 +61,13 @@ class Recording_Migration_Step implements MigrationStep {
  * @covers \TrustOptimize\Migration\BatchResult
  */
 class MigrationRunnerTest extends WP_UnitTestCase {
+
+	use Legacy_Schema_Fixture;
+
+	public function tear_down() {
+		$this->remove_legacy_schema();
+		parent::tear_down();
+	}
 
 	public function set_up() {
 		parent::set_up();
@@ -172,25 +181,13 @@ class MigrationRunnerTest extends WP_UnitTestCase {
 	}
 
 	public function test_schema_upgrade_starts_the_migration_only_when_the_legacy_table_exists() {
-		global $wpdb;
+		$runner = $this->runner( array() );
 
-		$database = new DatabaseManager();
-		$legacy   = $database->get_plugin_table_names()['images'];
-		$runner   = $this->runner( array() );
-
-		$runner->maybe_start( '0.0.0', '2.0.0' );
-		$this->assertNull( $runner->get_state(), 'A fresh install has nothing to migrate.' );
-
-		// A real table is needed: table_exists() does not see the temporary tables the test case creates.
-		remove_filter( 'query', array( $this, '_create_temporary_tables' ) );
-		remove_filter( 'query', array( $this, '_drop_temporary_tables' ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "CREATE TABLE IF NOT EXISTS `{$legacy}` (id bigint(20) unsigned NOT NULL AUTO_INCREMENT, attachment_id bigint(20) unsigned NOT NULL, metadata longtext NOT NULL, status varchar(20) NOT NULL DEFAULT 'completed', PRIMARY KEY  (id), UNIQUE KEY attachment_id (attachment_id))" );
 		$runner->maybe_start( '1.3.0', '2.0.0' );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "DROP TABLE IF EXISTS `{$legacy}`" );
-		add_filter( 'query', array( $this, '_create_temporary_tables' ) );
-		add_filter( 'query', array( $this, '_drop_temporary_tables' ) );
+		$this->assertNull( $runner->get_state(), 'Without the 1.x registry table there is nothing to migrate.' );
+
+		$this->install_legacy_table();
+		$runner->maybe_start( '1.3.0', '2.0.0' );
 
 		$this->assertTrue( $runner->is_running() );
 		$this->assertSame( '1.3.0', $runner->get_state()['from'] );
