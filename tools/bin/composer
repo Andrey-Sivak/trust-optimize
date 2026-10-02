@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Runs composer in the PHP 8.0 tools container (minimum supported platform).
+set -eu
+exec "$(dirname "$0")/compose" run --rm tools-php80 composer "$@"

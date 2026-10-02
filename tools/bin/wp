@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# Runs WP-CLI against the stand site.
+set -eu
+exec "$(dirname "$0")/compose" run --rm wpcli wp "$@"

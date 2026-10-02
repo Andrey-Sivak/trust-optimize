@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Runs docker compose against the test stand (override with TRUST_OPTIMIZE_COMPOSE_FILE).
+set -eu
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+exec docker compose -f "${TRUST_OPTIMIZE_COMPOSE_FILE:-$ROOT/../../../../docker-compose.yml}" "$@"
