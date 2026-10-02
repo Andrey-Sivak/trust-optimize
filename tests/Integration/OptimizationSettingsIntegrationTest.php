@@ -28,7 +28,8 @@ class OptimizationSettingsIntegrationTest extends WP_UnitTestCase {
 
 		$settings = OptimizationSettings::from_options( new Settings(), new CapabilityService() );
 
-		$this->assertSame( array( 'webp' ), $settings->formats() );
+		$this->assertSame( array( 'webp', 'avif' ), $settings->enabled_formats() );
+		$this->assertSame( array( 'webp' ), $settings->plannable_formats() );
 		$this->assertSame( 70, $settings->quality_for( 'webp' ) );
 		$this->assertSame( 55, $settings->quality_for( 'avif' ) );
 	}
@@ -47,7 +48,8 @@ class OptimizationSettingsIntegrationTest extends WP_UnitTestCase {
 
 		$settings = OptimizationSettings::from_options( new Settings(), new CapabilityService() );
 
-		$this->assertSame( array( 'avif' ), $settings->formats() );
+		$this->assertSame( array( 'avif' ), $settings->enabled_formats() );
+		$this->assertSame( array( 'avif' ), $settings->plannable_formats() );
 		$this->assertSame( 100, $settings->quality_for( 'avif' ), 'Quality is clamped to 100.' );
 	}
 }

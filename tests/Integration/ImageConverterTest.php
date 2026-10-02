@@ -74,7 +74,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 	}
 
 	private function settings( $webp_quality = 80 ) {
-		return new OptimizationSettings( array( 'webp', 'avif' ), array( 'webp' => $webp_quality, 'avif' => 60 ) );
+		return new OptimizationSettings( array( 'webp', 'avif' ), array( 'webp', 'avif' ), array( 'webp' => $webp_quality, 'avif' => 60 ) );
 	}
 
 	/**

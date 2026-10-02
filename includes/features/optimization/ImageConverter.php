@@ -203,6 +203,7 @@ class ImageConverter {
 			array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' )
 		);
 		$implementations = array_values( array_unique( array_filter( $implementations ) ) );
+		$claimed         = false;
 
 		foreach ( $implementations as $implementation ) {
 			if ( $implementation === $editor_class ) {
@@ -221,12 +222,21 @@ class ImageConverter {
 				continue;
 			}
 
+			$claimed   = true;
 			$candidate = new $implementation( $source_path );
 			$loaded    = $candidate->load();
 
 			if ( ! is_wp_error( $loaded ) ) {
 				return $candidate;
 			}
+		}
+
+		// An editor claims the MIME type but could not load this file: that is not a missing format.
+		if ( $claimed ) {
+			return new \WP_Error(
+				'trust_optimize_editor_load_failed',
+				sprintf( 'An image editor for %s could not load the source file.', $target_mime )
+			);
 		}
 
 		return new \WP_Error(

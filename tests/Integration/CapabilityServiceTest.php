@@ -68,7 +68,7 @@ class CapabilityServiceTest extends WP_UnitTestCase {
 
 		$this->assertFalse( $this->service->supports( 'avif' ) );
 		$this->assertTrue( $this->service->supports( 'webp' ) );
-		$this->assertSame( 'encoder missing', get_option( CapabilityService::OPTION )['downgraded']['avif'] );
+		$this->assertSame( 'encoder missing', get_option( CapabilityService::OPTION )['downgraded']['avif']['reason'] );
 	}
 
 	public function test_maybe_recheck_runs_only_when_the_environment_changed() {

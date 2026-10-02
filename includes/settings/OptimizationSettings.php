@@ -29,11 +29,18 @@ final class OptimizationSettings {
 	);
 
 	/**
-	 * Formats that are enabled and supported, in conversion order.
+	 * Formats the user switched on, in conversion order.
 	 *
 	 * @var string[]
 	 */
-	private $formats;
+	private $enabled;
+
+	/**
+	 * Enabled formats that this environment can write now.
+	 *
+	 * @var string[]
+	 */
+	private $plannable;
 
 	/**
 	 * Quality per format.
@@ -45,12 +52,14 @@ final class OptimizationSettings {
 	/**
 	 * Constructor.
 	 *
-	 * @param string[] $formats Enabled and supported formats.
-	 * @param int[]    $quality Quality (1-100) keyed by format.
+	 * @param string[] $enabled   Formats enabled in the settings.
+	 * @param string[] $plannable Enabled formats that are currently supported.
+	 * @param int[]    $quality   Quality (1-100) keyed by format.
 	 */
-	public function __construct( array $formats, array $quality ) {
-		$this->formats = array_values( $formats );
-		$this->quality = $quality;
+	public function __construct( array $enabled, array $plannable, array $quality ) {
+		$this->enabled   = array_values( $enabled );
+		$this->plannable = array_values( array_intersect( $plannable, $enabled ) );
+		$this->quality   = $quality;
 	}
 
 	/**
@@ -68,38 +77,63 @@ final class OptimizationSettings {
 			'avif' => min( $legacy_quality, 85 ),
 		);
 
-		$formats = array();
-		$quality = array();
+		$enabled   = array();
+		$plannable = array();
+		$quality   = array();
 		foreach ( self::FORMAT_OPTIONS as $format => $enabled_key ) {
 			$value = isset( $options[ $format . '_quality' ] ) ? (int) $options[ $format . '_quality' ] : $defaults[ $format ];
 
 			$quality[ $format ] = max( 1, min( 100, (int) apply_filters( "trust_optimize_{$format}_quality", $value ) ) );
 
-			if ( (bool) $settings->get( $enabled_key, 1 ) && $capabilities->supports( $format ) ) {
-				$formats[] = $format;
+			if ( (bool) $settings->get( $enabled_key, 1 ) ) {
+				$enabled[] = $format;
+
+				if ( $capabilities->supports( $format ) ) {
+					$plannable[] = $format;
+				}
 			}
 		}
 
-		return new self( $formats, $quality );
+		return new self( $enabled, $plannable, $quality );
 	}
 
 	/**
-	 * Formats to generate.
+	 * Formats switched on by the user. Variants of any other format are removed.
 	 *
 	 * @return string[]
 	 */
-	public function formats() {
-		return $this->formats;
+	public function enabled_formats() {
+		return $this->enabled;
 	}
 
 	/**
-	 * Whether a format is generated.
+	 * Enabled formats that can be created now. Existing variants of an enabled but
+	 * unsupported format are kept, but nothing new is planned for it.
+	 *
+	 * @return string[]
+	 */
+	public function plannable_formats() {
+		return $this->plannable;
+	}
+
+	/**
+	 * Whether the user enabled a format.
 	 *
 	 * @param string $format Format extension.
 	 * @return bool
 	 */
-	public function has_format( $format ) {
-		return in_array( $format, $this->formats, true );
+	public function is_enabled( $format ) {
+		return in_array( $format, $this->enabled, true );
+	}
+
+	/**
+	 * Whether new variants of a format can be created now.
+	 *
+	 * @param string $format Format extension.
+	 * @return bool
+	 */
+	public function is_plannable( $format ) {
+		return in_array( $format, $this->plannable, true );
 	}
 
 	/**
@@ -115,12 +149,19 @@ final class OptimizationSettings {
 	/**
 	 * Whether a stored variant no longer matches the settings.
 	 *
+	 * A variant of an enabled format that cannot be recreated now is not stale: it is
+	 * kept as it is.
+	 *
 	 * @param array $variant_row Row with at least 'format' and 'quality'.
 	 * @return bool
 	 */
 	public function is_stale( array $variant_row ) {
 		$format = (string) ( $variant_row['format'] ?? '' );
 
-		return ! $this->has_format( $format ) || (int) ( $variant_row['quality'] ?? 0 ) !== $this->quality_for( $format );
+		if ( ! $this->is_enabled( $format ) ) {
+			return true;
+		}
+
+		return $this->is_plannable( $format ) && (int) ( $variant_row['quality'] ?? 0 ) !== $this->quality_for( $format );
 	}
 }

@@ -92,7 +92,7 @@ class VariantPlanner {
 			return new Plan( $source, array(), $existing );
 		}
 
-		$desired = self::desired_variants( $source['relative_path'], $source['metadata'], $settings->formats(), $source['mime'] );
+		$desired = self::desired_variants( $source['relative_path'], $source['metadata'], $settings->enabled_formats(), $source['mime'] );
 		$actions = self::reconcile( $existing, $desired, $settings );
 
 		foreach ( $actions['insert'] as $row ) {
@@ -181,14 +181,10 @@ class VariantPlanner {
 
 		$summary['eligible'] = true;
 
-		$settings = OptimizationSettings::from_options( $this->settings, $this->capabilities );
-		foreach ( OptimizationSettings::FORMAT_OPTIONS as $format => $option ) {
-			if ( (bool) $this->settings->get( $option, 1 ) && ! $this->capabilities->supports( $format ) ) {
-				$summary['unsupported_output_formats'][] = $format;
-			}
-		}
+		$settings                              = OptimizationSettings::from_options( $this->settings, $this->capabilities );
+		$summary['unsupported_output_formats'] = array_values( array_diff( $settings->enabled_formats(), $settings->plannable_formats() ) );
 
-		$actions = self::reconcile( $existing, self::desired_variants( $source['relative_path'], $source['metadata'], $settings->formats(), $source['mime'] ), $settings );
+		$actions = self::reconcile( $existing, self::desired_variants( $source['relative_path'], $source['metadata'], $settings->enabled_formats(), $source['mime'] ), $settings );
 
 		$summary['estimated_variants_to_create']       = count( $actions['insert'] ) + count( $actions['reset'] );
 		$summary['estimated_stale_variants_to_delete'] = count( $actions['delete'] );
@@ -203,7 +199,7 @@ class VariantPlanner {
 	 *
 	 * @param string   $original_relative_path Original (or -scaled) file relative to uploads.
 	 * @param array    $metadata               Attachment metadata.
-	 * @param string[] $formats                Formats to generate.
+	 * @param string[] $formats                Formats the user enabled (including ones that cannot be created right now).
 	 * @param string   $default_mime           MIME type assumed for sizes that do not state one.
 	 * @return array[] Entries with size_name, format, source_relative_path, width, height.
 	 */
@@ -276,6 +272,12 @@ class VariantPlanner {
 		foreach ( $desired as $want ) {
 			$key = $want['size_name'] . '|' . $want['format'];
 
+			// Enabled but unsupported here: nothing new, and what exists stays as it is.
+			if ( ! $settings->is_plannable( $want['format'] ) ) {
+				unset( $by_key[ $key ] );
+				continue;
+			}
+
 			if ( ! isset( $by_key[ $key ] ) ) {
 				$result['insert'][] = $want;
 				continue;
@@ -298,7 +300,7 @@ class VariantPlanner {
 			}
 		}
 
-		// What is left has no desired counterpart: format disabled or size gone.
+		// What is left has no desired counterpart: format disabled by the user or size gone.
 		$result['delete'] = array_values( $by_key );
 
 		return $result;

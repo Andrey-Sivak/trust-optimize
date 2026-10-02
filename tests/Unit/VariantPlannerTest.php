@@ -130,7 +130,7 @@ class VariantPlannerTest extends TestCase {
 	}
 
 	private function settings() {
-		return new OptimizationSettings( array( 'webp' ), array( 'webp' => 80 ) );
+		return new OptimizationSettings( array( 'webp' ), array( 'webp' ), array( 'webp' => 80 ) );
 	}
 
 	public function test_reconcile_inserts_missing_variants() {
@@ -181,5 +181,32 @@ class VariantPlannerTest extends TestCase {
 		$this->assertSame( '2026/05/photo.jpg', $result['replaced'][0]['source_relative_path'] );
 		$this->assertSame( '2026/05/photo-scaled.jpg', $result['reset'][0]['source_relative_path'] );
 		$this->assertSame( array(), $result['delete'] );
+	}
+
+	public function test_reconcile_leaves_rows_of_an_enabled_but_unsupported_format_alone() {
+		$settings = new OptimizationSettings( array( 'webp', 'avif' ), array( 'webp' ), array( 'webp' => 80, 'avif' => 60 ) );
+		$existing = array(
+			$this->row( array( 'format' => 'avif', 'quality' => 10 ) ),
+			$this->row( array( 'format' => 'avif', 'size_name' => 'thumb', 'status' => 'failed' ) ),
+		);
+		$desired  = array(
+			$this->want( array( 'format' => 'avif' ) ),
+			$this->want( array( 'format' => 'avif', 'size_name' => 'thumb' ) ),
+			$this->want( array( 'format' => 'avif', 'size_name' => 'new' ) ),
+		);
+
+		$result = VariantPlanner::reconcile( $existing, $desired, $settings );
+
+		$this->assertSame( array( 'insert' => array(), 'reset' => array(), 'delete' => array(), 'replaced' => array() ), $result );
+	}
+
+	public function test_reconcile_still_deletes_vanished_sizes_of_an_unsupported_format() {
+		$settings = new OptimizationSettings( array( 'webp', 'avif' ), array( 'webp' ), array() );
+		$existing = array( $this->row( array( 'format' => 'avif', 'size_name' => 'gone' ) ) );
+
+		$result = VariantPlanner::reconcile( $existing, array( $this->want() ), $settings );
+
+		$this->assertCount( 1, $result['delete'] );
+		$this->assertSame( 'gone', $result['delete'][0]['size_name'] );
 	}
 }

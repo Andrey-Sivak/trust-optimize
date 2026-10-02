@@ -50,7 +50,13 @@ class CapabilityService {
 			$stored = $this->recheck();
 		}
 
-		return ! empty( $stored[ $format ] );
+		if ( empty( $stored[ $format ] ) ) {
+			return false;
+		}
+
+		// A downgrade only counts in the environment that recorded it (CLI and FPM may differ).
+		// The fingerprint is computed only when a downgrade exists, so normal requests stay cheap.
+		return ! isset( $stored['downgraded'][ $format ] ) || $stored['downgraded'][ $format ]['env'] !== $this->fingerprint();
 	}
 
 	/**
@@ -85,7 +91,10 @@ class CapabilityService {
 	}
 
 	/**
-	 * Mark a format as unsupported after a real conversion failed because of it.
+	 * Record that no image editor of this environment can write a format.
+	 *
+	 * The note carries the environment fingerprint and is ignored by any other environment,
+	 * so a PHP-CLI worker without AVIF cannot switch AVIF off for PHP-FPM.
 	 *
 	 * @param string $format Format extension.
 	 * @param string $reason Why (usually the editor's error message).
@@ -97,9 +106,11 @@ class CapabilityService {
 			$stored = $this->recheck();
 		}
 
-		$stored[ $format ]               = false;
-		$stored['downgraded'][ $format ] = mb_substr( (string) $reason, 0, 255, 'UTF-8' );
-		$stored['downgraded_at']         = current_time( 'mysql', true );
+		$stored['downgraded'][ $format ] = array(
+			'reason' => mb_substr( (string) $reason, 0, 255, 'UTF-8' ),
+			'env'    => $this->fingerprint(),
+			'at'     => current_time( 'mysql', true ),
+		);
 
 		update_option( self::OPTION, $stored, false );
 	}
