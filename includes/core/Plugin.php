@@ -23,6 +23,7 @@ use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Migration\DetectCollisions;
+use TrustOptimize\Migration\Finalize;
 use TrustOptimize\Migration\ImportLegacyManifest;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Migration\RetireLegacyFiles;
@@ -144,6 +145,7 @@ class Plugin {
 				new RetireLegacyFiles( $variants, $this->cleanup ),
 				new StripAttachmentMetadata( $database ),
 				new CleanupLegacyRuntime( $this->conversion_queue ),
+				new Finalize( $database, $variants ),
 			)
 		);
 

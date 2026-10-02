@@ -57,6 +57,20 @@ class Recording_Migration_Step implements MigrationStep {
 }
 
 /**
+ * Step that always asks to be retried in an hour.
+ */
+class Waiting_Migration_Step implements MigrationStep {
+
+	public function name() {
+		return 'waiting';
+	}
+
+	public function run_batch( $cursor, $limit ) {
+		return BatchResult::retry( $cursor, 3600 );
+	}
+}
+
+/**
  * @covers \TrustOptimize\Migration\MigrationRunner
  * @covers \TrustOptimize\Migration\BatchResult
  */
@@ -153,6 +167,19 @@ class MigrationRunnerTest extends WP_UnitTestCase {
 
 		$this->assertFalse( $runner->is_running() );
 		$this->assertSame( array( 'a:0', 'a:2' ), Recording_Migration_Step::$calls );
+	}
+
+	public function test_a_step_can_ask_to_be_retried_later() {
+		$runner = $this->runner( array( new Waiting_Migration_Step() ) );
+		$runner->start( '1.3.0', '2.0.0' );
+		as_unschedule_all_actions( MigrationRunner::HOOK_MIGRATE );
+
+		$runner->run_scheduled();
+
+		$this->assertTrue( $runner->is_running() );
+		$this->assertSame( 3600, $runner->get_delay() );
+		$next = as_next_scheduled_action( MigrationRunner::HOOK_MIGRATE );
+		$this->assertGreaterThan( time() + 3000, $next, 'The next batch is queued for later, not at once.' );
 	}
 
 	public function test_errors_are_capped() {

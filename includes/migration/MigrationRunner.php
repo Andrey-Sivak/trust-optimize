@@ -67,6 +67,13 @@ class MigrationRunner {
 	private $database;
 
 	/**
+	 * Seconds the last batch asked to wait before the next one.
+	 *
+	 * @var int
+	 */
+	private $delay = 0;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param DatabaseManager $database Database manager.
@@ -158,7 +165,7 @@ class MigrationRunner {
 		$this->run_batch();
 
 		if ( $this->is_running() ) {
-			$this->schedule();
+			$this->schedule( $this->delay );
 		}
 	}
 
@@ -171,7 +178,8 @@ class MigrationRunner {
 	 * @return array|null The new state, or null when no migration is running.
 	 */
 	public function run_batch( $limit = self::BATCH_SIZE ) {
-		$state = $this->get_state();
+		$state       = $this->get_state();
+		$this->delay = 0;
 
 		if ( ! $state || ! empty( $state['finished_at'] ) ) {
 			return null;
@@ -185,10 +193,12 @@ class MigrationRunner {
 			} catch ( \Throwable $e ) {
 				$state['errors'] = $this->add_error( $state['errors'], $state['step'], $e->getMessage() );
 				$this->save_state( $state );
-				$this->schedule( self::RETRY_DELAY );
+				$this->delay = self::RETRY_DELAY;
 
 				return $state;
 			}
+
+			$this->delay = $result->get_delay();
 
 			foreach ( $result->get_counts() as $key => $value ) {
 				$state['counts'][ $key ] = ( $state['counts'][ $key ] ?? 0 ) + (int) $value;
@@ -226,6 +236,15 @@ class MigrationRunner {
 		$index = $state ? $this->step_index( $state['step'] ) : null;
 
 		return array( null === $index ? 0 : $index + 1, count( $this->steps ) );
+	}
+
+	/**
+	 * Seconds the last batch asked to wait before the next one (0: continue at once).
+	 *
+	 * @return int
+	 */
+	public function get_delay() {
+		return $this->delay;
 	}
 
 	/**
@@ -308,7 +327,7 @@ class MigrationRunner {
 	 *
 	 * @param int $delay Delay in seconds.
 	 */
-	private function schedule( $delay = 0 ) {
+	public function schedule( $delay = 0 ) {
 		if ( ! function_exists( 'as_enqueue_async_action' ) || as_has_scheduled_action( self::HOOK_MIGRATE, array(), self::GROUP ) ) {
 			return;
 		}

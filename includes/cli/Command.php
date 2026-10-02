@@ -259,7 +259,15 @@ class Command {
 			$last   = end( $errors );
 
 			if ( $last !== $previous ) {
+				$this->migration->schedule( $this->migration->get_delay() );
 				\WP_CLI::error( sprintf( 'Step %s failed: %s', $last['step'], $last['message'] ) );
+			}
+
+			if ( $this->migration->is_running() && $this->migration->get_delay() > 0 ) {
+				$this->migration->schedule( $this->migration->get_delay() );
+				$progress->finish();
+				\WP_CLI::warning( sprintf( 'Step %s is waiting; it will be retried in the background in %d seconds.', $state['step'], $this->migration->get_delay() ) );
+				return;
 			}
 
 			$position = $this->migration->is_running() ? $this->migration->get_progress()[0] - 1 : $total;

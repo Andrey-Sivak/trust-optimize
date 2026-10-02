@@ -35,11 +35,16 @@ if ( empty( $trust_optimize_cleanup_summary['done'] ) ) {
 	);
 }
 
-trust_optimize_drop_plugin_tables();
+// A registry of schema 1.x that could not be imported keeps its table: it is the only record of those files.
+trust_optimize_drop_plugin_tables( ! empty( $trust_optimize_cleanup_summary['legacy_registry_done'] ) );
 trust_optimize_delete_plugin_options();
 
 /**
  * Clean generated files recorded in the variants table.
+ *
+ * The 1.x registry, if the migration did not finish, is imported first, so its files are cleaned up under the same rules.
+ *
+ * @return array Summary; 'legacy_registry_done' tells whether no 1.x registry is left unprocessed.
  */
 function trust_optimize_uninstall_cleanup_generated_files() {
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
@@ -47,18 +52,20 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 
 	if ( ! $database_manager->table_exists( $tables['variants'] ) ) {
 		return array(
-			'done'      => true,
-			'processed' => 0,
-			'deleted'   => 0,
-			'skipped'   => 0,
-			'failed'    => 0,
-			'errors'    => array(),
-			'reason'    => 'variants_table_missing',
+			'done'                 => true,
+			'processed'            => 0,
+			'deleted'              => 0,
+			'skipped'              => 0,
+			'failed'               => 0,
+			'errors'               => array(),
+			'reason'               => 'variants_table_missing',
+			'legacy_registry_done' => ! $database_manager->table_exists( $tables['images'] ),
 		);
 	}
 
 	$variants    = new \TrustOptimize\Storage\VariantRepository( $database_manager );
-	$cleanup     = new \TrustOptimize\Service\ImageCleanupService( $variants, new \TrustOptimize\Storage\AttachmentRepository( $database_manager, $variants ), new \TrustOptimize\Service\LegacyPathGuard( $database_manager, $variants ), new \TrustOptimize\Migration\ConflictReport() );
+	$attachments = new \TrustOptimize\Storage\AttachmentRepository( $database_manager, $variants );
+	$cleanup     = new \TrustOptimize\Service\ImageCleanupService( $variants, $attachments, new \TrustOptimize\Service\LegacyPathGuard( $database_manager, $variants ), new \TrustOptimize\Migration\ConflictReport() );
 	$batch_size  = (int) apply_filters( 'trust_optimize_uninstall_cleanup_batch_size', 100 );
 	$max_records = (int) apply_filters( 'trust_optimize_uninstall_cleanup_max_records', 5000 );
 	$max_seconds = (float) apply_filters( 'trust_optimize_uninstall_cleanup_max_seconds', 20 );
@@ -76,6 +83,8 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 		'max_records' => max( 1, $max_records ),
 		'max_seconds' => max( 1, $max_seconds ),
 	);
+
+	$summary['legacy_registry_done'] = trust_optimize_uninstall_import_legacy_registry( new \TrustOptimize\Migration\ImportLegacyManifest( $database_manager, $variants, $attachments ), $database_manager, $summary['max_seconds'] );
 
 	while ( $summary['processed'] < $summary['max_records'] ) {
 		if ( ( microtime( true ) - $started_at ) >= $summary['max_seconds'] ) {
@@ -116,13 +125,47 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 }
 
 /**
- * Drop TrustOptimize custom tables.
+ * Import what is left of the 1.x registry into the variants table.
+ *
+ * @param \TrustOptimize\Migration\ImportLegacyManifest $step             Import step.
+ * @param \TrustOptimize\Database\DatabaseManager       $database_manager Database manager.
+ * @param float                                         $max_seconds      Time budget.
+ * @return bool True when nothing is left to import (or there is no registry).
  */
-function trust_optimize_drop_plugin_tables() {
+function trust_optimize_uninstall_import_legacy_registry( $step, $database_manager, $max_seconds ) {
+	if ( ! $database_manager->table_exists( $database_manager->get_plugin_table_names()['images'] ) ) {
+		return true;
+	}
+
+	$started_at = microtime( true );
+	$cursor     = 0;
+
+	do {
+		if ( ( microtime( true ) - $started_at ) >= max( 1, $max_seconds ) ) {
+			return false;
+		}
+
+		$result = $step->run_batch( $cursor, 50 );
+		$cursor = $result->get_cursor();
+	} while ( ! $result->is_done() );
+
+	return true;
+}
+
+/**
+ * Drop TrustOptimize custom tables.
+ *
+ * @param bool $drop_legacy Whether the 1.x registry table is dropped too.
+ */
+function trust_optimize_drop_plugin_tables( $drop_legacy ) {
 	global $wpdb;
 
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
 	$tables           = $database_manager->get_plugin_table_names();
+
+	if ( ! $drop_legacy ) {
+		unset( $tables['images'] );
+	}
 
 	foreach ( $tables as $table ) {
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -138,6 +181,8 @@ function trust_optimize_delete_plugin_options() {
 	delete_option( 'trust_optimize_options' );
 	delete_option( 'trust_optimize_db_version' );
 	delete_option( 'trust_optimize_preflight' );
+	delete_option( 'trust_optimize_migration' );
+	delete_option( 'trust_optimize_migration_conflicts' );
 	delete_option( 'trust_optimize_capabilities' );
 	delete_option( 'trust_optimize_remove_data_on_uninstall' );
 }

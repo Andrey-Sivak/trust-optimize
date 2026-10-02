@@ -405,6 +405,19 @@ class VariantRepository {
 	}
 
 	/**
+	 * Number of 1.x rows that are neither regenerated nor parked as conflicts.
+	 *
+	 * @return int
+	 */
+	public function count_unresolved_legacy_rows() {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE naming = 'legacy' AND status <> %s", VariantStatus::FAILED )
+		);
+	}
+
+	/**
 	 * Forget the 1.x file of a row (it was deleted, or it must not be served).
 	 *
 	 * @param int $id Row id.
