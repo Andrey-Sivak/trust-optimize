@@ -251,6 +251,8 @@ class VariantPlanner {
 	/**
 	 * Compare stored rows with the desired variants.
 	 *
+	 * Rows with naming "legacy" are ignored completely (see the migration).
+	 *
 	 * @param array[]              $existing Stored rows.
 	 * @param array[]              $desired  Output of desired_variants().
 	 * @param OptimizationSettings $settings Current settings.
@@ -264,13 +266,26 @@ class VariantPlanner {
 			'replaced' => array(),
 		);
 
+		// Rows of schema 1.x belong to the migration alone: they are neither reset nor deleted here,
+		// and their key is taken, so no 2.0 row is inserted over them.
+		$legacy = array();
 		$by_key = array();
 		foreach ( $existing as $row ) {
-			$by_key[ $row['size_name'] . '|' . $row['format'] ] = $row;
+			$key = $row['size_name'] . '|' . $row['format'];
+
+			if ( 'legacy' === ( $row['naming'] ?? '' ) ) {
+				$legacy[ $key ] = true;
+			} else {
+				$by_key[ $key ] = $row;
+			}
 		}
 
 		foreach ( $desired as $want ) {
 			$key = $want['size_name'] . '|' . $want['format'];
+
+			if ( isset( $legacy[ $key ] ) ) {
+				continue;
+			}
 
 			// Enabled but unsupported here: nothing new, and what exists stays as it is.
 			if ( ! $settings->is_plannable( $want['format'] ) ) {

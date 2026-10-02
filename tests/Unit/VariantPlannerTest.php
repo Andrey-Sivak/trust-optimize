@@ -209,4 +209,17 @@ class VariantPlannerTest extends TestCase {
 		$this->assertCount( 1, $result['delete'] );
 		$this->assertSame( 'gone', $result['delete'][0]['size_name'] );
 	}
+
+	public function test_reconcile_never_touches_legacy_rows() {
+		$legacy = array(
+			$this->row( array( 'naming' => 'legacy', 'quality' => 0 ) ),
+			$this->row( array( 'naming' => 'legacy', 'format' => 'png', 'size_name' => 'original' ) ),
+			$this->row( array( 'naming' => 'legacy', 'status' => 'failed', 'size_name' => 'medium' ) ),
+			$this->row( array( 'naming' => 'legacy', 'format' => 'avif', 'size_name' => 'gone' ) ),
+		);
+
+		$result = VariantPlanner::reconcile( $legacy, array( $this->want(), $this->want( array( 'size_name' => 'medium' ) ) ), $this->settings() );
+
+		$this->assertSame( array( 'insert' => array(), 'reset' => array(), 'delete' => array(), 'replaced' => array() ), $result, 'Stale, failed and orphaned legacy rows are left to the migration and no row is inserted over them.' );
+	}
 }
