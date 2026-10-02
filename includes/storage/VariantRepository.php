@@ -272,6 +272,41 @@ class VariantRepository {
 	}
 
 	/**
+	 * Which other attachments have a variant row with one of the paths (as its file or its 1.x file).
+	 *
+	 * @param int      $attachment_id Attachment to ignore.
+	 * @param string[] $paths         Paths relative to uploads.
+	 * @return int[] Attachment ID keyed by path.
+	 */
+	public function find_other_owners( $attachment_id, array $paths ) {
+		global $wpdb;
+
+		if ( empty( $paths ) ) {
+			return array();
+		}
+
+		$in    = implode( ', ', array_fill( 0, count( $paths ), '%s' ) );
+		$rows  = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT attachment_id, relative_path, legacy_relative_path FROM {$this->table} WHERE attachment_id <> %d AND (relative_path IN ({$in}) OR legacy_relative_path IN ({$in}))",
+				array_merge( array( (int) $attachment_id ), $paths, $paths )
+			),
+			ARRAY_A
+		);
+		$found = array();
+
+		foreach ( (array) $rows as $row ) {
+			foreach ( array( $row['relative_path'], $row['legacy_relative_path'] ) as $path ) {
+				if ( in_array( $path, $paths, true ) ) {
+					$found += array( $path => (int) $row['attachment_id'] );
+				}
+			}
+		}
+
+		return $found;
+	}
+
+	/**
 	 * Delete one variant row.
 	 *
 	 * @param int $id Row id.

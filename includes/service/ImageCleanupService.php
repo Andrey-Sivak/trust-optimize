@@ -8,6 +8,7 @@
 namespace TrustOptimize\Service;
 
 use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -19,7 +20,9 @@ use TrustOptimize\Value\DeleteResult;
  *
  * Deletes only files that a variant row of the plugin points at. A row is removed
  * once its file is confirmed gone (or turned out not to be ours); a file that cannot
- * be deleted keeps its row, marked failed.
+ * be deleted keeps its row, marked failed. A file of schema 1.x that is also a file of
+ * another attachment is never deleted (D-15): the case is reported, and the row is
+ * marked failed unless the attachment itself is being deleted.
  */
 class ImageCleanupService {
 
@@ -38,30 +41,58 @@ class ImageCleanupService {
 	private $attachments;
 
 	/**
+	 * Guard for files of schema 1.x.
+	 *
+	 * @var LegacyPathGuard
+	 */
+	private $guard;
+
+	/**
+	 * Report of 1.x files that belong to other attachments.
+	 *
+	 * @var ConflictReport
+	 */
+	private $conflicts;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param VariantRepository    $variants    Variant repository.
 	 * @param AttachmentRepository $attachments Attachment repository.
+	 * @param LegacyPathGuard      $guard       Guard for files of schema 1.x.
+	 * @param ConflictReport       $conflicts   Conflict report.
 	 */
-	public function __construct( VariantRepository $variants, AttachmentRepository $attachments ) {
+	public function __construct( VariantRepository $variants, AttachmentRepository $attachments, LegacyPathGuard $guard, ConflictReport $conflicts ) {
 		$this->variants    = $variants;
 		$this->attachments = $attachments;
+		$this->guard       = $guard;
+		$this->conflicts   = $conflicts;
 	}
 
 	/**
 	 * Clean up when an attachment is deleted.
 	 */
 	public function register() {
-		add_action( 'delete_attachment', array( $this, 'cleanup_attachment' ) );
+		add_action( 'delete_attachment', array( $this, 'on_attachment_deleted' ) );
+	}
+
+	/**
+	 * The attachment is being deleted: remove its generated files and rows.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 */
+	public function on_attachment_deleted( $attachment_id ) {
+		$this->cleanup_attachment( $attachment_id, true );
 	}
 
 	/**
 	 * Remove every generated file and row of an attachment.
 	 *
-	 * @param int $attachment_id Attachment ID.
+	 * @param int  $attachment_id  Attachment ID.
+	 * @param bool $attachment_gone Whether the attachment itself is being deleted.
 	 * @return DeleteResult
 	 */
-	public function cleanup_attachment( $attachment_id ) {
+	public function cleanup_attachment( $attachment_id, $attachment_gone = false ) {
 		ConversionQueue::cancel_tasks_for_attachment( $attachment_id );
 
 		$rows = $this->variants->get_for_attachment( $attachment_id );
@@ -73,7 +104,7 @@ class ImageCleanupService {
 			return DeleteResult::skipped( 'no_generated_variants' );
 		}
 
-		$result = $this->remove( $attachment_id, $rows, true );
+		$result = $this->remove( $attachment_id, $rows, true, $attachment_gone );
 
 		if ( empty( $this->variants->get_for_attachment( $attachment_id ) ) ) {
 			$this->attachments->delete( $attachment_id );
@@ -174,37 +205,67 @@ class ImageCleanupService {
 	 * @param int     $attachment_id Attachment ID.
 	 * @param array[] $rows          Variant rows.
 	 * @param bool    $delete_rows   Whether rows are removed once their file is gone.
+	 * @param bool    $attachment_gone Whether the attachment itself is being deleted.
 	 * @return DeleteResult
 	 */
-	private function remove( $attachment_id, array $rows, $delete_rows ) {
+	private function remove( $attachment_id, array $rows, $delete_rows, $attachment_gone = false ) {
 		$protected = $this->get_protected_paths( $attachment_id );
+		$conflicts = $this->guard->find_conflicts( $attachment_id, $this->legacy_paths( $rows ) );
 		$deleted   = array();
 		$skipped   = array();
 		$errors    = array();
 
 		foreach ( $rows as $row ) {
-			$outcome = $this->remove_file( $row, $protected );
+			$keep    = false;
+			$failed  = false;
+			$legacy  = 'legacy' === ( $row['naming'] ?? '' );
+			$targets = array( array( $row['relative_path'] ?? '', $row['file_hash'] ?? null, $legacy ) );
 
-			if ( 'deleted' === $outcome['status'] ) {
-				$deleted[] = $outcome['path'];
-			} elseif ( 'failed' === $outcome['status'] ) {
-				$errors[] = array(
-					'variant' => $row,
-					'reason'  => $outcome['reason'],
-				);
-				if ( $delete_rows ) {
-					$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => $outcome['reason'] ) );
+			if ( ! empty( $row['legacy_relative_path'] ) ) {
+				$targets[] = array( $row['legacy_relative_path'], null, true );
+			}
+
+			foreach ( $targets as list( $relative_path, $hash, $guarded ) ) {
+				$conflict = $guarded ? ( $conflicts[ $relative_path ] ?? null ) : null;
+				$outcome  = $this->remove_file( $relative_path, $hash, $protected, null !== $conflict );
+
+				if ( 'deleted' === $outcome['status'] ) {
+					$deleted[] = $outcome['path'];
+					continue;
 				}
-				continue;
-			} else {
+
+				if ( 'failed' === $outcome['status'] ) {
+					$failed   = true;
+					$errors[] = array(
+						'variant' => $row,
+						'reason'  => $outcome['reason'],
+					);
+					if ( $delete_rows ) {
+						$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => $outcome['reason'] ) );
+					}
+					continue;
+				}
+
 				$skipped[] = array(
 					'variant' => $row,
 					'reason'  => $outcome['reason'],
 				);
+
+				// "outside_uploads" is refused outright and keeps its row for inspection.
+				$keep = $keep || 'outside_uploads' === $outcome['reason'];
+
+				if ( 'legacy_conflict' === $outcome['reason'] ) {
+					$this->conflicts->add( $attachment_id, $relative_path, $conflict['attachment_id'], $conflict['source'] );
+
+					// The file is never deleted. A 1.x row that points at it is parked for the report, unless it goes away with its attachment.
+					if ( $delete_rows && ! $attachment_gone && $legacy && $relative_path === $row['relative_path'] ) {
+						$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => 'legacy_conflict' ) );
+						$keep = true;
+					}
+				}
 			}
 
-			// "outside_uploads" is refused outright and keeps its row for inspection.
-			if ( $delete_rows && 'outside_uploads' !== ( $outcome['reason'] ?? '' ) ) {
+			if ( $delete_rows && ! $failed && ! $keep ) {
 				$this->variants->delete( $row['id'] );
 			}
 		}
@@ -226,26 +287,54 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Delete the file of one row when it is safe to.
+	 * Paths of schema 1.x files in rows: the file of a 1.x row and the old file of a regenerated row.
 	 *
-	 * @param array $row       Variant row.
-	 * @param array $protected Protected paths keyed by normalized path.
+	 * @param array[] $rows Variant rows.
+	 * @return string[]
+	 */
+	private function legacy_paths( array $rows ) {
+		$paths = array();
+
+		foreach ( $rows as $row ) {
+			if ( 'legacy' === ( $row['naming'] ?? '' ) ) {
+				$paths[] = $row['relative_path'] ?? '';
+			}
+			$paths[] = $row['legacy_relative_path'] ?? '';
+		}
+
+		return array_filter( $paths );
+	}
+
+	/**
+	 * Delete one file of a row when it is safe to.
+	 *
+	 * @param string      $relative_path Path relative to uploads, empty when the row has no file.
+	 * @param string|null $hash          Expected SHA-256 of the file, if known.
+	 * @param array       $protected     Protected paths keyed by normalized path.
+	 * @param bool        $conflict      Whether the file belongs to another attachment (schema 1.x only).
 	 * @return array{status:string,reason?:string,path?:string} Status: deleted, skipped or failed.
 	 */
-	private function remove_file( array $row, array $protected ) {
-		if ( empty( $row['relative_path'] ) ) {
+	private function remove_file( $relative_path, $hash, array $protected, $conflict ) {
+		if ( empty( $relative_path ) ) {
 			return array(
 				'status' => 'skipped',
 				'reason' => 'no_file',
 			);
 		}
 
-		$path = UploadsPath::absolute( $row['relative_path'] );
+		$path = UploadsPath::absolute( $relative_path );
 
 		if ( null === $path || ! UploadsPath::is_inside( $path ) ) {
 			return array(
 				'status' => 'skipped',
 				'reason' => 'outside_uploads',
+			);
+		}
+
+		if ( $conflict ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'legacy_conflict',
 			);
 		}
 
@@ -263,7 +352,7 @@ class ImageCleanupService {
 			);
 		}
 
-		if ( ! empty( $row['file_hash'] ) && hash_file( 'sha256', $path ) !== $row['file_hash'] ) {
+		if ( ! empty( $hash ) && hash_file( 'sha256', $path ) !== $hash ) {
 			return array(
 				'status' => 'skipped',
 				'reason' => 'hash_mismatch',

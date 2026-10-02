@@ -19,11 +19,13 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
+use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -118,7 +120,7 @@ class Plugin {
 		$migration    = new MigrationRunner( $database, array() );
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
-		$this->cleanup          = new ImageCleanupService( $variants, $attachments );
+		$this->cleanup          = new ImageCleanupService( $variants, $attachments, new LegacyPathGuard( $database, $variants ), new ConflictReport() );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->bulk_runner      = new BulkJobRunner( $jobs, $eligibility, $this->planner, $this->processor, $this->cleanup );

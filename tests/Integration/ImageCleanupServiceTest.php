@@ -7,7 +7,9 @@
 
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Service\ImageCleanupService;
+use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -60,7 +62,7 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 		$database          = new DatabaseManager();
 		$this->variants    = new VariantRepository( $database );
 		$this->attachments = new AttachmentRepository( $database, $this->variants );
-		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments );
+		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments, new LegacyPathGuard( $database, $this->variants ), new ConflictReport() );
 	}
 
 	public function tear_down() {
