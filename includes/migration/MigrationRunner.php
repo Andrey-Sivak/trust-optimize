@@ -328,7 +328,17 @@ class MigrationRunner {
 	 * @param int $delay Delay in seconds.
 	 */
 	public function schedule( $delay = 0 ) {
-		if ( ! function_exists( 'as_enqueue_async_action' ) || as_has_scheduled_action( self::HOOK_MIGRATE, array(), self::GROUP ) ) {
+		// Not as_has_scheduled_action(): it counts the running action, which is the one asking for the next batch.
+		if ( ! function_exists( 'as_enqueue_async_action' ) || as_get_scheduled_actions(
+			array(
+				'hook'     => self::HOOK_MIGRATE,
+				'args'     => array(),
+				'group'    => self::GROUP,
+				'status'   => \ActionScheduler_Store::STATUS_PENDING,
+				'per_page' => 1,
+			),
+			'ids'
+		) ) {
 			return;
 		}
 

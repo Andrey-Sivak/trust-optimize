@@ -169,6 +169,22 @@ class MigrationRunnerTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'a:0', 'a:2' ), Recording_Migration_Step::$calls );
 	}
 
+	public function test_the_queue_runner_chains_the_batches_until_the_migration_has_finished() {
+		$runner = $this->runner( array( new Recording_Migration_Step( 'a', 120 ), new Recording_Migration_Step( 'b', 10 ) ) );
+
+		// The runner of the plugin listens to the same action and shares the state: leave only this one.
+		remove_all_actions( MigrationRunner::HOOK_MIGRATE );
+		add_action( MigrationRunner::HOOK_MIGRATE, array( $runner, 'run_scheduled' ) );
+		$runner->start( '1.3.0', '2.0.0' );
+
+		for ( $i = 0; $i < 10 && $runner->is_running(); $i++ ) {
+			ActionScheduler_QueueRunner::instance()->run();
+		}
+
+		$this->assertFalse( $runner->is_running(), 'Each batch queues the next one while its own action is still running.' );
+		$this->assertSame( array( 'a:0', 'a:50', 'a:100', 'b:0' ), Recording_Migration_Step::$calls );
+	}
+
 	public function test_a_step_can_ask_to_be_retried_later() {
 		$runner = $this->runner( array( new Waiting_Migration_Step() ) );
 		$runner->start( '1.3.0', '2.0.0' );
