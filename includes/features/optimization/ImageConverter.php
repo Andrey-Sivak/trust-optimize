@@ -7,218 +7,171 @@
 
 namespace TrustOptimize\Features\Optimization;
 
-use TrustOptimize\Database\ImageModel;
-use TrustOptimize\Admin\Settings;
-use TrustOptimize\Service\ImageProfileFactory;
-use TrustOptimize\Service\ImageOptimizationService;
+use TrustOptimize\Capabilities\CapabilityService;
+use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Naming\VariantNaming;
+use TrustOptimize\Settings\OptimizationSettings;
+use TrustOptimize\Storage\VariantRepository;
+use TrustOptimize\Utils\UploadsPath;
+use TrustOptimize\Value\OptimizeResult;
 
 /**
  * Class ImageConverter
+ *
+ * Converts one pending variant row into an image file and records the outcome.
  */
 class ImageConverter {
 
 	/**
-	 * Image model instance
+	 * Variant repository.
 	 *
-	 * @var ImageModel
+	 * @var VariantRepository
 	 */
-	protected $image_model;
+	private $variants;
 
 	/**
-	 * Settings instance
+	 * Atomic file writer.
 	 *
-	 * @var Settings
+	 * @var AtomicImageWriter
 	 */
-	protected $settings;
+	private $writer;
 
 	/**
-	 * Image profile factory instance
+	 * Capability service.
 	 *
-	 * @var ImageProfileFactory
+	 * @var CapabilityService
 	 */
-	protected $profile_factory;
+	private $capabilities;
 
 	/**
-	 * Constructor
+	 * Constructor.
+	 *
+	 * @param VariantRepository $variants     Variant repository.
+	 * @param AtomicImageWriter $writer       Atomic file writer.
+	 * @param CapabilityService $capabilities Capability service.
 	 */
-	public function __construct() {
-		$this->image_model     = new ImageModel();
-		$this->settings        = new Settings();
-		$this->profile_factory = new ImageProfileFactory( $this->settings );
+	public function __construct( VariantRepository $variants, AtomicImageWriter $writer, CapabilityService $capabilities ) {
+		$this->variants     = $variants;
+		$this->writer       = $writer;
+		$this->capabilities = $capabilities;
 	}
 
 	/**
-	 * Generates format versions for all generated image sizes.
+	 * Convert one pending variant.
 	 *
-	 * This method is hooked into 'wp_generate_attachment_metadata'.
+	 * The row moves pending -> processing -> done | skipped | failed. A variant that is
+	 * not smaller than its source is not kept (D-11). A format that no editor can write
+	 * is downgraded in the capability service.
 	 *
-	 * @param array $metadata The attachment metadata.
-	 * @param int   $attachment_id The attachment ID.
-	 *
-	 * @return array The modified attachment metadata.
+	 * @param array                $variant_row Row from the variants table.
+	 * @param OptimizationSettings $settings    Current settings (quality).
+	 * @return OptimizeResult Success (done), skipped (reason in message) or failed (reason in message).
 	 */
-	public function handle_image_upload( $metadata, $attachment_id ) {
-		$service = new ImageOptimizationService( $this, $this->image_model, $this->profile_factory );
-		$service->schedule_attachment_async( $attachment_id, $metadata );
+	public function convert( array $variant_row, OptimizationSettings $settings ) {
+		$id     = (int) $variant_row['id'];
+		$format = (string) $variant_row['format'];
+		$mime   = 'image/' . $format;
 
-		// Return metadata immediately without waiting for conversions
-		return $metadata;
-	}
-
-	/**
-	 * Convert a single size to a specific format.
-	 *
-	 * Public entry point for the ConversionQueue to call during async processing.
-	 *
-	 * @param int    $attachment_id The attachment ID.
-	 * @param string $size_name     The size name (e.g., 'original', 'thumbnail').
-	 * @param string $target_format The target format (e.g., 'webp', 'avif').
-	 * @param string $target_mime   The target MIME type (e.g., 'image/webp').
-	 * @return bool Success or failure.
-	 */
-	public function convert_single_size( $attachment_id, $size_name, $target_format, $target_mime ) {
-		$file_path = get_attached_file( $attachment_id );
-
-		if ( ! $file_path || ! file_exists( $file_path ) ) {
-			return false;
+		if ( ! $this->variants->transition( $id, VariantStatus::PENDING, VariantStatus::PROCESSING ) ) {
+			return OptimizeResult::skipped( 'not_pending' );
 		}
 
-		$metadata  = wp_get_attachment_metadata( $attachment_id );
-		$image_dir = dirname( $file_path );
+		$source_relative = (string) $variant_row['source_relative_path'];
+		$source_path     = UploadsPath::absolute( $source_relative );
 
-		if ( ! $metadata || ! is_array( $metadata ) ) {
-			return false;
+		if ( null === $source_path || ! is_file( $source_path ) ) {
+			return $this->fail( $id, 'missing_file', 'Source file is missing: ' . $source_relative );
 		}
 
-		$size_info   = null;
-		$source_path = $file_path;
-
-		if ( 'original' !== $size_name ) {
-			if ( ! isset( $metadata['sizes'][ $size_name ] ) ) {
-				return false;
-			}
-			$size_info   = $metadata['sizes'][ $size_name ];
-			$source_path = trailingslashit( $image_dir ) . $size_info['file'];
-		}
-
-		if ( ! file_exists( $source_path ) ) {
-			return false;
-		}
-
-		$result = $this->convert_single_image(
-			$metadata,
-			$attachment_id,
-			$source_path,
-			$image_dir,
-			$size_name,
-			$target_format,
-			$target_mime,
-			$size_info
-		);
-
-		// Persist the converted format info into WP attachment metadata
-		if ( $result ) {
-			$this->update_wp_metadata_async( $attachment_id, $size_name, $target_format );
-		}
-
-		return $result;
-	}
-
-	/**
-	 * Convert a single image to target format
-	 *
-	 * @param array  $metadata The attachment metadata
-	 * @param int    $attachment_id The attachment ID
-	 * @param string $source_path Source image path
-	 * @param string $dest_dir Destination directory
-	 * @param string $size_name Size name (e.g., 'original', 'thumbnail')
-	 * @param string $target_format Target format extension
-	 * @param string $target_mime Target mime type
-	 * @param array  $size_info Optional size info for non-original sizes
-	 * @return bool Success or failure
-	 */
-	private function convert_single_image( $metadata, $attachment_id, $source_path, $dest_dir, $size_name, $target_format, $target_mime, &$size_info = null ) {
-		$original_filename = basename( $source_path );
-		$target_path       = trailingslashit( $dest_dir ) . pathinfo( $original_filename, PATHINFO_FILENAME ) . '.' . $target_format;
-
-		$editor = $this->get_editor_for_target_mime( $source_path, $target_mime );
+		$source_size = (int) wp_filesize( $source_path );
+		$quality     = $settings->quality_for( $format );
+		$editor      = $this->get_editor_for_target_mime( $source_path, $mime );
 
 		if ( is_wp_error( $editor ) ) {
-			error_log(
-				sprintf(
-					'TrustOptimize: Failed to get compatible image editor for %s (%s, %s): %s',
-					$size_name,
-					$source_path,
-					$target_mime,
-					$editor->get_error_message()
-				)
-			);
-			return false;
+			if ( 'trust_optimize_unsupported_target_mime' === $editor->get_error_code() ) {
+				$this->capabilities->downgrade( $format, $editor->get_error_message() );
+
+				return $this->fail( $id, 'unsupported_format', $editor->get_error_message() );
+			}
+
+			return $this->fail( $id, 'no_editor', $editor->get_error_message() );
 		}
 
-		// Set quality based on format
-		$quality = $this->get_quality_for_format( $target_format );
 		$editor->set_quality( $quality );
 
-		// Save in target format
-		$saved = $editor->save( $target_path, $target_mime );
+		$target_relative = VariantNaming::target_relative_path( $source_relative, $format );
+		$target_path     = UploadsPath::absolute( $target_relative );
+		$saved           = null === $target_path ? new \WP_Error( 'target_outside_uploads', 'Invalid target path.' ) : $this->writer->save( $editor, $target_path, $mime );
 
 		if ( is_wp_error( $saved ) ) {
-			error_log(
-				sprintf(
-					'TrustOptimize: Failed to create %s for %s (%s): %s',
-					$target_format,
-					$size_name,
-					$source_path,
-					$saved->get_error_message()
+			return $this->fail( $id, $this->failure_reason( $saved ), $saved->get_error_message() );
+		}
+
+		$file_size = (int) wp_filesize( $saved['path'] );
+
+		if ( $file_size >= $source_size ) {
+			wp_delete_file( $saved['path'] );
+			$this->variants->transition(
+				$id,
+				VariantStatus::PROCESSING,
+				VariantStatus::SKIPPED,
+				array(
+					'relative_path'    => null,
+					'file_hash'        => null,
+					'quality'          => $quality,
+					'file_size'        => $file_size,
+					'source_file_size' => $source_size,
+					'reason'           => 'not_smaller',
 				)
 			);
-			return false;
+
+			return OptimizeResult::skipped( 'not_smaller' );
 		}
 
-		$saved_path = isset( $saved['path'] ) ? $saved['path'] : $target_path;
-		$saved_mime = isset( $saved['mime-type'] ) ? $saved['mime-type'] : '';
-
-		if ( $saved_mime !== $target_mime || ! file_exists( $saved_path ) ) {
-			error_log(
-				sprintf(
-					'TrustOptimize: Expected %s output for %s (%s), got mime=%s path=%s',
-					$target_mime,
-					$size_name,
-					$source_path,
-					$saved_mime,
-					$saved_path
-				)
-			);
-			return false;
-		}
-
-		$file_size = wp_filesize( $saved_path );
-		if ( false === $file_size ) {
-			$file_size = 0;
-		}
-
-		$profile_hash = $this->profile_factory->from_wp_metadata( $metadata )->get_hash();
-
-		// Add information to our custom format database
-		$this->image_model->add_format_variation(
-			$attachment_id,
-			$size_name,
-			$target_format,
+		$this->variants->transition(
+			$id,
+			VariantStatus::PROCESSING,
+			VariantStatus::DONE,
 			array(
-				'file'         => basename( $saved_path ),
-				'mime_type'    => $target_mime,
-				'file_size'    => $file_size,
-				'path'         => $saved_path,
-				'profile_hash' => $profile_hash,
+				'relative_path'    => $target_relative,
+				'width'            => (int) ( $saved['width'] ?? 0 ),
+				'height'           => (int) ( $saved['height'] ?? 0 ),
+				'quality'          => $quality,
+				'file_size'        => $file_size,
+				'source_file_size' => $source_size,
+				'file_hash'        => (string) hash_file( 'sha256', $saved['path'] ),
+				'reason'           => null,
 			)
 		);
-		$this->image_model->update_profile_hash( $attachment_id, $profile_hash );
 
-		// For backward compatibility, also update WordPress metadata
-		$this->update_wp_metadata( $metadata, $size_name, $target_format, $saved_path, $size_info );
+		return OptimizeResult::success( 'done', array( 'relative_path' => $target_relative ) );
+	}
 
-		return true;
+	/**
+	 * Mark a variant failed.
+	 *
+	 * @param int    $id      Variant row id.
+	 * @param string $reason  Machine-readable reason.
+	 * @param string $message Human-readable detail.
+	 * @return OptimizeResult
+	 */
+	private function fail( $id, $reason, $message ) {
+		$this->variants->transition( $id, VariantStatus::PROCESSING, VariantStatus::FAILED, array( 'reason' => $reason ) );
+
+		return OptimizeResult::failed( $reason, array( $message ) );
+	}
+
+	/**
+	 * Reason stored for a writer error.
+	 *
+	 * @param \WP_Error $error Writer error.
+	 * @return string
+	 */
+	private function failure_reason( \WP_Error $error ) {
+		$known = array( 'target_exists_foreign', 'target_outside_uploads', 'unexpected_output', 'rename_failed' );
+
+		return in_array( $error->get_error_code(), $known, true ) ? $error->get_error_code() : 'save_failed';
 	}
 
 	/**
@@ -245,6 +198,7 @@ class ImageConverter {
 		}
 
 		$implementations = array_merge(
+			// phpcs:ignore WordPress.NamingConventions.PrefixAllGlobals.NonPrefixedHooknameFound -- Core filter.
 			(array) apply_filters( 'wp_image_editors', array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' ) ),
 			array( 'WP_Image_Editor_Imagick', 'WP_Image_Editor_GD' )
 		);
@@ -284,7 +238,7 @@ class ImageConverter {
 	/**
 	 * Load bundled WordPress image editor classes before explicit fallback checks.
 	 *
-	 * wp_get_image_editor() may load only the selected implementation. When the
+	 * The function wp_get_image_editor() may load only the selected implementation. When the
 	 * selected editor cannot save a target MIME, fallback implementations such as
 	 * GD must be loaded before class_exists()/supports_mime_type() checks.
 	 *
@@ -296,133 +250,5 @@ class ImageConverter {
 			require_once ABSPATH . 'wp-includes/class-wp-image-editor-gd.php';
 			require_once ABSPATH . 'wp-includes/class-wp-image-editor-imagick.php';
 		}
-	}
-
-	/**
-	 * Get the appropriate quality setting for a specific format
-	 *
-	 * @param string $format The image format (webp, avif, etc.)
-	 * @return int The quality value to use
-	 */
-	private function get_quality_for_format( $format ) {
-		$options        = $this->settings->get_all();
-		$legacy_quality = isset( $options['image_quality'] ) ? (int) $options['image_quality'] : 85;
-
-		switch ( $format ) {
-			case 'avif':
-				$quality = isset( $options['avif_quality'] ) ? (int) $options['avif_quality'] : min( $legacy_quality, 85 );
-				break;
-			case 'webp':
-				$quality = isset( $options['webp_quality'] ) ? (int) $options['webp_quality'] : min( $legacy_quality, 90 );
-				break;
-			case 'jpeg':
-			case 'jpg':
-				$quality = isset( $options['jpeg_quality'] ) ? (int) $options['jpeg_quality'] : $legacy_quality;
-				break;
-			default:
-				$quality = $legacy_quality;
-		}
-
-		return max( 1, min( 100, (int) apply_filters( "trust_optimize_{$format}_quality", $quality ) ) );
-	}
-
-	/**
-	 * Update WordPress metadata with converted format info
-	 *
-	 * @param array  $metadata Main metadata array
-	 * @param string $size_name Size name
-	 * @param string $format Target format
-	 * @param string $file_path Converted file path
-	 * @param array  $size_info Size info reference for non-original sizes
-	 */
-	private function update_wp_metadata( &$metadata, $size_name, $format, $file_path, &$size_info = null ) {
-		$file_size = wp_filesize( $file_path );
-		if ( false === $file_size ) {
-			$file_size = 0;
-		}
-
-		$format_data = array(
-			'file'      => basename( $file_path ),
-			'mime-type' => 'image/' . $format,
-			'filesize'  => $file_size,
-		);
-
-		if ( $size_name === 'original' ) {
-			// Add width and height for original size
-			$format_data['width']  = $metadata['width'];
-			$format_data['height'] = $metadata['height'];
-
-			// Store in main metadata array
-			if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
-				$metadata['trust_optimize_converted'] = array();
-			}
-			$metadata['trust_optimize_converted'][ 'original_' . $format ] = $format_data;
-		} elseif ( $size_info !== null ) {
-			// Add width and height for this size
-			$format_data['width']  = $size_info['width'];
-			$format_data['height'] = $size_info['height'];
-
-			// Store in size-specific metadata
-			if ( ! isset( $size_info['trust_optimize_converted'] ) ) {
-				$size_info['trust_optimize_converted'] = array();
-			}
-			$size_info['trust_optimize_converted'][ $format ] = $format_data;
-		}
-	}
-
-	/**
-	 * Persist converted format info into WP attachment metadata.
-	 *
-	 * Used by async processing to update WP metadata after each conversion.
-	 *
-	 * @param int    $attachment_id The attachment ID.
-	 * @param string $size_name     The size name.
-	 * @param string $target_format The converted format.
-	 */
-	private function update_wp_metadata_async( $attachment_id, $size_name, $target_format ) {
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-
-		if ( ! $metadata || ! is_array( $metadata ) ) {
-			return;
-		}
-
-		// Get the saved format data from our custom table
-		$format_data = $this->image_model->get_format( $attachment_id, $size_name, $target_format );
-
-		if ( ! $format_data || ! isset( $format_data['file'] ) ) {
-			return;
-		}
-
-		$file_path = get_attached_file( $attachment_id );
-		$image_dir = dirname( $file_path );
-		$full_path = trailingslashit( $image_dir ) . $format_data['file'];
-
-		$file_size = file_exists( $full_path ) ? wp_filesize( $full_path ) : 0;
-
-		$wp_format_data = array(
-			'file'      => $format_data['file'],
-			'mime-type' => 'image/' . $target_format,
-			'filesize'  => $file_size,
-		);
-
-		if ( 'original' === $size_name ) {
-			$wp_format_data['width']  = $metadata['width'];
-			$wp_format_data['height'] = $metadata['height'];
-
-			if ( ! isset( $metadata['trust_optimize_converted'] ) ) {
-				$metadata['trust_optimize_converted'] = array();
-			}
-			$metadata['trust_optimize_converted'][ 'original_' . $target_format ] = $wp_format_data;
-		} elseif ( isset( $metadata['sizes'][ $size_name ] ) ) {
-			$wp_format_data['width']  = $metadata['sizes'][ $size_name ]['width'];
-			$wp_format_data['height'] = $metadata['sizes'][ $size_name ]['height'];
-
-			if ( ! isset( $metadata['sizes'][ $size_name ]['trust_optimize_converted'] ) ) {
-				$metadata['sizes'][ $size_name ]['trust_optimize_converted'] = array();
-			}
-			$metadata['sizes'][ $size_name ]['trust_optimize_converted'][ $target_format ] = $wp_format_data;
-		}
-
-		wp_update_attachment_metadata( $attachment_id, $metadata );
 	}
 }

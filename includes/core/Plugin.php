@@ -13,6 +13,8 @@ use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Storage\VariantRepository;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Bulk\BulkJobRunner;
@@ -142,8 +144,9 @@ class Plugin {
 		// Initialize image processor
 		$this->image_processor = new ImageProcessor();
 
-		// Initialize image converter
-		$this->image_converter = new ImageConverter();
+		// Initialize image converter (until 02.12 introduces the composition root)
+		$variants              = new VariantRepository( $this->db_manager );
+		$this->image_converter = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $this->capabilities );
 
 		// Initialize settings
 		$this->settings = new Settings();
@@ -172,9 +175,6 @@ class Plugin {
 
 		// Filter for direct wp_get_attachment_image() output (frontend processing)
 		$this->loader->add_filter( 'wp_get_attachment_image', $this->image_processor, 'process_attachment_image_html', 999, 5 );
-
-		// Hook for generating WebP on image upload (backend conversion)
-		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'handle_image_upload', 10, 2 );
 
 		// Hook for cleaning up image data when an attachment is deleted
 		$this->loader->add_action( 'delete_attachment', $this, 'clean_image_data', 10 );

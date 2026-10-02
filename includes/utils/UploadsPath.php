@@ -78,6 +78,18 @@ class UploadsPath {
 	}
 
 	/**
+	 * Absolute path of a file given relative to uploads.
+	 *
+	 * @param string $relative_path Path such as "2026/05/photo.jpg".
+	 * @return string|null Absolute path, or null when the input is unsafe.
+	 */
+	public static function absolute( $relative_path ) {
+		$dir = dirname( $relative_path );
+
+		return self::resolve( '.' === $dir ? '' : $dir, basename( $relative_path ) );
+	}
+
+	/**
 	 * Resolve a stored variant record to an absolute path.
 	 *
 	 * Uses the recorded relative directory, or the directory of the attachment's original file.
