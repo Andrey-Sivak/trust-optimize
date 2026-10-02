@@ -38,6 +38,9 @@
     "test:integration": "phpunit --testsuite integration --bootstrap tests/Integration/bootstrap.php"
   },
   "config": {
+    "platform": {
+      "php": "8.0.30"
+    },
     "allow-plugins": {
       "dealerdirect/phpcodesniffer-composer-installer": true
     }

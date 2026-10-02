@@ -12,7 +12,7 @@
  * Plugin URI:        https://github.com/Andrey-Sivak/trust-optimize
  * Description:       Advanced media optimization for WordPress. Dynamically resizes images based on visitor's device and viewport.
  * Version:           1.0.0
- * Requires at least: 5.6
+ * Requires at least: 6.5
  * Requires PHP:      8.0
  * Author:            Andrii Sivak
  * Author URI:        https://github.com/Andrey-Sivak
@@ -26,6 +26,7 @@ use TrustOptimize\API\RestController;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Core\Plugin;
+use TrustOptimize\Core\Requirements;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageProfileFactory;
@@ -59,6 +60,15 @@ register_deactivation_hook( __FILE__, 'trust_optimize_deactivate' );
  * The code that runs during plugin activation.
  */
 function trust_optimize_activate() {
+	if ( ! Requirements::is_current_database_supported() ) {
+		deactivate_plugins( TRUST_OPTIMIZE_PLUGIN_BASENAME );
+		wp_die(
+			esc_html( Requirements::database_message() ),
+			esc_html__( 'Plugin activation error', 'trust-optimize' ),
+			array( 'back_link' => true )
+		);
+	}
+
 	if ( class_exists( 'TrustOptimize\\Database\\DatabaseManager' ) ) {
 		$database_manager = new DatabaseManager();
 		$database_manager->create_tables();
@@ -116,6 +126,7 @@ function trust_optimize_init() {
 	}
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );
+add_action( 'admin_notices', array( Requirements::class, 'maybe_show_admin_notice' ) );
 
 /**
  * Admin notice when main class is missing
@@ -155,6 +166,7 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Admin.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/frontend/Frontend.php';
+	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Requirements.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
 }
