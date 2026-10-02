@@ -18,6 +18,10 @@ use TrustOptimize\Queue\ConversionQueue;
  * that has no converted variant yet is unknown to the regeneration step. Then they are
  * cancelled and the options and transients that only 1.x used are deleted.
  *
+ * The Action Scheduler runs 1.x tasks as soon as the plugin is upgraded, long before the
+ * migration reaches this step, and an action without a callback is just completed. So the
+ * hook keeps a callback that does what the step does, as long as the plugin is installed.
+ *
  * The bulk tick action, its lock options and status transients are not touched: bulk jobs
  * still run on them in this version, and a job of 1.x continues under 2.0.
  */
@@ -55,6 +59,22 @@ class CleanupLegacyRuntime implements MigrationStep {
 	}
 
 	/**
+	 * Register the callback for the 1.x task hook.
+	 */
+	public function register() {
+		add_action( self::LEGACY_TASK_HOOK, array( $this, 'absorb_task' ), 10, 1 );
+	}
+
+	/**
+	 * Action Scheduler callback: a 1.x per-variant task becomes an attachment task.
+	 *
+	 * @param int|array $payload The variant payload of 1.x (or, in older tasks, the attachment ID).
+	 */
+	public function absorb_task( $payload ) {
+		$this->queue_attachment( $this->attachment_id( array( $payload ) ) );
+	}
+
+	/**
 	 * Step name.
 	 *
 	 * @return string
@@ -85,12 +105,7 @@ class CleanupLegacyRuntime implements MigrationStep {
 		);
 
 		foreach ( $actions as $action_id => $action ) {
-			$attachment_id = $this->attachment_id( $action->get_args() );
-
-			if ( $attachment_id > 0 && 'attachment' === get_post_type( $attachment_id ) ) {
-				$this->queue->plan_and_enqueue( $attachment_id );
-			}
-
+			$this->queue_attachment( $this->attachment_id( $action->get_args() ) );
 			\ActionScheduler::store()->cancel_action( $action_id );
 		}
 
@@ -105,6 +120,17 @@ class CleanupLegacyRuntime implements MigrationStep {
 		$counts['transients'] = $this->delete_transients( $limit );
 
 		return $counts['transients'] >= (int) $limit ? BatchResult::more( $cursor, $counts ) : BatchResult::finished( $counts );
+	}
+
+	/**
+	 * Plan and queue the attachment of a 1.x task, unless it is gone.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 */
+	private function queue_attachment( $attachment_id ) {
+		if ( $attachment_id > 0 && 'attachment' === get_post_type( $attachment_id ) ) {
+			$this->queue->plan_and_enqueue( $attachment_id );
+		}
 	}
 
 	/**

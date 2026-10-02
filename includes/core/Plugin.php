@@ -136,7 +136,8 @@ class Plugin {
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $eligibility, $this->bulk_runner );
 
-		$migration = new MigrationRunner(
+		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue );
+		$migration      = new MigrationRunner(
 			$database,
 			array(
 				new ImportLegacyManifest( $database, $variants, $attachments ),
@@ -144,7 +145,7 @@ class Plugin {
 				new ScheduleRegeneration( $variants, $this->conversion_queue ),
 				new RetireLegacyFiles( $variants, $this->cleanup ),
 				new StripAttachmentMetadata( $database ),
-				new CleanupLegacyRuntime( $this->conversion_queue ),
+				$legacy_runtime,
 				new Finalize( $database, $variants ),
 			)
 		);
@@ -156,6 +157,7 @@ class Plugin {
 			new ImageProcessor( $variants, $settings ),
 			$this->cleanup,
 			$this->conversion_queue,
+			$legacy_runtime,
 			$this->bulk_runner,
 			$this->admin,
 			$this->rest_controller,

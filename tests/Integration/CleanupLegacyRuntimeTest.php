@@ -62,6 +62,17 @@ class CleanupLegacyRuntimeTest extends WP_UnitTestCase {
 		);
 	}
 
+	public function test_a_1x_task_that_runs_before_the_step_is_turned_into_an_attachment_task() {
+		$id = $this->attachment();
+
+		$this->assertNotFalse( has_action( CleanupLegacyRuntime::LEGACY_TASK_HOOK ) );
+
+		// What the Action Scheduler does with a 1.x task: it runs the hook with the payload.
+		do_action( CleanupLegacyRuntime::LEGACY_TASK_HOOK, array( 'attachment_id' => $id, 'size_name' => 'original' ) );
+
+		$this->assertCount( 1, $this->pending( ConversionQueue::HOOK_PROCESS, array( 'attachment_id' => $id ) ) );
+	}
+
 	public function test_pending_1x_tasks_become_attachment_tasks_and_are_cancelled() {
 		$a = $this->attachment();
 		$b = $this->attachment();
