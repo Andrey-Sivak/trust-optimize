@@ -47,3 +47,6 @@ yarn-debug.log
 debug.log
 # Local analysis workspace
 .info/
+
+# Local docs (not versioned)
+/docs/
