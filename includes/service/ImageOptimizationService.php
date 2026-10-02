@@ -11,6 +11,7 @@ use TrustOptimize\Admin\Settings;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Utils\UploadsPath;
 use TrustOptimize\Value\CapabilityCheck;
 use TrustOptimize\Value\ImageProfile;
 use TrustOptimize\Value\OptimizeResult;
@@ -609,58 +610,9 @@ class ImageOptimizationService {
 	 * @return bool
 	 */
 	private function variant_file_exists( array $variant, $attachment_id ) {
-		$path = $this->resolve_variant_path( $variant, $attachment_id );
+		$path = UploadsPath::resolve_variant( $variant, $attachment_id );
 
-		return '' !== $path && $this->is_inside_uploads( $path ) && file_exists( $path );
-	}
-
-	/**
-	 * Resolve a manifest variant to an absolute path.
-	 *
-	 * @param array $variant       Generated variant manifest record.
-	 * @param int   $attachment_id Attachment ID.
-	 * @return string Absolute target path or empty string.
-	 */
-	private function resolve_variant_path( array $variant, $attachment_id ) {
-		if ( empty( $variant['file'] ) ) {
-			return '';
-		}
-
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return '';
-		}
-
-		$file = basename( $variant['file'] );
-
-		if ( isset( $variant['relative_dir'] ) && '' !== $variant['relative_dir'] ) {
-			return trailingslashit( $upload_dir['basedir'] ) . trim( $variant['relative_dir'], '/' ) . '/' . $file;
-		}
-
-		$attached_file = get_attached_file( $attachment_id );
-		if ( $attached_file ) {
-			return trailingslashit( dirname( $attached_file ) ) . $file;
-		}
-
-		return '';
-	}
-
-	/**
-	 * Check whether a path is inside uploads basedir.
-	 *
-	 * @param string $path Absolute path.
-	 * @return bool
-	 */
-	private function is_inside_uploads( $path ) {
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return false;
-		}
-
-		$base = untrailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
-		$path = wp_normalize_path( $path );
-
-		return $path === $base || 0 === strpos( $path, trailingslashit( $base ) );
+		return null !== $path && UploadsPath::is_inside( $path ) && file_exists( $path );
 	}
 
 	/**

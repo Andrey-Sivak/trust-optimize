@@ -15,6 +15,7 @@ if ( file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 
 require_once __DIR__ . '/includes/value/OperationResult.php';
 require_once __DIR__ . '/includes/value/DeleteResult.php';
+require_once __DIR__ . '/includes/utils/UploadsPath.php';
 require_once __DIR__ . '/includes/database/DatabaseManager.php';
 require_once __DIR__ . '/includes/database/models/ImageModel.php';
 require_once __DIR__ . '/includes/queue/ConversionQueue.php';

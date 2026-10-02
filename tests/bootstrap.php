@@ -17,6 +17,66 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_normalize_path' ) ) {
+	/**
+	 * Copy of the core helper (wp-includes/functions.php), minus the stream-wrapper handling.
+	 *
+	 * @param string $path Path.
+	 * @return string
+	 */
+	function wp_normalize_path( $path ) {
+		$path = str_replace( '\\', '/', $path );
+		return preg_replace( '|(?<=.)/+|', '/', $path );
+	}
+}
+
+if ( ! function_exists( 'untrailingslashit' ) ) {
+	/**
+	 * Copy of the core helper.
+	 *
+	 * @param string $value Value.
+	 * @return string
+	 */
+	function untrailingslashit( $value ) {
+		return rtrim( $value, '/\\' );
+	}
+}
+
+if ( ! function_exists( 'trailingslashit' ) ) {
+	/**
+	 * Copy of the core helper.
+	 *
+	 * @param string $value Value.
+	 * @return string
+	 */
+	function trailingslashit( $value ) {
+		return untrailingslashit( $value ) . '/';
+	}
+}
+
+if ( ! function_exists( 'wp_upload_dir' ) ) {
+	/**
+	 * Unit-test stub: the uploads directory is taken from $GLOBALS['trust_optimize_test_uploads'].
+	 *
+	 * @return array
+	 */
+	function wp_upload_dir() {
+		return array( 'basedir' => isset( $GLOBALS['trust_optimize_test_uploads'] ) ? $GLOBALS['trust_optimize_test_uploads'] : '' );
+	}
+}
+
+if ( ! function_exists( 'get_attached_file' ) ) {
+	/**
+	 * Unit-test stub: attached files are taken from $GLOBALS['trust_optimize_test_attached'][ $id ].
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return string|false
+	 */
+	function get_attached_file( $attachment_id ) {
+		return isset( $GLOBALS['trust_optimize_test_attached'][ $attachment_id ] ) ? $GLOBALS['trust_optimize_test_attached'][ $attachment_id ] : false;
+	}
+}
+
 require_once __DIR__ . '/../includes/core/Requirements.php';
 require_once __DIR__ . '/../includes/value/OperationResult.php';
 require_once __DIR__ . '/../includes/value/OptimizeResult.php';
@@ -24,3 +84,4 @@ require_once __DIR__ . '/../includes/value/DeleteResult.php';
 require_once __DIR__ . '/../includes/value/CapabilityCheck.php';
 require_once __DIR__ . '/../includes/value/ImageProfile.php';
 require_once __DIR__ . '/../includes/utils/HtmlFragment.php';
+require_once __DIR__ . '/../includes/utils/UploadsPath.php';

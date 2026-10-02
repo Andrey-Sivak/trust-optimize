@@ -9,6 +9,7 @@ namespace TrustOptimize\Service;
 
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Utils\UploadsPath;
 use TrustOptimize\Value\DeleteResult;
 
 /**
@@ -200,37 +201,6 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Resolve a manifest variant to an absolute path.
-	 *
-	 * @param array $variant       Generated variant manifest record.
-	 * @param int   $attachment_id Attachment ID.
-	 * @return string Absolute target path or empty string.
-	 */
-	private function resolve_variant_path( array $variant, $attachment_id ) {
-		if ( empty( $variant['file'] ) ) {
-			return '';
-		}
-
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return '';
-		}
-
-		$file = basename( $variant['file'] );
-
-		if ( isset( $variant['relative_dir'] ) && '' !== $variant['relative_dir'] ) {
-			return trailingslashit( $upload_dir['basedir'] ) . trim( $variant['relative_dir'], '/' ) . '/' . $file;
-		}
-
-		$attached_file = get_attached_file( $attachment_id );
-		if ( $attached_file ) {
-			return trailingslashit( dirname( $attached_file ) ) . $file;
-		}
-
-		return '';
-	}
-
-	/**
 	 * Delete generated variant files after safety validation.
 	 *
 	 * @param int   $attachment_id Attachment ID.
@@ -244,9 +214,9 @@ class ImageCleanupService {
 		$errors          = array();
 
 		foreach ( $variants as $variant ) {
-			$target_path = $this->resolve_variant_path( $variant, $attachment_id );
+			$target_path = UploadsPath::resolve_variant( $variant, $attachment_id );
 
-			if ( '' === $target_path || ! $this->is_inside_uploads( $target_path ) ) {
+			if ( null === $target_path || ! UploadsPath::is_inside( $target_path ) ) {
 				$skipped[] = array(
 					'variant' => $variant,
 					'reason'  => 'outside_uploads',
@@ -334,24 +304,6 @@ class ImageCleanupService {
 		}
 
 		return $protected;
-	}
-
-	/**
-	 * Check whether a path is inside uploads basedir.
-	 *
-	 * @param string $path Absolute path.
-	 * @return bool
-	 */
-	private function is_inside_uploads( $path ) {
-		$upload_dir = wp_upload_dir();
-		if ( empty( $upload_dir['basedir'] ) ) {
-			return false;
-		}
-
-		$base = untrailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
-		$path = wp_normalize_path( $path );
-
-		return $path === $base || 0 === strpos( $path, trailingslashit( $base ) );
 	}
 
 	/**
