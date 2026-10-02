@@ -11,6 +11,7 @@ use TrustOptimize\Admin\Admin;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
@@ -41,6 +42,13 @@ class Plugin {
 	 * @var Admin
 	 */
 	public $admin;
+
+	/**
+	 * Capability service.
+	 *
+	 * @var CapabilityService
+	 */
+	public $capabilities;
 
 	/**
 	 * Image processor instance.
@@ -128,6 +136,9 @@ class Plugin {
 		// Initialize admin class
 		$this->admin = new Admin();
 
+		// Output format capabilities (persisted; re-checked when the environment changes)
+		$this->capabilities = new CapabilityService();
+
 		// Initialize image processor
 		$this->image_processor = new ImageProcessor();
 
@@ -150,6 +161,9 @@ class Plugin {
 	 * Register all hooks.
 	 */
 	private function register_hooks() {
+		// Re-check output format support when the PHP/WordPress/editor environment changed
+		$this->loader->add_action( 'admin_init', $this->capabilities, 'maybe_recheck' );
+
 		// Filter to replace image src with optimized version (frontend processing)
 		$this->loader->add_filter( 'the_content', $this->image_processor, 'process_content', 999 );
 

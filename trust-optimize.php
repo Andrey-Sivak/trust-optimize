@@ -25,11 +25,11 @@
 use TrustOptimize\API\RestController;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Bulk\BulkJobRunner;
+use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Core\Requirements;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
-use TrustOptimize\Service\ImageProfileFactory;
 
 // If this file is called directly, abort.
 if ( ! defined( 'WPINC' ) ) {
@@ -92,19 +92,7 @@ function trust_optimize_activate() {
 	$settings = new Settings();
 	$settings->add_default_settings();
 
-	$profile_factory = new ImageProfileFactory();
-
-	update_option(
-		'trust_optimize_preflight',
-		array(
-			'gd'               => extension_loaded( 'gd' ),
-			'imagick'          => extension_loaded( 'imagick' ),
-			'webp'             => $profile_factory->is_output_format_supported( 'webp' ),
-			'avif'             => $profile_factory->is_output_format_supported( 'avif' ),
-			'action_scheduler' => function_exists( 'as_enqueue_async_action' ),
-			'checked_at'       => current_time( 'mysql' ),
-		)
-	);
+	( new CapabilityService() )->recheck();
 }
 
 /**
