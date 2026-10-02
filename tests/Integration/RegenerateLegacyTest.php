@@ -170,6 +170,28 @@ class RegenerateLegacyTest extends WP_UnitTestCase {
 		$this->assertSame( $legacy, $report[0]['path'] );
 	}
 
+	public function test_a_missing_legacy_file_is_not_handed_over_for_serving() {
+		$id       = $this->attachment();
+		$relative = get_post_meta( $id, '_wp_attached_file', true );
+		$legacy   = preg_replace( '/\.jpg$/', '.webp', $relative );
+		$old_file = $this->legacy_row( $id, $legacy );
+
+		unlink( $old_file );
+
+		$this->schedule->run_batch( 0, 10 );
+
+		$row = $this->row( $id );
+		$this->assertSame( VariantStatus::PENDING, $row['status'] );
+		$this->assertNull( $row['legacy_relative_path'] );
+		$this->assertNull( VariantRepository::servable_path( $row ), 'A file that is not there is not offered to the browser.' );
+		$this->assertSame( array(), ( new ConflictReport() )->all(), 'A missing file is not a conflict.' );
+
+		Plugin::get_instance()->processor->run( $id );
+
+		$row = $this->row( $id );
+		$this->assertSame( $relative . '.webp', VariantRepository::servable_path( $row ) );
+	}
+
 	public function test_a_failed_conversion_keeps_the_legacy_file_and_keeps_serving_it() {
 		$id       = $this->attachment();
 		$legacy   = preg_replace( '/\.jpg$/', '.webp', get_post_meta( $id, '_wp_attached_file', true ) );

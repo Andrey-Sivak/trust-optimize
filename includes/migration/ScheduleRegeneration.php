@@ -22,7 +22,8 @@ use TrustOptimize\Utils\UploadsPath;
  * formats, vanished sizes) are removed together with their 1.x file, the rest is queued.
  * Rows marked legacy_conflict are not touched. A file whose hash differs from the one 1.x
  * recorded was changed by someone else: it is not handed over (not served, never deleted)
- * and goes to the conflict report with the source "hash_mismatch".
+ * and goes to the conflict report with the source "hash_mismatch". A file that is gone is not
+ * handed over either (the browser would get a 404 and not try another source), but it is no conflict.
  */
 class ScheduleRegeneration implements MigrationStep {
 
@@ -93,9 +94,9 @@ class ScheduleRegeneration implements MigrationStep {
 					continue;
 				}
 
-				$handover = $this->is_unchanged( $row );
+				$handover = $this->can_hand_over( $row, $exists );
 
-				if ( ! $handover ) {
+				if ( $exists && ! $handover ) {
 					$this->report->add( $attachment_id, $row['relative_path'], 0, 'hash_mismatch' );
 				}
 
@@ -124,14 +125,16 @@ class ScheduleRegeneration implements MigrationStep {
 	}
 
 	/**
-	 * Whether the 1.x file is still the one 1.x wrote. A missing file or an unknown hash is not a mismatch.
+	 * Whether the 1.x file can be handed over for serving: it exists and, if 1.x recorded a hash, still has it.
 	 *
-	 * @param array $row Variant row.
+	 * @param array $row    Variant row.
+	 * @param bool  $exists Set to whether the file exists (a missing file is not a conflict).
 	 * @return bool
 	 */
-	private function is_unchanged( array $row ) {
-		$path = empty( $row['file_hash'] ) ? null : UploadsPath::absolute( $row['relative_path'] );
+	private function can_hand_over( array $row, &$exists ) {
+		$path   = UploadsPath::absolute( $row['relative_path'] );
+		$exists = null !== $path && is_file( $path );
 
-		return null === $path || ! is_file( $path ) || hash_file( 'sha256', $path ) === $row['file_hash'];
+		return $exists && ( empty( $row['file_hash'] ) || hash_file( 'sha256', $path ) === $row['file_hash'] );
 	}
 }
