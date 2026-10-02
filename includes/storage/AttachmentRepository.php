@@ -202,7 +202,8 @@ class AttachmentRepository {
 	/**
 	 * Mark an attachment as queued unless it is already queued or processing (compare-and-set).
 	 *
-	 * A "queued" mark older than a day is treated as lost and may be set again.
+	 * A "queued" mark older than a day, or a "processing" claim older than STALE_CLAIM_SECONDS
+	 * (the worker died), is treated as lost and may be set again.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return bool True when this call changed the state to "queued".
@@ -214,14 +215,16 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state NOT IN (%s, %s) OR (state = %s AND updated_at < %s))",
+				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state NOT IN (%s, %s) OR (state = %s AND updated_at < %s) OR (state = %s AND updated_at < %s))",
 				AttachmentState::QUEUED,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
 				AttachmentState::QUEUED,
 				AttachmentState::PROCESSING,
 				AttachmentState::QUEUED,
-				gmdate( 'Y-m-d H:i:s', time() - self::STALE_QUEUED_SECONDS )
+				gmdate( 'Y-m-d H:i:s', time() - self::STALE_QUEUED_SECONDS ),
+				AttachmentState::PROCESSING,
+				gmdate( 'Y-m-d H:i:s', time() - self::STALE_CLAIM_SECONDS )
 			)
 		);
 	}

@@ -206,24 +206,33 @@ class AttachmentProcessor {
 		$last_err = null;
 		$more     = false;
 
-		foreach ( $this->variants->get_for_attachment( $attachment_id ) as $row ) {
-			if ( VariantStatus::PENDING !== $row['status'] ) {
-				continue;
-			}
+		// Rows may be added while this worker runs (metadata regeneration): look again until none is pending.
+		do {
+			$pending = array_filter(
+				$this->variants->get_for_attachment( $attachment_id ),
+				static function ( $row ) {
+					return VariantStatus::PENDING === $row['status'];
+				}
+			);
 
-			if ( microtime( true ) >= $deadline ) {
-				$more = true;
-				break;
-			}
+			foreach ( $pending as $row ) {
+				if ( microtime( true ) >= $deadline ) {
+					$more = true;
+					break 2;
+				}
 
-			$result = $this->converter->convert( $row, $settings );
-			if ( $result->is_failed() ) {
-				$errors   = $result->get_errors();
-				$last_err = $errors ? (string) reset( $errors ) : $result->get_message();
+				$result = $this->converter->convert( $row, $settings );
+				if ( $result->is_failed() ) {
+					$errors   = $result->get_errors();
+					$last_err = $errors ? (string) reset( $errors ) : $result->get_message();
+				}
 			}
-		}
+		} while ( $pending );
 
 		$state = $this->attachments->recompute( $attachment_id );
+
+		// A row that appeared after the last look leaves the attachment queued: ask for another run.
+		$more = $more || AttachmentState::QUEUED === $state;
 
 		if ( null !== $last_err ) {
 			$this->attachments->set_state( $attachment_id, $state, $this->failure_reason( $attachment_id ), $last_err );
