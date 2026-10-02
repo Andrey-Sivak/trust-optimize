@@ -12,6 +12,7 @@ use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Features\Optimization\ImageConverter;
+use TrustOptimize\Planning\Plan;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Settings\OptimizationSettings;
@@ -109,17 +110,7 @@ class AttachmentProcessor {
 	 */
 	public function sync( $attachment_id ) {
 		$plan    = $this->planner->plan( $attachment_id );
-		$deleted = 0;
-
-		$removals = array_filter(
-			array(
-				$plan->to_delete() ? $this->cleanup->cleanup_variants( $attachment_id, $plan->to_delete() ) : null,
-				$plan->replaced() ? $this->cleanup->cleanup_replaced_files( $attachment_id, $plan->replaced() ) : null,
-			)
-		);
-		foreach ( $removals as $removal ) {
-			$deleted += count( $removal->get_data()['deleted'] ?? array() );
-		}
+		$deleted = $this->apply_removals( $attachment_id, $plan );
 
 		if ( $plan->is_skipped() ) {
 			return OptimizeResult::skipped( $plan->skip_reason(), array( 'deleted' => $deleted ) );
@@ -138,6 +129,30 @@ class AttachmentProcessor {
 		}
 
 		return $this->with_data( $this->run( $attachment_id, INF ), array( 'deleted' => $deleted ) );
+	}
+
+	/**
+	 * Delete the files and rows a plan marks as no longer wanted.
+	 *
+	 * Covers vanished sizes, disabled formats and the old files of rows that were re-pointed
+	 * at another source (regenerated thumbnails). Used by every path that plans an attachment.
+	 *
+	 * @param int  $attachment_id Attachment ID.
+	 * @param Plan $plan          Plan returned by the planner.
+	 * @return int Number of files deleted.
+	 */
+	public function apply_removals( $attachment_id, Plan $plan ) {
+		$deleted = 0;
+
+		if ( $plan->to_delete() ) {
+			$deleted += count( $this->cleanup->cleanup_variants( $attachment_id, $plan->to_delete() )->get_data()['deleted'] ?? array() );
+		}
+
+		if ( $plan->replaced() ) {
+			$deleted += count( $this->cleanup->cleanup_replaced_files( $attachment_id, $plan->replaced() )->get_data()['deleted'] ?? array() );
+		}
+
+		return $deleted;
 	}
 
 	/**

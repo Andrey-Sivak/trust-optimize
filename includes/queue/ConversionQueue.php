@@ -88,8 +88,13 @@ class ConversionQueue {
 	 * @return array
 	 */
 	public function handle_new_metadata( $metadata, $attachment_id ) {
-		if ( $this->planner->plan( $attachment_id )->has_work() ) {
+		$plan = $this->planner->plan( $attachment_id );
+		$this->processor->apply_removals( $attachment_id, $plan );
+
+		if ( $plan->has_work() ) {
 			$this->enqueue( $attachment_id );
+		} elseif ( ! $plan->is_skipped() ) {
+			$this->attachments->recompute( $attachment_id );
 		}
 
 		return $metadata;

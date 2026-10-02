@@ -89,6 +89,8 @@ class ImageCleanupService {
 	/**
 	 * Remove selected variants (files and rows) of an attachment.
 	 *
+	 * The aggregate state is left to the caller: it depends on what is queued next.
+	 *
 	 * @param int     $attachment_id Attachment ID.
 	 * @param array[] $rows          Variant rows of that attachment.
 	 * @return DeleteResult
@@ -99,7 +101,6 @@ class ImageCleanupService {
 		}
 
 		$result = $this->remove( $attachment_id, $rows, true );
-		$this->attachments->recompute( $attachment_id );
 		$this->clear_caches( $attachment_id );
 
 		return $result;
