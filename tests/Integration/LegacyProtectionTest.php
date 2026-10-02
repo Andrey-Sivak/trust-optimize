@@ -5,6 +5,8 @@
  * @package TrustOptimize\Tests
  */
 
+require_once __DIR__ . '/legacy-schema-fixture.php';
+
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Database\DatabaseManager;
@@ -19,6 +21,8 @@ use TrustOptimize\Storage\VariantRepository;
  */
 class LegacyProtectionTest extends WP_UnitTestCase {
 
+	use Legacy_Schema_Fixture;
+
 	/**
 	 * Variants.
 	 *
@@ -26,19 +30,8 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 	 */
 	private $variants;
 
-	/**
-	 * Files created by a test, removed afterwards.
-	 *
-	 * @var string[]
-	 */
-	private $files = array();
-
 	public function tear_down() {
-		foreach ( $this->files as $file ) {
-			if ( file_exists( $file ) ) {
-				unlink( $file );
-			}
-		}
+		$this->remove_legacy_schema();
 		delete_option( ConflictReport::OPTION );
 		parent::tear_down();
 	}
@@ -94,21 +87,6 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 		);
 		$this->assertCount( 1, $legacy );
 		$this->assertSame( VariantStatus::DONE, $legacy[0]['status'] );
-	}
-
-	/**
-	 * Create a file in the uploads directory.
-	 *
-	 * @param string $relative Path relative to uploads.
-	 * @return string Absolute path.
-	 */
-	private function make_file( $relative ) {
-		$path = wp_upload_dir()['basedir'] . '/' . $relative;
-		wp_mkdir_p( dirname( $path ) );
-		file_put_contents( $path, 'x' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-		$this->files[] = $path;
-
-		return $path;
 	}
 
 	/**
@@ -175,7 +153,7 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_file_listed_by_two_attachments_is_not_deleted_by_either() {
-		$path = $this->make_file( 'legacy-test/photo.webp' );
+		$path = $this->make_legacy_file( 'legacy-test/photo.webp' );
 		$this->row( 801, array( 'format' => 'webp', 'relative_path' => 'legacy-test/photo.webp' ) );
 		$this->row( 802, array( 'format' => 'webp', 'relative_path' => 'legacy-test/photo.webp' ) );
 
@@ -187,7 +165,7 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_file_without_a_conflict_is_deleted_with_its_row() {
-		$path = $this->make_file( 'legacy-test/own.webp' );
+		$path = $this->make_legacy_file( 'legacy-test/own.webp' );
 		$this->row( 803, array( 'format' => 'webp', 'relative_path' => 'legacy-test/own.webp' ) );
 
 		Plugin::get_instance()->cleanup->cleanup_attachment( 803 );
@@ -199,7 +177,7 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 
 	public function test_the_old_file_of_a_regenerated_row_is_checked_too() {
 		list( $a, $b, $path ) = $this->colliding_attachments();
-		$new                  = $this->make_file( 'legacy-test/new.jpg.webp' );
+		$new                  = $this->make_legacy_file( 'legacy-test/new.jpg.webp' );
 
 		$this->variants->delete_for_attachment( $b );
 		$this->row(
@@ -221,32 +199,12 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 	}
 
 	public function test_the_1x_registry_of_another_attachment_protects_a_file() {
-		global $wpdb;
-
-		$database = new DatabaseManager();
-		$table    = $database->get_plugin_table_names()['images'];
-		$path     = $this->make_file( 'legacy-test/registry.webp' );
-
-		// A real table is needed: table_exists() does not see the temporary tables the test case creates.
-		remove_filter( 'query', array( $this, '_create_temporary_tables' ) );
-		remove_filter( 'query', array( $this, '_drop_temporary_tables' ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "CREATE TABLE IF NOT EXISTS `{$table}` (id bigint(20) unsigned NOT NULL AUTO_INCREMENT, attachment_id bigint(20) unsigned NOT NULL, metadata longtext NOT NULL, status varchar(20) NOT NULL DEFAULT 'completed', PRIMARY KEY  (id), UNIQUE KEY attachment_id (attachment_id))" );
-		$wpdb->insert(
-			$table,
-			array(
-				'attachment_id' => 805,
-				'metadata'      => wp_json_encode( array( 'generated_variants' => array( 'original:webp' => array( 'format' => 'webp', 'file' => 'registry.webp', 'relative_dir' => 'legacy-test' ) ) ) ),
-			)
-		);
+		$this->install_legacy_table();
+		$path = $this->make_legacy_file( 'legacy-test/registry.webp' );
+		$this->add_legacy_manifest( 805, array( array( 'size_name' => 'original', 'format' => 'webp', 'file' => 'legacy-test/registry.webp' ) ) );
 		$this->row( 804, array( 'format' => 'webp', 'relative_path' => 'legacy-test/registry.webp' ) );
 
 		Plugin::get_instance()->cleanup->cleanup_attachment( 804 );
-
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "DROP TABLE IF EXISTS `{$table}`" );
-		add_filter( 'query', array( $this, '_create_temporary_tables' ) );
-		add_filter( 'query', array( $this, '_drop_temporary_tables' ) );
 
 		$this->assertFileExists( $path );
 		$report = array_values( ( new ConflictReport() )->all() );

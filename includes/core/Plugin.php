@@ -20,6 +20,7 @@ use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Migration\ConflictReport;
+use TrustOptimize\Migration\ImportLegacyManifest;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
@@ -117,7 +118,7 @@ class Plugin {
 		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
-		$migration    = new MigrationRunner( $database, array() );
+		$migration    = new MigrationRunner( $database, array( new ImportLegacyManifest( $database, $variants, $attachments ) ) );
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, new LegacyPathGuard( $database, $variants ), new ConflictReport() );
