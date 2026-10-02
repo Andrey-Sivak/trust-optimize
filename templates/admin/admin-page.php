@@ -10,7 +10,8 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// Get statistics (placeholder for now).
+// $trust_optimize_total_eligible, $trust_optimize_webp_supported and $trust_optimize_avif_supported come from Admin::display_admin_page().
+// Statistics (placeholder for now).
 $trust_optimize_total_images            = 0;
 $trust_optimize_optimized_images        = 0;
 $trust_optimize_saved_bytes             = 0;
@@ -18,11 +19,6 @@ $trust_optimize_optimization_percentage = 0;
 $trust_optimize_upload_dir              = wp_upload_dir();
 $trust_optimize_uploads_writable        = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
 $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
-$trust_optimize_eligibility             = class_exists( 'TrustOptimize\\Bulk\\EligibilityQuery' ) ? new \TrustOptimize\Bulk\EligibilityQuery() : null;
-$trust_optimize_total_eligible          = $trust_optimize_eligibility ? $trust_optimize_eligibility->count_eligible_attachments() : 0;
-$trust_optimize_profile_factory         = class_exists( 'TrustOptimize\\Service\\ImageProfileFactory' ) ? new \TrustOptimize\Service\ImageProfileFactory() : null;
-$trust_optimize_webp_supported          = $trust_optimize_profile_factory ? $trust_optimize_profile_factory->is_output_format_supported( 'webp' ) : false;
-$trust_optimize_avif_supported          = $trust_optimize_profile_factory ? $trust_optimize_profile_factory->is_output_format_supported( 'avif' ) : false;
 ?>
 
 <div class="wrap trust-optimize-admin-wrap">

@@ -22,7 +22,6 @@
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
 
-use TrustOptimize\API\RestController;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Capabilities\CapabilityService;
@@ -114,16 +113,3 @@ function trust_optimize_init() {
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );
 add_action( 'admin_notices', array( Requirements::class, 'maybe_show_admin_notice' ) );
-
-if ( defined( 'WP_CLI' ) && WP_CLI ) {
-	WP_CLI::add_command( 'trust-optimize', 'TrustOptimize\\CLI\\Command' );
-}
-
-/**
- * Register REST API endpoints
- */
-function trust_optimize_rest_api_init() {
-	$controller = new RestController();
-	$controller->register_routes();
-}
-add_action( 'rest_api_init', 'trust_optimize_rest_api_init' );

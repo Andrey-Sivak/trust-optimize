@@ -7,7 +7,7 @@
 
 namespace TrustOptimize\Bulk;
 
-use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Storage\VariantRepository;
 
 /**
  * Class EligibilityQuery
@@ -17,17 +17,17 @@ class EligibilityQuery {
 	/**
 	 * Image model instance.
 	 *
-	 * @var ImageModel
+	 * @var VariantRepository
 	 */
-	private $image_model;
+	private $variants;
 
 	/**
 	 * Constructor.
 	 *
-	 * @param ImageModel|null $image_model Image model instance.
+	 * @param VariantRepository $variants Variant repository.
 	 */
-	public function __construct( ?ImageModel $image_model = null ) {
-		$this->image_model = $image_model ? $image_model : new ImageModel();
+	public function __construct( VariantRepository $variants ) {
+		$this->variants = $variants;
 	}
 
 	/**
@@ -101,7 +101,7 @@ class EligibilityQuery {
 	 * @return array
 	 */
 	public function get_next_plugin_managed_attachment_ids( $cursor_id, $limit ) {
-		return $this->image_model->get_attachment_ids_with_generated_variants( $cursor_id, $limit );
+		return $this->variants->get_attachment_ids_after( (int) $cursor_id, (int) $limit );
 	}
 
 	/**
@@ -110,6 +110,6 @@ class EligibilityQuery {
 	 * @return int
 	 */
 	public function count_plugin_managed_attachments() {
-		return $this->image_model->count_attachments_with_generated_variants();
+		return $this->variants->count_attachments();
 	}
 }

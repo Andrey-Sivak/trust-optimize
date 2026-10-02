@@ -7,7 +7,10 @@
 
 namespace TrustOptimize\Admin;
 
-use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Capabilities\CapabilityService;
+use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Storage\AttachmentRepository;
 
 /**
  * Class Admin
@@ -15,9 +18,47 @@ use TrustOptimize\Database\ImageModel;
 class Admin {
 
 	/**
-	 * Admin constructor.
+	 * Plugin settings.
+	 *
+	 * @var Settings
 	 */
-	public function __construct() {
+	private $settings;
+
+	/**
+	 * Attachment repository.
+	 *
+	 * @var AttachmentRepository
+	 */
+	private $attachments;
+
+	/**
+	 * Eligibility query.
+	 *
+	 * @var EligibilityQuery
+	 */
+	private $eligibility;
+
+	/**
+	 * Capability service.
+	 *
+	 * @var CapabilityService
+	 */
+	private $capabilities;
+
+	/**
+	 * Admin constructor.
+	 *
+	 * @param Settings             $settings     Plugin settings.
+	 * @param AttachmentRepository $attachments  Attachment repository.
+	 * @param EligibilityQuery     $eligibility  Eligibility query.
+	 * @param CapabilityService    $capabilities Capability service.
+	 */
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities ) {
+		$this->settings     = $settings;
+		$this->attachments  = $attachments;
+		$this->eligibility  = $eligibility;
+		$this->capabilities = $capabilities;
+
 		// Hook into WordPress admin
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
@@ -59,6 +100,10 @@ class Admin {
 	 * Display the main admin page.
 	 */
 	public function display_admin_page() {
+		$trust_optimize_total_eligible = $this->eligibility->count_eligible_attachments();
+		$trust_optimize_webp_supported = $this->capabilities->supports( 'webp' );
+		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
+
 		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}
 
@@ -131,9 +176,8 @@ class Admin {
 	 */
 	public function render_quality_field( $args ) {
 		$key      = isset( $args['key'] ) ? $args['key'] : '';
-		$settings = new Settings();
-		$options  = $settings->get_all();
-		$defaults = $settings->get_defaults();
+		$options  = $this->settings->get_all();
+		$defaults = $this->settings->get_defaults();
 		$value    = isset( $options[ $key ] ) ? (int) $options[ $key ] : ( isset( $defaults[ $key ] ) ? (int) $defaults[ $key ] : 85 );
 
 		printf(
@@ -167,8 +211,7 @@ class Admin {
 	 * @return array
 	 */
 	public function validate_settings( $input ) {
-		$settings = new Settings();
-		$existing = $settings->get_all();
+		$existing = $this->settings->get_all();
 		$output   = is_array( $existing ) ? $existing : array();
 
 		// Validate enable_adaptive_images
@@ -285,44 +328,42 @@ class Admin {
 			return;
 		}
 
-		$image_model = new ImageModel();
-		$status_data = $image_model->get_status( $attachment_id );
+		$row = $this->attachments->get( $attachment_id );
 
-		if ( ! $status_data ) {
+		if ( ! $row || in_array( $row['state'], array( AttachmentState::NONE, AttachmentState::SKIPPED ), true ) ) {
 			echo '<span class="trust-optimize-status" data-status="none">' . esc_html__( 'Not processed', 'trust-optimize' ) . '</span>';
 			return;
 		}
 
-		$status    = $status_data['status'];
-		$total     = (int) $status_data['total_tasks'];
-		$completed = (int) $status_data['completed_tasks'];
-		$progress  = $total > 0 ? round( ( $completed / $total ) * 100 ) : 100;
-
-		switch ( $status ) {
-			case 'completed':
+		switch ( $row['state'] ) {
+			case AttachmentState::OPTIMIZED:
 				echo '<span class="trust-optimize-status" data-status="completed" style="color:#46b450;">'
 					. '<span class="dashicons dashicons-yes-alt"></span> '
 					. esc_html__( 'Optimized', 'trust-optimize' )
 					. '</span>';
 				break;
 
-			case 'pending':
-			case 'processing':
+			case AttachmentState::QUEUED:
+			case AttachmentState::PROCESSING:
+				$status = AttachmentState::QUEUED === $row['state'] ? 'pending' : 'processing';
 				echo '<span class="trust-optimize-status trust-optimize-polling" data-status="' . esc_attr( $status ) . '" data-attachment-id="' . esc_attr( $attachment_id ) . '" style="color:#f0b849;">'
 					. '<span class="dashicons dashicons-update spin"></span> '
-					. esc_html( sprintf( '%d%%', $progress ) )
+					. esc_html__( 'In progress', 'trust-optimize' )
 					. '</span>';
 				break;
 
-			case 'failed':
-				echo '<span class="trust-optimize-status" data-status="failed" style="color:#dc3232;">'
+			case AttachmentState::PARTIAL:
+				echo '<span class="trust-optimize-status" data-status="partial" style="color:#dba617;">'
 					. '<span class="dashicons dashicons-warning"></span> '
-					. esc_html__( 'Failed', 'trust-optimize' )
+					. esc_html__( 'Partially optimized', 'trust-optimize' )
 					. '</span>';
 				break;
 
 			default:
-				echo '<span class="trust-optimize-status" data-status="unknown">' . esc_html( $status ) . '</span>';
+				echo '<span class="trust-optimize-status" data-status="failed" style="color:#dc3232;">'
+					. '<span class="dashicons dashicons-warning"></span> '
+					. esc_html__( 'Failed', 'trust-optimize' )
+					. '</span>';
 		}
 	}
 }

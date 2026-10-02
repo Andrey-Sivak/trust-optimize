@@ -12,6 +12,8 @@ use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Features\Optimization\ImageConverter;
+use TrustOptimize\Planning\VariantPlanner;
+use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -63,20 +65,102 @@ class AttachmentProcessor {
 	private $capabilities;
 
 	/**
+	 * Variant planner.
+	 *
+	 * @var VariantPlanner
+	 */
+	private $planner;
+
+	/**
+	 * Cleanup service.
+	 *
+	 * @var ImageCleanupService
+	 */
+	private $cleanup;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param AttachmentRepository $attachments  Attachment repository.
 	 * @param VariantRepository    $variants     Variant repository.
 	 * @param ImageConverter       $converter    Image converter.
+	 * @param VariantPlanner       $planner      Variant planner.
+	 * @param ImageCleanupService  $cleanup      Cleanup service.
 	 * @param Settings             $settings     Plugin settings.
 	 * @param CapabilityService    $capabilities Capability service.
 	 */
-	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, ImageConverter $converter, Settings $settings, CapabilityService $capabilities ) {
+	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, ImageConverter $converter, VariantPlanner $planner, ImageCleanupService $cleanup, Settings $settings, CapabilityService $capabilities ) {
 		$this->attachments  = $attachments;
 		$this->variants     = $variants;
 		$this->converter    = $converter;
+		$this->planner      = $planner;
+		$this->cleanup      = $cleanup;
 		$this->settings     = $settings;
 		$this->capabilities = $capabilities;
+	}
+
+	/**
+	 * Bring an attachment up to date right now: plan, remove what is no longer wanted, convert.
+	 *
+	 * This is the synchronous path used by REST, WP-CLI and bulk jobs; the queue uses run().
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return OptimizeResult Data: 'state', 'deleted' (files removed) and, for a skipped attachment, 'reason'.
+	 */
+	public function sync( $attachment_id ) {
+		$plan    = $this->planner->plan( $attachment_id );
+		$deleted = 0;
+
+		$removals = array_filter(
+			array(
+				$plan->to_delete() ? $this->cleanup->cleanup_variants( $attachment_id, $plan->to_delete() ) : null,
+				$plan->replaced() ? $this->cleanup->cleanup_replaced_files( $attachment_id, $plan->replaced() ) : null,
+			)
+		);
+		foreach ( $removals as $removal ) {
+			$deleted += count( $removal->get_data()['deleted'] ?? array() );
+		}
+
+		if ( $plan->is_skipped() ) {
+			return OptimizeResult::skipped( $plan->skip_reason(), array( 'deleted' => $deleted ) );
+		}
+
+		if ( ! $plan->has_work() ) {
+			$state = $this->attachments->recompute( $attachment_id );
+
+			return OptimizeResult::success(
+				'up_to_date',
+				array(
+					'state'   => $state,
+					'deleted' => $deleted,
+				)
+			);
+		}
+
+		return $this->with_data( $this->run( $attachment_id, INF ), array( 'deleted' => $deleted ) );
+	}
+
+	/**
+	 * Copy of a result with extra data.
+	 *
+	 * @param OptimizeResult $result Result.
+	 * @param array          $extra  Extra data.
+	 * @return OptimizeResult
+	 */
+	private function with_data( OptimizeResult $result, array $extra ) {
+		$data = array_merge( $result->get_data(), $extra );
+
+		if ( $result->is_success() ) {
+			return OptimizeResult::success( $result->get_message(), $data );
+		}
+		if ( $result->is_partial() ) {
+			return OptimizeResult::partial( $result->get_message(), $result->get_errors(), $data );
+		}
+		if ( $result->is_failed() ) {
+			return OptimizeResult::failed( $result->get_message(), $result->get_errors(), $data );
+		}
+
+		return OptimizeResult::skipped( $result->get_message(), $data );
 	}
 
 	/**
@@ -86,10 +170,11 @@ class AttachmentProcessor {
 	 * When the time budget runs out the rest stays pending and the result asks for
 	 * another run (data 'more'). The aggregate state is recomputed at the end.
 	 *
-	 * @param int $attachment_id Attachment ID.
+	 * @param int        $attachment_id Attachment ID.
+	 * @param float|null $budget        Time budget in seconds; null uses the filterable default.
 	 * @return OptimizeResult Data: 'state' (AttachmentState) and 'more' (bool).
 	 */
-	public function run( $attachment_id ) {
+	public function run( $attachment_id, $budget = null ) {
 		if ( ! $this->attachments->claim( $attachment_id ) ) {
 			return OptimizeResult::skipped( 'busy', array( 'more' => false ) );
 		}
@@ -102,7 +187,7 @@ class AttachmentProcessor {
 		}
 
 		$settings = OptimizationSettings::from_options( $this->settings, $this->capabilities );
-		$deadline = microtime( true ) + $this->time_budget();
+		$deadline = microtime( true ) + ( null === $budget ? $this->time_budget() : $budget );
 		$last_err = null;
 		$more     = false;
 

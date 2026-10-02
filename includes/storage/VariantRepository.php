@@ -306,6 +306,17 @@ class VariantRepository {
 	}
 
 	/**
+	 * Number of attachments that have variant rows.
+	 *
+	 * @return int
+	 */
+	public function count_attachments() {
+		global $wpdb;
+
+		return (int) $wpdb->get_var( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table}" );
+	}
+
+	/**
 	 * Number of variants per status for an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

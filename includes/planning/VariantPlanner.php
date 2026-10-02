@@ -133,6 +133,72 @@ class VariantPlanner {
 	}
 
 	/**
+	 * Read-only preflight for one attachment: what a sync would create or delete.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return array Summary (eligible, missing_source_file, unsupported_mime_type, estimates, warnings, errors).
+	 */
+	public function inventory( $attachment_id ) {
+		$attachment_id = (int) $attachment_id;
+		$summary       = array(
+			'attachment_id'                      => $attachment_id,
+			'eligible'                           => false,
+			'unsupported_mime_type'              => '',
+			'missing_source_file'                => false,
+			'already_optimized'                  => false,
+			'outdated_profile'                   => false,
+			'plugin_managed_variants'            => 0,
+			'estimated_variants_to_create'       => 0,
+			'estimated_stale_variants_to_delete' => 0,
+			'unsupported_output_formats'         => array(),
+			'warnings'                           => array(),
+			'errors'                             => array(),
+		);
+
+		$existing = $this->variants->get_for_attachment( $attachment_id );
+		$source   = $this->eligible_source( $attachment_id );
+
+		$summary['plugin_managed_variants'] = count( $existing );
+
+		if ( is_string( $source ) ) {
+			if ( 'unsupported_mime' === $source ) {
+				$summary['unsupported_mime_type'] = (string) get_post_mime_type( $attachment_id );
+				$summary['warnings'][]            = $source;
+			} else {
+				$summary['missing_source_file'] = true;
+				$summary['errors'][]            = 'missing_file';
+			}
+
+			return $summary;
+		}
+
+		if ( ! is_file( (string) get_attached_file( $attachment_id ) ) ) {
+			$summary['missing_source_file'] = true;
+			$summary['errors'][]            = 'missing_file';
+
+			return $summary;
+		}
+
+		$summary['eligible'] = true;
+
+		$settings = OptimizationSettings::from_options( $this->settings, $this->capabilities );
+		foreach ( OptimizationSettings::FORMAT_OPTIONS as $format => $option ) {
+			if ( (bool) $this->settings->get( $option, 1 ) && ! $this->capabilities->supports( $format ) ) {
+				$summary['unsupported_output_formats'][] = $format;
+			}
+		}
+
+		$actions = self::reconcile( $existing, self::desired_variants( $source['relative_path'], $source['metadata'], $settings->formats(), $source['mime'] ), $settings );
+
+		$summary['estimated_variants_to_create']       = count( $actions['insert'] ) + count( $actions['reset'] );
+		$summary['estimated_stale_variants_to_delete'] = count( $actions['delete'] );
+		$summary['outdated_profile']                   = $summary['estimated_stale_variants_to_delete'] > 0;
+		$summary['already_optimized']                  = 0 === $summary['estimated_variants_to_create'] && 0 === $summary['estimated_stale_variants_to_delete'];
+
+		return $summary;
+	}
+
+	/**
 	 * Variants an attachment should have.
 	 *
 	 * @param string   $original_relative_path Original (or -scaled) file relative to uploads.

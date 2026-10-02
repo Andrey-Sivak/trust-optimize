@@ -32,7 +32,7 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$database = new DatabaseManager();
 		$tables   = $database->get_plugin_table_names();
 
-		foreach ( array( 'attachments', 'variants', 'jobs', 'images' ) as $key ) {
+		foreach ( array( 'attachments', 'variants', 'jobs' ) as $key ) {
 			$this->assertTrue( $database->table_exists( $tables[ $key ] ), "Table {$key} is missing." );
 		}
 
@@ -47,7 +47,11 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$database = new DatabaseManager();
 		$tables   = $database->get_plugin_table_names();
 
-		// Put the jobs table back into its 1.3.0 shape (DDL commits implicitly).
+		// A 1.3.0 site has the legacy manifest table; 2.0 no longer creates it (DDL commits implicitly).
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+		$wpdb->query( "CREATE TABLE IF NOT EXISTS `{$tables['images']}` (id bigint(20) unsigned NOT NULL AUTO_INCREMENT, attachment_id bigint(20) unsigned NOT NULL, metadata longtext NOT NULL, status varchar(20) NOT NULL DEFAULT 'completed', PRIMARY KEY  (id), UNIQUE KEY attachment_id (attachment_id))" );
+
+		// Put the jobs table back into its 1.3.0 shape.
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
 		$wpdb->query( "ALTER TABLE `{$tables['jobs']}` MODIFY status varchar(20) NOT NULL DEFAULT 'pending'" );
 		$this->assertSame( 'varchar(20)', $this->column_type( $tables['jobs'], 'status' ) );
@@ -70,7 +74,8 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$this->assertSame( 'varchar(32)', $this->column_type( $tables['jobs'], 'status' ) );
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
 		$legacy_rows = (string) $wpdb->get_var( "SELECT COUNT(*) FROM `{$tables['images']}` WHERE attachment_id = 987654" );
-		$wpdb->delete( $tables['images'], array( 'attachment_id' => 987654 ) );
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+		$wpdb->query( "DROP TABLE IF EXISTS `{$tables['images']}`" );
 
 		$this->assertSame( '1', $legacy_rows );
 	}

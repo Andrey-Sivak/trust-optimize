@@ -11,13 +11,65 @@ use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\ImageOptimizationService;
 
 /**
  * Class Command
  */
 class Command {
+
+	/**
+	 * Bulk job repository.
+	 *
+	 * @var BulkJobRepository
+	 */
+	private $jobs;
+
+	/**
+	 * Eligibility query.
+	 *
+	 * @var EligibilityQuery
+	 */
+	private $eligibility;
+
+	/**
+	 * Bulk job runner.
+	 *
+	 * @var BulkJobRunner
+	 */
+	private $runner;
+
+	/**
+	 * Attachment processor.
+	 *
+	 * @var AttachmentProcessor
+	 */
+	private $processor;
+
+	/**
+	 * Cleanup service.
+	 *
+	 * @var ImageCleanupService
+	 */
+	private $cleanup;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param BulkJobRepository   $jobs        Bulk job repository.
+	 * @param EligibilityQuery    $eligibility Eligibility query.
+	 * @param BulkJobRunner       $runner      Bulk job runner.
+	 * @param AttachmentProcessor $processor   Attachment processor.
+	 * @param ImageCleanupService $cleanup     Cleanup service.
+	 */
+	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, BulkJobRunner $runner, AttachmentProcessor $processor, ImageCleanupService $cleanup ) {
+		$this->jobs        = $jobs;
+		$this->eligibility = $eligibility;
+		$this->runner      = $runner;
+		$this->processor   = $processor;
+		$this->cleanup     = $cleanup;
+	}
 
 	/**
 	 * Show image inventory summary.
@@ -27,9 +79,7 @@ class Command {
 	 *     wp trust-optimize inventory
 	 */
 	public function inventory() {
-		$query = new EligibilityQuery();
-
-		\WP_CLI::log( 'Eligible image attachments: ' . $query->count_eligible_attachments() );
+		\WP_CLI::log( 'Eligible image attachments: ' . $this->eligibility->count_eligible_attachments() );
 	}
 
 	/**
@@ -62,11 +112,10 @@ class Command {
 	 * Show latest bulk job status.
 	 */
 	public function status() {
-		$repository = new BulkJobRepository();
-		$job        = $repository->get_active_job();
+		$job = $this->jobs->get_active_job();
 
 		if ( ! $job ) {
-			$job = $repository->get_latest_job();
+			$job = $this->jobs->get_latest_job();
 		}
 
 		if ( ! $job ) {
@@ -137,8 +186,7 @@ class Command {
 		$attachment_id = isset( $args[0] ) ? (int) $args[0] : 0;
 		$this->validate_attachment_or_exit( $attachment_id );
 
-		$service = new ImageOptimizationService();
-		$result  = $service->optimize_attachment( $attachment_id );
+		$result = $this->processor->sync( $attachment_id );
 
 		\WP_CLI::line( wp_json_encode( $result->to_array() ) );
 	}
@@ -157,8 +205,7 @@ class Command {
 		$attachment_id = isset( $args[0] ) ? (int) $args[0] : 0;
 		$this->validate_attachment_or_exit( $attachment_id );
 
-		$service = new ImageCleanupService();
-		$result  = $service->cleanup_attachment( $attachment_id );
+		$result = $this->cleanup->cleanup_attachment( $attachment_id );
 
 		\WP_CLI::line( wp_json_encode( $result->to_array() ) );
 	}
@@ -170,10 +217,8 @@ class Command {
 	 * @param array  $assoc_args Associative arguments.
 	 */
 	private function run_bulk_job( $type, array $assoc_args ) {
-		$repository  = new BulkJobRepository();
-		$eligibility = new EligibilityQuery();
-		$total       = BulkJob::TYPE_REMOVE === $type ? $eligibility->count_plugin_managed_attachments() : $eligibility->count_eligible_attachments();
-		$job         = $repository->create( $type, array(), '', $total );
+		$total = BulkJob::TYPE_REMOVE === $type ? $this->eligibility->count_plugin_managed_attachments() : $this->eligibility->count_eligible_attachments();
+		$job   = $this->jobs->create( $type, array(), '', $total );
 
 		if ( ! $job ) {
 			\WP_CLI::error( 'Another bulk job is already active.' );
@@ -189,12 +234,11 @@ class Command {
 			}
 		);
 
-		$runner = new BulkJobRunner( $repository, $eligibility );
-		$repository->mark_running( $job->get_id() );
+		$this->jobs->mark_running( $job->get_id() );
 
 		do {
-			$runner->tick( $job->get_id() );
-			$job = $repository->get( $job->get_id() );
+			$this->runner->tick( $job->get_id() );
+			$job = $this->jobs->get( $job->get_id() );
 			\WP_CLI::log( sprintf( 'Job #%d: %s, processed %d/%d', $job->get_id(), $job->get_status(), (int) $job->to_array()['processed'], (int) $job->to_array()['total'] ) );
 		} while ( in_array( $job->get_status(), array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING ), true ) );
 
@@ -207,16 +251,14 @@ class Command {
 	 * @param string $action Runner action.
 	 */
 	private function control_active_job( $action ) {
-		$repository = new BulkJobRepository();
-		$job        = $repository->get_active_job();
+		$job = $this->jobs->get_active_job();
 
 		if ( ! $job ) {
 			\WP_CLI::warning( 'No active bulk job.' );
 			return;
 		}
 
-		$runner = new BulkJobRunner( $repository );
-		$runner->$action( $job->get_id() );
+		$this->runner->$action( $job->get_id() );
 
 		\WP_CLI::success( sprintf( 'Job #%d %s requested.', $job->get_id(), $action ) );
 	}

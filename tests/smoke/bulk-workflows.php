@@ -19,10 +19,10 @@ use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Database\DatabaseManager;
-use TrustOptimize\Database\ImageModel;
-use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\ImageOptimizationService;
-use TrustOptimize\Service\ImageProfileFactory;
+use TrustOptimize\Capabilities\CapabilityService;
+use TrustOptimize\Core\Plugin;
+use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Storage\VariantRepository;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	fwrite( STDERR, "This smoke check must run inside WordPress.\n" );
@@ -83,11 +83,11 @@ $trust_optimize_smoke = new class() {
 			$this->check_missing_source_file( $missing_id );
 			$this->check_unsupported_mime( $svg_id );
 			$this->check_output_format_capabilities( $second_id );
-			$this->check_unsupported_format_setting_does_not_change_hash( $second_id );
+			$this->check_unsupported_format_is_not_planned( $second_id );
 			$this->check_wp_cli_remove_synopsis();
 			$this->check_rest_endpoints( $second_id );
 			$this->check_bulk_inventory_and_sync();
-			$this->check_reprocess_after_profile_change( $second_id );
+			$this->check_reprocess_after_quality_change( $second_id );
 
 			$this->pass( 'TrustOptimize smoke checks completed.' );
 		} catch ( Exception $exception ) {
@@ -101,7 +101,7 @@ $trust_optimize_smoke = new class() {
 	 * Assert that the plugin is active and classes are loaded.
 	 */
 	private function assert_plugin_active() {
-		if ( ! defined( 'TRUST_OPTIMIZE_VERSION' ) || ! class_exists( ImageOptimizationService::class ) ) {
+		if ( ! defined( 'TRUST_OPTIMIZE_VERSION' ) || ! class_exists( Plugin::class ) ) {
 			throw new Exception( 'TrustOptimize is not active or core classes are unavailable.' );
 		}
 
@@ -195,10 +195,7 @@ $trust_optimize_smoke = new class() {
 		);
 		// phpcs:enable
 
-		$model = new ImageModel();
-
 		foreach ( $attachment_ids as $attachment_id ) {
-			$model->delete( (int) $attachment_id );
 			wp_delete_attachment( (int) $attachment_id, true );
 		}
 
@@ -227,8 +224,7 @@ $trust_optimize_smoke = new class() {
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_single_sync( $attachment_id ) {
-		$service = new ImageOptimizationService();
-		$result  = $service->optimize_attachment( $attachment_id );
+		$result = Plugin::get_instance()->processor->sync( $attachment_id );
 
 		if ( $result->is_failed() ) {
 			throw new Exception( 'Single attachment sync failed: ' . wp_json_encode( $result->to_array() ) );
@@ -238,7 +234,7 @@ $trust_optimize_smoke = new class() {
 	}
 
 	/**
-	 * Check cleanup deletes only manifest-owned files and keeps original media.
+	 * Check cleanup deletes only files owned by a variant row and keeps original media.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 */
@@ -246,8 +242,7 @@ $trust_optimize_smoke = new class() {
 		$original = get_attached_file( $attachment_id );
 		$variant  = $this->create_manifest_variant( $attachment_id, 'webp' );
 
-		$cleanup = new ImageCleanupService();
-		$result  = $cleanup->cleanup_attachment( $attachment_id, array( 'keep_record' => true ) );
+		$result = Plugin::get_instance()->cleanup->cleanup_attachment( $attachment_id );
 
 		if ( $result->is_failed() ) {
 			throw new Exception( 'Cleanup failed: ' . wp_json_encode( $result->to_array() ) );
@@ -258,10 +253,10 @@ $trust_optimize_smoke = new class() {
 		}
 
 		if ( file_exists( $variant ) ) {
-			throw new Exception( 'Cleanup did not remove manifest-owned generated variant.' );
+			throw new Exception( 'Cleanup did not remove the generated variant owned by a row.' );
 		}
 
-		$this->pass( 'Cleanup removes manifest-owned variant and preserves original file.' );
+		$this->pass( 'Cleanup removes row-owned variant and preserves original file.' );
 	}
 
 	/**
@@ -272,8 +267,7 @@ $trust_optimize_smoke = new class() {
 	private function check_single_remove( $attachment_id ) {
 		$this->create_manifest_variant( $attachment_id, 'webp' );
 
-		$cleanup = new ImageCleanupService();
-		$result  = $cleanup->cleanup_attachment( $attachment_id );
+		$result = Plugin::get_instance()->cleanup->cleanup_attachment( $attachment_id );
 
 		if ( $result->is_failed() ) {
 			throw new Exception( 'Single attachment remove failed: ' . wp_json_encode( $result->to_array() ) );
@@ -288,9 +282,10 @@ $trust_optimize_smoke = new class() {
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_missing_source_file( $attachment_id ) {
-		$result = ( new ImageOptimizationService() )->optimize_attachment( $attachment_id );
+		$result  = Plugin::get_instance()->processor->sync( $attachment_id );
+		$reasons = array_unique( array_column( $this->variants()->get_for_attachment( $attachment_id ), 'reason' ) );
 
-		if ( ! $result->is_failed() || 'missing_file' !== $result->get_message() ) {
+		if ( ! $result->is_failed() || array( 'missing_file' ) !== $reasons ) {
 			throw new Exception( 'Missing source file was not reported as failed missing_file: ' . wp_json_encode( $result->to_array() ) );
 		}
 
@@ -303,7 +298,7 @@ $trust_optimize_smoke = new class() {
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_unsupported_mime( $attachment_id ) {
-		$result = ( new ImageOptimizationService() )->optimize_attachment( $attachment_id );
+		$result = Plugin::get_instance()->processor->sync( $attachment_id );
 
 		if ( ! $result->is_skipped() || 'unsupported_mime' !== $result->get_message() ) {
 			throw new Exception( 'Unsupported MIME was not skipped as unsupported_mime: ' . wp_json_encode( $result->to_array() ) );
@@ -313,99 +308,63 @@ $trust_optimize_smoke = new class() {
 	}
 
 	/**
-	 * Check unsupported output format reporting.
+	 * Check that formats reported as supported do not fail during conversion.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_output_format_capabilities( $attachment_id ) {
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-		$profile  = ( new ImageProfileFactory( new Settings() ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
-		$data     = $profile->to_array();
-		$formats  = isset( $data['formats'] ) && is_array( $data['formats'] ) ? $data['formats'] : array();
+		$result = Plugin::get_instance()->processor->sync( $attachment_id );
 
-		if ( empty( $data['options']['unsupported_output_formats'] ) ) {
-			$this->assert_supported_formats_do_not_fail_conversion( $attachment_id, $formats );
-			$this->pass( 'Supported WebP/AVIF output formats convert without failed tasks.' );
-			return;
+		if ( $result->is_failed() ) {
+			throw new Exception( 'Sync of a supported image failed: ' . wp_json_encode( $result->to_array() ) );
 		}
 
-		$result = ( new ImageOptimizationService() )->optimize_attachment( $attachment_id );
-		$result_data = $result->get_data();
-
-		if ( empty( $result_data['unsupported_output_formats'] ) ) {
-			throw new Exception( 'Unsupported output formats were not exposed in sync result.' );
+		foreach ( $this->variants()->get_for_attachment( $attachment_id ) as $row ) {
+			if ( VariantStatus::FAILED === $row['status'] ) {
+				throw new Exception( sprintf( 'Format "%s" was reported supported but conversion failed: %s', $row['format'], wp_json_encode( $row ) ) );
+			}
 		}
 
-		$this->assert_supported_formats_do_not_fail_conversion( $attachment_id, $formats );
-		$this->pass( 'Unsupported WebP/AVIF output formats are reported.' );
+		$this->pass( 'Supported WebP/AVIF output formats convert without failed tasks.' );
 	}
 
 	/**
-	 * Assert formats reported as supported do not fail during conversion.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $formats       Supported output formats from the profile.
-	 */
-	private function assert_supported_formats_do_not_fail_conversion( $attachment_id, array $formats ) {
-		if ( empty( $formats ) ) {
-			return;
-		}
-
-		$image_data = ( new ImageModel() )->get_by_attachment_id( $attachment_id );
-		$metadata   = $image_data && isset( $image_data['metadata'] ) && is_array( $image_data['metadata'] ) ? $image_data['metadata'] : array();
-		$failed     = isset( $metadata['failed_tasks'] ) && is_array( $metadata['failed_tasks'] ) ? $metadata['failed_tasks'] : array();
-
-		foreach ( $failed as $task ) {
-			if ( ! is_array( $task ) || empty( $task['format'] ) ) {
-				continue;
-			}
-
-			if ( in_array( $task['format'], $formats, true ) ) {
-				throw new Exception(
-					sprintf(
-						'Format "%s" was reported supported but conversion failed: %s',
-						$task['format'],
-						wp_json_encode( $task )
-					)
-				);
-			}
-		}
-	}
-
-	/**
-	 * Check unsupported output format settings do not affect effective hash.
+	 * Check that an enabled but unsupported format is reported and generates nothing.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 */
-	private function check_unsupported_format_setting_does_not_change_hash( $attachment_id ) {
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-		$settings = new Settings();
-		$options  = get_option( 'trust_optimize_options', array() );
+	private function check_unsupported_format_is_not_planned( $attachment_id ) {
+		$stored  = get_option( CapabilityService::OPTION );
+		$options = get_option( 'trust_optimize_options', array() );
 
 		$options['convert_to_avif'] = 1;
 		update_option( 'trust_optimize_options', $options );
+		update_option(
+			CapabilityService::OPTION,
+			array(
+				'webp' => true,
+				'avif' => false,
+			)
+		);
 
-		$enabled_profile = ( new ImageProfileFactory( $settings ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
-		$enabled_data    = $enabled_profile->to_array();
-
-		if ( empty( $enabled_data['options']['unsupported_output_formats'] ) || ! in_array( 'avif', $enabled_data['options']['unsupported_output_formats'], true ) ) {
-			$this->skip( 'Unsupported AVIF hash stability check skipped because AVIF is supported in this environment.' );
-			return;
+		try {
+			$inventory = Plugin::get_instance()->planner->inventory( $attachment_id );
+			$plan      = Plugin::get_instance()->planner->plan( $attachment_id );
+		} finally {
+			false === $stored ? delete_option( CapabilityService::OPTION ) : update_option( CapabilityService::OPTION, $stored );
 		}
 
-		$options['convert_to_avif'] = 0;
-		update_option( 'trust_optimize_options', $options );
-
-		$disabled_profile = ( new ImageProfileFactory( $settings ) )->from_wp_metadata( is_array( $metadata ) ? $metadata : array() );
-
-		if ( $enabled_profile->get_hash() !== $disabled_profile->get_hash() ) {
-			throw new Exception( 'Disabling unsupported AVIF changed effective profile hash.' );
+		if ( array( 'avif' ) !== $inventory['unsupported_output_formats'] ) {
+			throw new Exception( 'Unsupported AVIF was not reported by the inventory: ' . wp_json_encode( $inventory ) );
 		}
 
-		$options['convert_to_avif'] = 1;
-		update_option( 'trust_optimize_options', $options );
+		foreach ( $plan->pending() as $row ) {
+			if ( 'avif' === $row['format'] ) {
+				throw new Exception( 'An unsupported format was planned for conversion.' );
+			}
+		}
 
-		$this->pass( 'Unsupported AVIF setting does not change effective profile hash.' );
+		$this->pass( 'Unsupported AVIF is reported and not planned.' );
 	}
 
 	/**
@@ -444,9 +403,6 @@ $trust_optimize_smoke = new class() {
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_rest_endpoints( $attachment_id ) {
-		$controller = new RestController();
-		$controller->register_routes();
-
 		$this->assert_rest_ok( 'GET', '/trust-optimize/v1/status' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/image/' . $attachment_id . '/sync' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/image/' . $attachment_id . '/remove', array( 'confirm' => true ) );
@@ -476,7 +432,7 @@ $trust_optimize_smoke = new class() {
 			throw new Exception( 'Unable to create REST control smoke job; active job may already exist.' );
 		}
 
-		$runner = new BulkJobRunner( $repository );
+		$runner = Plugin::get_instance()->bulk_runner;
 		$runner->start( $job->get_id() );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/pause' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/resume' );
@@ -520,9 +476,7 @@ $trust_optimize_smoke = new class() {
 		}
 
 		if ( BulkJob::STATUS_RUNNING === $status ) {
-			$repository = new BulkJobRepository();
-			$runner     = new BulkJobRunner( $repository );
-			$runner->cancel( (int) $job['id'] );
+			Plugin::get_instance()->bulk_runner->cancel( (int) $job['id'] );
 		}
 
 		$this->pass( 'REST-started inventory job makes immediate bounded progress and status polling advances it.' );
@@ -533,7 +487,7 @@ $trust_optimize_smoke = new class() {
 	 */
 	private function check_bulk_inventory_and_sync() {
 		$repository = new BulkJobRepository();
-		$runner     = new BulkJobRunner( $repository );
+		$runner     = Plugin::get_instance()->bulk_runner;
 		$active     = $repository->get_active_job();
 
 		if ( $active ) {
@@ -598,29 +552,27 @@ $trust_optimize_smoke = new class() {
 	}
 
 	/**
-	 * Check reprocess after profile hash changes.
+	 * Check that a changed quality setting is applied by the next sync.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 */
-	private function check_reprocess_after_profile_change( $attachment_id ) {
-		$model  = new ImageModel();
-		$before = $model->get_profile_hash( $attachment_id );
-
-		$options = get_option( 'trust_optimize_options', array() );
+	private function check_reprocess_after_quality_change( $attachment_id ) {
+		$options                 = get_option( 'trust_optimize_options', array() );
 		$options['webp_quality'] = isset( $options['webp_quality'] ) ? (int) $options['webp_quality'] - 1 : 81;
 		update_option( 'trust_optimize_options', $options );
 
-		$result = ( new ImageOptimizationService() )->optimize_attachment( $attachment_id );
+		$result = Plugin::get_instance()->processor->sync( $attachment_id );
 		if ( $result->is_failed() ) {
-			throw new Exception( 'Reprocess after profile change failed: ' . wp_json_encode( $result->to_array() ) );
+			throw new Exception( 'Reprocess after a quality change failed: ' . wp_json_encode( $result->to_array() ) );
 		}
 
-		$after = $model->get_profile_hash( $attachment_id );
-		if ( '' !== $before && $before === $after ) {
-			throw new Exception( 'Profile hash did not change after quality setting update.' );
+		foreach ( $this->variants()->get_done_for_attachment( $attachment_id ) as $row ) {
+			if ( 'webp' === $row['format'] && (int) $options['webp_quality'] !== $row['quality'] ) {
+				throw new Exception( 'A webp variant kept the old quality after the setting changed.' );
+			}
 		}
 
-		$this->pass( 'Repeated sync observes changed profile hash.' );
+		$this->pass( 'Repeated sync applies a changed quality setting.' );
 	}
 
 	/**
@@ -820,7 +772,7 @@ $trust_optimize_smoke = new class() {
 	}
 
 	/**
-	 * Create a fake generated variant recorded in the plugin manifest.
+	 * Create a fake generated variant file owned by a variant row.
 	 *
 	 * @param int    $attachment_id Attachment ID.
 	 * @param string $format        Format.
@@ -828,32 +780,32 @@ $trust_optimize_smoke = new class() {
 	 */
 	private function create_manifest_variant( $attachment_id, $format ) {
 		$original = get_attached_file( $attachment_id );
-		$variant  = trailingslashit( dirname( $original ) ) . pathinfo( $original, PATHINFO_FILENAME ) . '-trust-optimize-smoke.' . $format;
+		$variant  = $original . '.' . $format;
 
 		file_put_contents( $variant, 'trust-optimize-smoke-generated-variant' );
 		$this->files[] = $variant;
 
-		$model    = new ImageModel();
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-		$stored   = $model->create_base_metadata( is_array( $metadata ) ? $metadata : array() );
-		$stored['generated_variants'] = array(
-			'original:' . $format => array(
-				'attachment_id' => (int) $attachment_id,
-				'size_name'     => 'original',
-				'format'        => $format,
-				'mime_type'     => 'image/' . $format,
-				'file'          => basename( $variant ),
-				'relative_dir'  => trim( dirname( _wp_relative_upload_path( $variant ) ), '.' ),
-				'file_size'     => filesize( $variant ),
-				'profile_hash'  => 'trust-optimize-smoke',
-			),
+		$this->variants()->upsert(
+			array(
+				'attachment_id'        => (int) $attachment_id,
+				'size_name'            => 'smoke',
+				'format'               => $format,
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => _wp_relative_upload_path( $original ),
+				'relative_path'        => _wp_relative_upload_path( $variant ),
+			)
 		);
 
-		$model->save( $attachment_id, $stored );
-		$model->update_status( $attachment_id, 'completed', 1 );
-		$model->increment_completed_tasks( $attachment_id );
-
 		return $variant;
+	}
+
+	/**
+	 * Variant repository of the running plugin.
+	 *
+	 * @return VariantRepository
+	 */
+	private function variants() {
+		return new VariantRepository( new DatabaseManager() );
 	}
 
 	/**
@@ -919,10 +871,7 @@ $trust_optimize_smoke = new class() {
 			update_option( 'trust_optimize_options', $this->original_options );
 		}
 
-		$model = new ImageModel();
-
 		foreach ( array_reverse( $this->attachments ) as $attachment_id ) {
-			$model->delete( $attachment_id );
 			wp_delete_attachment( $attachment_id, true );
 		}
 

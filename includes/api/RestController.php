@@ -14,9 +14,12 @@ use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Bulk\EligibilityQuery;
-use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\ImageOptimizationService;
+use TrustOptimize\Storage\AttachmentRepository;
+use TrustOptimize\Storage\VariantRepository;
 
 /**
  * Class RestController
@@ -36,6 +39,76 @@ class RestController extends WP_REST_Controller {
 	 * @var string
 	 */
 	protected $rest_base = '';
+
+	/**
+	 * Attachment repository.
+	 *
+	 * @var AttachmentRepository
+	 */
+	private $attachments;
+
+	/**
+	 * Variant repository.
+	 *
+	 * @var VariantRepository
+	 */
+	private $variants;
+
+	/**
+	 * Attachment processor.
+	 *
+	 * @var AttachmentProcessor
+	 */
+	private $processor;
+
+	/**
+	 * Cleanup service.
+	 *
+	 * @var ImageCleanupService
+	 */
+	private $cleanup;
+
+	/**
+	 * Bulk job repository.
+	 *
+	 * @var BulkJobRepository
+	 */
+	private $jobs;
+
+	/**
+	 * Eligibility query.
+	 *
+	 * @var EligibilityQuery
+	 */
+	private $eligibility;
+
+	/**
+	 * Bulk job runner.
+	 *
+	 * @var BulkJobRunner
+	 */
+	private $runner;
+
+	/**
+	 * Constructor.
+	 *
+	 * @param AttachmentRepository $attachments Attachment repository.
+	 * @param VariantRepository    $variants    Variant repository.
+	 * @param AttachmentProcessor  $processor   Attachment processor.
+	 * @param ImageCleanupService  $cleanup     Cleanup service.
+	 * @param BulkJobRepository    $jobs        Bulk job repository.
+	 * @param EligibilityQuery     $eligibility Eligibility query.
+	 * @param BulkJobRunner        $runner      Bulk job runner.
+	 */
+	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, AttachmentProcessor $processor, ImageCleanupService $cleanup, BulkJobRepository $jobs, EligibilityQuery $eligibility, BulkJobRunner $runner ) {
+		$this->attachments = $attachments;
+		$this->variants    = $variants;
+		$this->processor   = $processor;
+		$this->cleanup     = $cleanup;
+		$this->jobs        = $jobs;
+		$this->eligibility = $eligibility;
+		$this->runner      = $runner;
+	}
 
 	/**
 	 * Register routes
@@ -201,34 +274,40 @@ class RestController extends WP_REST_Controller {
 			);
 		}
 
-		$image_model = new ImageModel();
-		$status_data = $image_model->get_status( $attachment_id );
-
-		if ( ! $status_data ) {
-			return rest_ensure_response(
-				array(
-					'attachment_id'   => $attachment_id,
-					'status'          => 'none',
-					'total_tasks'     => 0,
-					'completed_tasks' => 0,
-					'progress'        => 0,
-				)
-			);
-		}
-
-		$total     = (int) $status_data['total_tasks'];
-		$completed = (int) $status_data['completed_tasks'];
-		$progress  = $total > 0 ? round( ( $completed / $total ) * 100 ) : 100;
+		$row    = $this->attachments->get( $attachment_id );
+		$state  = $row ? $row['state'] : AttachmentState::NONE;
+		$counts = $this->variants->count_by_status( $attachment_id );
+		$total  = array_sum( $counts );
+		$ended  = $total - (int) ( $counts[ VariantStatus::PENDING ] ?? 0 ) - (int) ( $counts[ VariantStatus::PROCESSING ] ?? 0 );
 
 		return rest_ensure_response(
 			array(
 				'attachment_id'   => $attachment_id,
-				'status'          => $status_data['status'],
+				'state'           => $state,
+				'status'          => $this->legacy_status( $state ),
 				'total_tasks'     => $total,
-				'completed_tasks' => $completed,
-				'progress'        => $progress,
+				'completed_tasks' => $ended,
+				'progress'        => $total > 0 ? (int) round( ( $ended / $total ) * 100 ) : ( AttachmentState::NONE === $state ? 0 : 100 ),
 			)
 		);
+	}
+
+	/**
+	 * Status vocabulary of the media-library polling script.
+	 *
+	 * @param string $state AttachmentState constant.
+	 * @return string
+	 */
+	private function legacy_status( $state ) {
+		$map = array(
+			AttachmentState::OPTIMIZED  => 'completed',
+			AttachmentState::QUEUED     => 'pending',
+			AttachmentState::PROCESSING => 'processing',
+			AttachmentState::PARTIAL    => 'failed',
+			AttachmentState::FAILED     => 'failed',
+		);
+
+		return $map[ $state ] ?? $state;
 	}
 
 	/**
@@ -272,17 +351,15 @@ class RestController extends WP_REST_Controller {
 	 * @return \WP_REST_Response
 	 */
 	public function get_bulk_status( $request ) {
-		$repository = new BulkJobRepository();
-		$job        = $repository->get_active_job();
+		$job = $this->jobs->get_active_job();
 
 		if ( $job && in_array( $job->get_status(), array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING ), true ) ) {
-			$runner = new BulkJobRunner( $repository );
-			$this->run_status_bounded_tick( $runner, $job );
-			$job = $repository->get( $job->get_id() );
+			$this->run_status_bounded_tick( $this->runner, $job );
+			$job = $this->jobs->get( $job->get_id() );
 		}
 
 		if ( ! $job ) {
-			$job = $repository->get_latest_job();
+			$job = $this->jobs->get_latest_job();
 		}
 
 		return rest_ensure_response(
@@ -340,8 +417,7 @@ class RestController extends WP_REST_Controller {
 			return $error;
 		}
 
-		$service = new ImageOptimizationService();
-		$result  = $service->optimize_attachment( $attachment_id );
+		$result = $this->processor->sync( $attachment_id );
 
 		return rest_ensure_response( $result->to_array() );
 	}
@@ -364,8 +440,7 @@ class RestController extends WP_REST_Controller {
 			return $error;
 		}
 
-		$service = new ImageCleanupService();
-		$result  = $service->cleanup_attachment( $attachment_id );
+		$result = $this->cleanup->cleanup_attachment( $attachment_id );
 
 		return rest_ensure_response( $result->to_array() );
 	}
@@ -378,10 +453,8 @@ class RestController extends WP_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	private function create_and_start_bulk_job( $type, $request ) {
-		$repository  = new BulkJobRepository();
-		$eligibility = new EligibilityQuery();
-		$total       = BulkJob::TYPE_REMOVE === $type ? $eligibility->count_plugin_managed_attachments() : $eligibility->count_eligible_attachments();
-		$job         = $repository->create( $type, array(), '', $total );
+		$total = BulkJob::TYPE_REMOVE === $type ? $this->eligibility->count_plugin_managed_attachments() : $this->eligibility->count_eligible_attachments();
+		$job   = $this->jobs->create( $type, array(), '', $total );
 
 		if ( ! $job ) {
 			return new WP_Error(
@@ -391,13 +464,12 @@ class RestController extends WP_REST_Controller {
 			);
 		}
 
-		$runner = new BulkJobRunner( $repository, $eligibility );
-		$runner->start( $job->get_id() );
-		$this->run_bounded_tick( $runner, $job->get_id(), 1, 3 );
+		$this->runner->start( $job->get_id() );
+		$this->run_bounded_tick( $this->runner, $job->get_id(), 1, 3 );
 
 		return rest_ensure_response(
 			array(
-				'job' => $repository->get( $job->get_id() )->to_array(),
+				'job' => $this->jobs->get( $job->get_id() )->to_array(),
 			)
 		);
 	}
@@ -467,23 +539,21 @@ class RestController extends WP_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	private function control_active_job( $action, $allow_latest ) {
-		$repository = new BulkJobRepository();
-		$job        = $repository->get_active_job();
+		$job = $this->jobs->get_active_job();
 
 		if ( ! $job && $allow_latest ) {
-			$job = $repository->get_latest_job();
+			$job = $this->jobs->get_latest_job();
 		}
 
 		if ( ! $job ) {
 			return rest_ensure_response( array( 'job' => null ) );
 		}
 
-		$runner = new BulkJobRunner( $repository );
-		$runner->$action( $job->get_id() );
+		$this->runner->$action( $job->get_id() );
 
 		return rest_ensure_response(
 			array(
-				'job' => $repository->get( $job->get_id() )->to_array(),
+				'job' => $this->jobs->get( $job->get_id() )->to_array(),
 			)
 		);
 	}

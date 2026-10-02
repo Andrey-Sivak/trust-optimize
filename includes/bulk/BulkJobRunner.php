@@ -8,8 +8,9 @@
 namespace TrustOptimize\Bulk;
 
 use Throwable;
+use TrustOptimize\Planning\VariantPlanner;
+use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\ImageOptimizationService;
 use TrustOptimize\Value\DeleteResult;
 use TrustOptimize\Value\OptimizeResult;
 
@@ -36,11 +37,18 @@ class BulkJobRunner {
 	private $eligibility;
 
 	/**
-	 * Optimization service.
+	 * Variant planner (read-only preflight for inventory jobs).
 	 *
-	 * @var ImageOptimizationService
+	 * @var VariantPlanner
 	 */
-	private $optimization;
+	private $planner;
+
+	/**
+	 * Attachment processor (synchronous sync of one attachment).
+	 *
+	 * @var AttachmentProcessor
+	 */
+	private $processor;
 
 	/**
 	 * Cleanup service.
@@ -52,16 +60,18 @@ class BulkJobRunner {
 	/**
 	 * Constructor.
 	 *
-	 * @param BulkJobRepository|null        $jobs         Job repository.
-	 * @param EligibilityQuery|null         $eligibility  Eligibility query.
-	 * @param ImageOptimizationService|null $optimization Optimization service.
-	 * @param ImageCleanupService|null      $cleanup      Cleanup service.
+	 * @param BulkJobRepository   $jobs        Job repository.
+	 * @param EligibilityQuery    $eligibility Eligibility query.
+	 * @param VariantPlanner      $planner     Variant planner.
+	 * @param AttachmentProcessor $processor   Attachment processor.
+	 * @param ImageCleanupService $cleanup     Cleanup service.
 	 */
-	public function __construct( ?BulkJobRepository $jobs = null, ?EligibilityQuery $eligibility = null, ?ImageOptimizationService $optimization = null, ?ImageCleanupService $cleanup = null ) {
-		$this->jobs         = $jobs ? $jobs : new BulkJobRepository();
-		$this->eligibility  = $eligibility ? $eligibility : new EligibilityQuery();
-		$this->optimization = $optimization ? $optimization : new ImageOptimizationService();
-		$this->cleanup      = $cleanup ? $cleanup : new ImageCleanupService();
+	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, VariantPlanner $planner, AttachmentProcessor $processor, ImageCleanupService $cleanup ) {
+		$this->jobs        = $jobs;
+		$this->eligibility = $eligibility;
+		$this->planner     = $planner;
+		$this->processor   = $processor;
+		$this->cleanup     = $cleanup;
 	}
 
 	/**
@@ -291,10 +301,12 @@ class BulkJobRunner {
 			}
 
 			if ( BulkJob::TYPE_INVENTORY === $type ) {
-				return $this->optimization->inventory_attachment( $attachment_id );
+				$summary = $this->planner->inventory( $attachment_id );
+
+				return $summary['eligible'] ? OptimizeResult::success( 'inventory_checked', $summary ) : OptimizeResult::skipped( 'not_eligible', $summary );
 			}
 
-			return $this->optimization->optimize_attachment( $attachment_id );
+			return $this->processor->sync( $attachment_id );
 		} catch ( Throwable $throwable ) {
 			return OptimizeResult::failed(
 				'exception',

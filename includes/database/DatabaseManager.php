@@ -46,25 +46,9 @@ class DatabaseManager {
 
 		$charset_collate = $wpdb->get_charset_collate();
 
-		$table_name      = $wpdb->prefix . 'trust_optimize_images';
 		$jobs_table_name = $wpdb->prefix . 'trust_optimize_jobs';
 		$attachments     = $wpdb->prefix . 'trust_optimize_attachments';
 		$variants        = $wpdb->prefix . 'trust_optimize_variants';
-
-		$sql = "CREATE TABLE {$table_name} (
-			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
-			attachment_id bigint(20) unsigned NOT NULL,
-			metadata longtext NOT NULL,
-			status varchar(20) NOT NULL DEFAULT 'completed',
-			total_tasks int unsigned NOT NULL DEFAULT 0,
-			completed_tasks int unsigned NOT NULL DEFAULT 0,
-			date_created datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			date_modified datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			PRIMARY KEY  (id),
-			UNIQUE KEY attachment_id (attachment_id),
-			KEY date_modified (date_modified),
-			KEY status (status)
-		) $charset_collate;";
 
 		$jobs_sql = "CREATE TABLE {$jobs_table_name} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -128,7 +112,6 @@ class DatabaseManager {
 		) $charset_collate;";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
-		dbDelta( $sql );
 		dbDelta( $jobs_sql );
 		dbDelta( $attachments_sql );
 		dbDelta( $variants_sql );
@@ -155,7 +138,7 @@ class DatabaseManager {
 			'attachments' => $this->get_table_name( 'trust_optimize_attachments' ),
 			'variants'    => $this->get_table_name( 'trust_optimize_variants' ),
 			'jobs'        => $this->get_table_name( 'trust_optimize_jobs' ),
-			// Legacy 1.x storage: kept for the migration to 2.0.
+			// Legacy 1.x storage: no longer created, read by the migration to 2.0 and dropped on uninstall.
 			'images'      => $this->get_table_name( 'trust_optimize_images' ),
 		);
 	}
