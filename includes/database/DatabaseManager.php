@@ -35,6 +35,14 @@ class DatabaseManager {
 		if ( version_compare( $db_version, self::DB_VERSION, '<' ) ) {
 			$this->create_tables();
 			update_option( 'trust_optimize_db_version', self::DB_VERSION );
+
+			/**
+			 * Fires after the schema was upgraded.
+			 *
+			 * @param string $db_version Previous schema version ("0.0.0" on a fresh install).
+			 * @param string $new_version Current schema version.
+			 */
+			do_action( 'trust_optimize_schema_upgraded', $db_version, self::DB_VERSION );
 		}
 	}
 

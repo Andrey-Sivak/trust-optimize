@@ -19,6 +19,7 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
@@ -114,6 +115,7 @@ class Plugin {
 		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
+		$migration    = new MigrationRunner( $database, array() );
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments );
@@ -125,6 +127,7 @@ class Plugin {
 
 		foreach ( array(
 			$database,
+			$migration,
 			$capabilities,
 			new ImageProcessor( $variants, $settings ),
 			$this->cleanup,
@@ -137,7 +140,7 @@ class Plugin {
 		}
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->bulk_runner, $this->processor, $this->cleanup ) );
+			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->bulk_runner, $this->processor, $this->cleanup, $migration ) );
 		}
 	}
 }
