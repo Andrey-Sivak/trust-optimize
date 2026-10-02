@@ -64,15 +64,11 @@ class ConversionQueue {
 	}
 
 	/**
-	 * Register the Action Scheduler hooks and the upload handler.
-	 *
-	 * The queue runner is also triggered on admin page loads as a fallback for
-	 * environments where WP-Cron loopback requests fail (removed in 04.1).
+	 * Register the Action Scheduler hook and the upload handler.
 	 */
 	public function register() {
 		add_action( self::HOOK_PROCESS, array( $this, 'process' ), 10, 1 );
 		add_filter( 'wp_generate_attachment_metadata', array( $this, 'handle_new_metadata' ), 20, 2 );
-		add_action( 'admin_init', array( $this, 'register_shutdown_dispatch' ) );
 	}
 
 	/**
@@ -134,36 +130,6 @@ class ConversionQueue {
 
 		if ( ! empty( $data['more'] ) ) {
 			$this->schedule( (int) $attachment_id );
-		}
-	}
-
-	/**
-	 * Register the shutdown dispatch if we have pending tasks.
-	 *
-	 * Hooked to 'admin_init' to ensure proper admin context.
-	 */
-	public function register_shutdown_dispatch() {
-		if ( wp_doing_ajax() || wp_doing_cron() ) {
-			return;
-		}
-
-		add_action( 'shutdown', array( $this, 'maybe_dispatch_queue' ) );
-	}
-
-	/**
-	 * Dispatch pending Action Scheduler tasks if any exist.
-	 *
-	 * Runs at the 'shutdown' hook to avoid impacting page response times.
-	 */
-	public function maybe_dispatch_queue() {
-		if ( ! function_exists( 'as_has_scheduled_action' ) ) {
-			return;
-		}
-
-		$has_pending = as_has_scheduled_action( self::HOOK_PROCESS, null, self::GROUP );
-
-		if ( $has_pending && class_exists( 'ActionScheduler_QueueRunner' ) ) {
-			\ActionScheduler_QueueRunner::instance()->run();
 		}
 	}
 
