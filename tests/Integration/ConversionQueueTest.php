@@ -126,16 +126,6 @@ class ConversionQueueTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $this->pending_actions( $id ), 'The run continues in a new action.' );
 	}
 
-	public function test_legacy_per_variant_task_becomes_an_attachment_task() {
-		$id = $this->upload();
-		as_unschedule_all_actions( ConversionQueue::HOOK_PROCESS );
-		$this->attachments->set_state( $id, AttachmentState::NONE );
-
-		$this->queue()->process_legacy_task( array( 'attachment_id' => $id, 'size_name' => 'original' ) );
-
-		$this->assertCount( 1, $this->pending_actions( $id ) );
-	}
-
 	public function test_cancel_removes_the_pending_action() {
 		$id = $this->upload();
 

@@ -20,6 +20,7 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Migration\DetectCollisions;
 use TrustOptimize\Migration\ImportLegacyManifest;
@@ -142,6 +143,7 @@ class Plugin {
 				new ScheduleRegeneration( $variants, $this->conversion_queue ),
 				new RetireLegacyFiles( $variants, $this->cleanup ),
 				new StripAttachmentMetadata( $database ),
+				new CleanupLegacyRuntime( $this->conversion_queue ),
 			)
 		);
 

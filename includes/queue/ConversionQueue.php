@@ -9,6 +9,7 @@
 
 namespace TrustOptimize\Queue;
 
+use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -22,11 +23,6 @@ class ConversionQueue {
 	 * Action Scheduler hook that processes one attachment.
 	 */
 	const HOOK_PROCESS = 'trust_optimize_process_attachment';
-
-	/**
-	 * Per-variant hook of schema 1.x; its tasks are turned into attachment tasks (removed in 03.6).
-	 */
-	const HOOK_CONVERT = 'trust_optimize_convert_image';
 
 	/**
 	 * Action Scheduler group name.
@@ -75,7 +71,6 @@ class ConversionQueue {
 	 */
 	public function register() {
 		add_action( self::HOOK_PROCESS, array( $this, 'process' ), 10, 1 );
-		add_action( self::HOOK_CONVERT, array( $this, 'process_legacy_task' ), 10, 4 );
 		add_filter( 'wp_generate_attachment_metadata', array( $this, 'handle_new_metadata' ), 20, 2 );
 		add_action( 'admin_init', array( $this, 'register_shutdown_dispatch' ) );
 	}
@@ -143,19 +138,6 @@ class ConversionQueue {
 	}
 
 	/**
-	 * Turn a schema 1.x per-variant task into an attachment task (removed in 03.6).
-	 *
-	 * @param int|array $payload Attachment ID or the old variant payload.
-	 */
-	public function process_legacy_task( $payload ) {
-		$attachment_id = is_array( $payload ) ? (int) ( $payload['attachment_id'] ?? 0 ) : (int) $payload;
-
-		if ( $attachment_id > 0 ) {
-			$this->enqueue( $attachment_id );
-		}
-	}
-
-	/**
 	 * Register the shutdown dispatch if we have pending tasks.
 	 *
 	 * Hooked to 'admin_init' to ensure proper admin context.
@@ -178,7 +160,7 @@ class ConversionQueue {
 			return;
 		}
 
-		$has_pending = as_has_scheduled_action( self::HOOK_PROCESS, null, self::GROUP ) || as_has_scheduled_action( self::HOOK_CONVERT, null, self::GROUP );
+		$has_pending = as_has_scheduled_action( self::HOOK_PROCESS, null, self::GROUP );
 
 		if ( $has_pending && class_exists( 'ActionScheduler_QueueRunner' ) ) {
 			\ActionScheduler_QueueRunner::instance()->run();
@@ -211,7 +193,7 @@ class ConversionQueue {
 	public static function cancel_all_tasks() {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( self::HOOK_PROCESS, null, self::GROUP );
-			as_unschedule_all_actions( self::HOOK_CONVERT, null, self::GROUP );
+			as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_TASK_HOOK, null, self::GROUP );
 		}
 	}
 
