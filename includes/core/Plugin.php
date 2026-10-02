@@ -151,9 +151,6 @@ class Plugin {
 		// Output format capabilities (persisted; re-checked when the environment changes)
 		$this->capabilities = new CapabilityService();
 
-		// Initialize image processor
-		$this->image_processor = new ImageProcessor();
-
 		// Storage, planning and processing (until 02.12 introduces the composition root)
 		$variants              = new VariantRepository( $this->db_manager );
 		$attachments           = new AttachmentRepository( $this->db_manager, $variants );
@@ -162,7 +159,8 @@ class Plugin {
 		$planner               = new VariantPlanner( $variants, $attachments, $this->settings, $this->capabilities );
 		$processor             = new AttachmentProcessor( $attachments, $variants, $this->image_converter, $this->settings, $this->capabilities );
 
-		$this->cleanup = new ImageCleanupService( $variants, $attachments );
+		$this->cleanup         = new ImageCleanupService( $variants, $attachments );
+		$this->image_processor = new ImageProcessor( $variants, $this->settings );
 
 		// Initialize conversion queue (registers Action Scheduler hooks)
 		$this->conversion_queue = new ConversionQueue( $attachments, $processor, $planner );

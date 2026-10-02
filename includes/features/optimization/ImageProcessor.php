@@ -10,24 +10,21 @@ namespace TrustOptimize\Features\Optimization;
 use DOMDocument;
 use DOMElement;
 use TrustOptimize\Admin\Settings;
-use TrustOptimize\Database\ImageModel;
-use TrustOptimize\Service\ImageProfileFactory;
+use TrustOptimize\Storage\VariantRepository;
 use TrustOptimize\Utils\Helper;
 use TrustOptimize\Utils\HtmlFragment;
-use TrustOptimize\Utils\UploadsPath;
 
 /**
  * Class ImageProcessor
  */
 class ImageProcessor {
 
-
 	/**
-	 * Image model instance
+	 * Variant repository.
 	 *
-	 * @var ImageModel
+	 * @var VariantRepository
 	 */
-	protected $image_model;
+	protected $variants;
 
 	/**
 	 * Settings instance.
@@ -37,19 +34,14 @@ class ImageProcessor {
 	protected $settings;
 
 	/**
-	 * Image profile factory instance.
+	 * Constructor.
 	 *
-	 * @var ImageProfileFactory
+	 * @param VariantRepository $variants Variant repository.
+	 * @param Settings          $settings Settings instance.
 	 */
-	protected $profile_factory;
-
-	/**
-	 * Constructor
-	 */
-	public function __construct() {
-		$this->image_model     = new ImageModel();
-		$this->settings        = new Settings();
-		$this->profile_factory = new ImageProfileFactory( $this->settings );
+	public function __construct( VariantRepository $variants, Settings $settings ) {
+		$this->variants = $variants;
+		$this->settings = $settings;
 	}
 
 	/**
@@ -136,7 +128,9 @@ class ImageProcessor {
 			return;
 		}
 
-		if ( ! $this->is_attachment_safe_for_frontend( $attachment_id, $metadata ) ) {
+		// Only variants that finished successfully are served; without any the markup stays untouched.
+		$done = $this->variants->get_done_for_attachment( $attachment_id );
+		if ( empty( $done ) ) {
 			return;
 		}
 
@@ -154,13 +148,8 @@ class ImageProcessor {
 		// Define standard sizes attribute for all source elements
 		$sizes_attr = '(max-width: 2704px) 100vw, (max-width: 1024px) 100vw, (max-width: 300px) 100vw, 100vw';
 
-		// Get all available formats for this image (with transient caching)
-		$formats = $this->get_cached_formats( $attachment_id );
-
-		// If no formats found, use at least the original format
-		if ( empty( $formats ) && ! empty( $original_format ) ) {
-			$formats = array( strtolower( $original_format ) );
-		}
+		// Formats this image has finished variants for
+		$formats = array_values( array_unique( array_column( $done, 'format' ) ) );
 
 		// Process formats in order of preference (next-gen formats first, then original)
 		$format_priorities = array( 'avif', 'webp' );
@@ -187,15 +176,6 @@ class ImageProcessor {
 
 		// Process formats in priority order
 		foreach ( $format_priorities as $format ) {
-			// For each format, check browser support and if we have this format variation
-			if ( 'webp' === $format && ! Helper::is_webp_supported() ) {
-				continue;
-			}
-
-			if ( 'avif' === $format && ! Helper::is_avif_supported() ) {
-				continue;
-			}
-
 			// Skip if the format is not in our available formats
 			if ( ! in_array( $format, $formats, true ) && strtolower( $original_format ) !== $format ) {
 				continue;
@@ -207,7 +187,7 @@ class ImageProcessor {
 				$src,
 				$format,
 				$metadata,
-				$attachment_id,
+				$done,
 				$sizes_attr
 			);
 
@@ -252,17 +232,17 @@ class ImageProcessor {
 	 * @param string      $src The original image source.
 	 * @param string      $format The image format ('webp', 'jpeg', 'png', etc.).
 	 * @param array       $metadata The attachment metadata.
-	 * @param int         $attachment_id The attachment ID.
+	 * @param array       $variants Finished variant rows of the attachment.
 	 * @param string      $sizes_attr The sizes attribute for responsive images.
 	 *
 	 * @return DOMElement|null The source element, or null if it couldn't be created.
 	 */
-	private function create_source_element( $dom, $src, $format, $metadata, $attachment_id, $sizes_attr ) {
+	private function create_source_element( $dom, $src, $format, $metadata, array $variants, $sizes_attr ) {
 		// Get the proper MIME type for the format
 		$mime_type = $this->get_mime_type_for_format( $format );
 
 		// Generate srcset for this format
-		$srcset = $this->generate_adaptive_srcset( $src, $format, $metadata, $attachment_id );
+		$srcset = $this->generate_adaptive_srcset( $src, $format, $metadata, $variants );
 
 		// If we couldn't generate a srcset, return null
 		if ( empty( $srcset ) ) {
@@ -305,69 +285,38 @@ class ImageProcessor {
 	 * Generate srcset attribute for adaptive images.
 	 *
 	 * @param string $original_src The original image URL.
-	 * @param string $format The desired image format (e.g., 'webp', 'jpeg').
-	 * @param array  $metadata The attachment metadata.
-	 * @param int    $attachment_id The attachment ID.
+	 * @param string $format       The desired image format (e.g., 'webp', 'avif').
+	 * @param array  $metadata     The attachment metadata.
+	 * @param array  $variants     Finished variant rows of the attachment.
 	 *
 	 * @return string The srcset attribute.
 	 */
-	private function generate_adaptive_srcset( $original_src, $format = '', $metadata = array(), $attachment_id = 0 ) {
-		$srcset_items = array();
-
-		// Get the upload directory information
-		$upload_dir = wp_upload_dir();
-		$base_url   = $upload_dir['baseurl'];
-
-		// Get the directory relative to uploads from the original src
+	private function generate_adaptive_srcset( $original_src, $format, array $metadata, array $variants ) {
+		$base_url           = wp_upload_dir()['baseurl'];
 		$image_dir_relative = dirname( str_replace( trailingslashit( $base_url ), '', $original_src ) );
+		$srcset_items       = array();
 
-		// Get all variations of this format across all sizes from our custom model
-		$format_variations = $this->image_model->get_format_variations( $attachment_id, $format );
-
-		// If no variations found for the specific format, return empty string
-		if ( empty( $format_variations ) ) {
-			return '';
-		}
-
-		foreach ( $format_variations as $size_name => $variation ) {
-			// Skip if no file information available
-			if ( ! isset( $variation['file'] ) ) {
+		foreach ( $variants as $variant ) {
+			if ( $variant['format'] !== $format || empty( $variant['relative_path'] ) ) {
 				continue;
 			}
 
-			$file_name = $variation['file'];
-
-			// Get the width either from the variation data (newly added) or fallback to metadata
-			$width = 0;
-			if ( isset( $variation['width'] ) && $variation['width'] > 0 ) {
-				$width = $variation['width'];
-			} elseif ( 'original' === $size_name && isset( $metadata['width'] ) ) {
-				$width = $metadata['width'];
-			} elseif ( isset( $metadata['sizes'][ $size_name ]['width'] ) ) {
-				$width = $metadata['sizes'][ $size_name ]['width'];
+			$size_name = $variant['size_name'];
+			$width     = (int) $variant['width'];
+			if ( $width <= 0 ) {
+				$width = (int) ( 'original' === $size_name ? ( $metadata['width'] ?? 0 ) : ( $metadata['sizes'][ $size_name ]['width'] ?? 0 ) );
 			}
 
 			// Skip if we couldn't determine the width
-			if ( empty( $width ) ) {
+			if ( $width <= 0 ) {
 				continue;
 			}
 
-			// Construct the full URL for the size
-			$srcset_items[] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . $file_name . ' ' . $width . 'w';
+			// The variant sits next to the source candidate that the markup points at.
+			$srcset_items[ $width ] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . basename( $variant['relative_path'] ) . ' ' . $width . 'w';
 		}
 
-		// Sort srcset items by width (ascending order)
-		usort(
-			$srcset_items,
-			function ( $a, $b ) {
-				$a_parts = explode( ' ', $a );
-				$b_parts = explode( ' ', $b );
-				$a_width = (int) rtrim( end( $a_parts ), 'w' );
-				$b_width = (int) rtrim( end( $b_parts ), 'w' );
-
-				return $a_width - $b_width;
-			}
-		);
+		ksort( $srcset_items );
 
 		return implode( ', ', $srcset_items );
 	}
@@ -408,68 +357,5 @@ class ImageProcessor {
 	 */
 	private function is_feature_enabled() {
 		return (bool) $this->settings->get( 'enable_adaptive_images', 1 );
-	}
-
-	/**
-	 * Check whether attachment optimization state is safe for frontend rewrite.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $metadata      WordPress attachment metadata.
-	 * @return bool
-	 */
-	private function is_attachment_safe_for_frontend( $attachment_id, array $metadata ) {
-		$status_data = $this->image_model->get_status( $attachment_id );
-
-		if ( ! $status_data || 'completed' !== $status_data['status'] ) {
-			return false;
-		}
-
-		$current_profile_hash = $this->profile_factory->from_wp_metadata( $metadata )->get_hash();
-		if ( $current_profile_hash !== $this->image_model->get_profile_hash( $attachment_id ) ) {
-			return false;
-		}
-
-		$variants = $this->image_model->get_generated_variants( $attachment_id );
-		if ( empty( $variants ) ) {
-			return false;
-		}
-
-		foreach ( $variants as $variant ) {
-			$path = UploadsPath::resolve_variant( $variant, $attachment_id );
-
-			if ( null === $path || ! UploadsPath::is_inside( $path ) || ! file_exists( $path ) ) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Get available formats for an attachment with transient caching.
-	 *
-	 * Caches the result in a transient for completed images to avoid
-	 * hitting the database on every page load.
-	 *
-	 * @param int $attachment_id The attachment ID.
-	 * @return array Array of available format strings.
-	 */
-	private function get_cached_formats( $attachment_id ) {
-		$transient_key = 'trust_optimize_formats_' . $attachment_id;
-		$cached        = get_transient( $transient_key );
-
-		if ( false !== $cached ) {
-			return $cached;
-		}
-
-		$formats = $this->image_model->get_available_formats( $attachment_id );
-
-		// Only cache if optimization is completed
-		$status_data = $this->image_model->get_status( $attachment_id );
-		if ( $status_data && 'completed' === $status_data['status'] ) {
-			set_transient( $transient_key, $formats, DAY_IN_SECONDS );
-		}
-
-		return $formats;
 	}
 }

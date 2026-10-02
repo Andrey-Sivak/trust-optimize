@@ -36,6 +36,7 @@ class Helper {
 		$relative_path = str_replace( $upload_dir['baseurl'] . '/', '', $image_url );
 
 		// Query database for attachment by guid or file
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching -- Lookup by _wp_attached_file; core has no cached equivalent for a relative path.
 		$attachment = $wpdb->get_col(
 			$wpdb->prepare(
 				"
@@ -49,23 +50,5 @@ class Helper {
 		);
 
 		return ! empty( $attachment[0] ) ? $attachment[0] : false;
-	}
-
-	/**
-	 * Check if webp conversion is supported
-	 *
-	 * @return bool
-	 */
-	public static function is_webp_supported() {
-		return function_exists( 'imagewebp' );
-	}
-
-	/**
-	 * Check if avif conversion is supported
-	 *
-	 * @return bool
-	 */
-	public static function is_avif_supported() {
-		return function_exists( 'imageavif' );
 	}
 }
