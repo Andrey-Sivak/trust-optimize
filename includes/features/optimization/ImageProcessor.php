@@ -137,8 +137,8 @@ class ImageProcessor {
 			return;
 		}
 
-		// Only variants that finished successfully are served; without any the markup stays untouched.
-		$done = $this->variants->get_done_for_attachment( $attachment_id );
+		// Only variants with a servable file are used; without any the markup stays untouched.
+		$done = $this->variants->get_servable_for_attachment( $attachment_id );
 		if ( empty( $done ) ) {
 			return;
 		}
@@ -241,7 +241,7 @@ class ImageProcessor {
 	 * @param string      $src The original image source.
 	 * @param string      $format The image format ('webp', 'jpeg', 'png', etc.).
 	 * @param array       $metadata The attachment metadata.
-	 * @param array       $variants Finished variant rows of the attachment.
+	 * @param array       $variants Variant rows of the attachment that are served.
 	 * @param string      $sizes_attr The sizes attribute for responsive images.
 	 *
 	 * @return DOMElement|null The source element, or null if it couldn't be created.
@@ -296,7 +296,7 @@ class ImageProcessor {
 	 * @param string $original_src The original image URL.
 	 * @param string $format       The desired image format (e.g., 'webp', 'avif').
 	 * @param array  $metadata     The attachment metadata.
-	 * @param array  $variants     Finished variant rows of the attachment.
+	 * @param array  $variants     Variant rows of the attachment that are served.
 	 *
 	 * @return string The srcset attribute.
 	 */
@@ -306,7 +306,9 @@ class ImageProcessor {
 		$srcset_items       = array();
 
 		foreach ( $variants as $variant ) {
-			if ( $variant['format'] !== $format || empty( $variant['relative_path'] ) ) {
+			$servable_path = VariantRepository::servable_path( $variant );
+
+			if ( $variant['format'] !== $format || null === $servable_path ) {
 				continue;
 			}
 
@@ -322,7 +324,7 @@ class ImageProcessor {
 			}
 
 			// The variant sits next to the source candidate that the markup points at.
-			$srcset_items[ $width ] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . basename( $variant['relative_path'] ) . ' ' . $width . 'w';
+			$srcset_items[ $width ] = trailingslashit( $base_url ) . trailingslashit( ltrim( $image_dir_relative, '/' ) ) . basename( $servable_path ) . ' ' . $width . 'w';
 		}
 
 		ksort( $srcset_items );

@@ -566,7 +566,7 @@ $trust_optimize_smoke = new class() {
 			throw new Exception( 'Reprocess after a quality change failed: ' . wp_json_encode( $result->to_array() ) );
 		}
 
-		foreach ( $this->variants()->get_done_for_attachment( $attachment_id ) as $row ) {
+		foreach ( $this->variants()->get_servable_for_attachment( $attachment_id ) as $row ) {
 			if ( 'webp' === $row['format'] && (int) $options['webp_quality'] !== $row['quality'] ) {
 				throw new Exception( 'A webp variant kept the old quality after the setting changed.' );
 			}

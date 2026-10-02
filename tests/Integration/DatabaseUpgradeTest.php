@@ -17,7 +17,7 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 	 *
 	 * @param string $table  Table name.
 	 * @param string $column Column name.
-	 * @return string
+	 * @return string|null Null when the column does not exist.
 	 */
 	private function column_type( $table, $column ) {
 		global $wpdb;
@@ -25,7 +25,7 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
 		$row = $wpdb->get_row( $wpdb->prepare( "SHOW COLUMNS FROM `{$table}` LIKE %s", $column ), ARRAY_A );
 
-		return strtolower( (string) $row['Type'] );
+		return $row ? strtolower( (string) $row['Type'] ) : null;
 	}
 
 	public function test_new_tables_exist_with_expected_columns() {
@@ -78,5 +78,23 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$wpdb->query( "DROP TABLE IF EXISTS `{$tables['images']}`" );
 
 		$this->assertSame( '1', $legacy_rows );
+	}
+
+	public function test_upgrade_from_2_0_0_adds_the_legacy_path_column() {
+		global $wpdb;
+
+		$database = new DatabaseManager();
+		$variants = $database->get_plugin_table_names()['variants'];
+
+		// Put the variants table back into its 2.0.0 shape (DDL commits implicitly).
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+		$wpdb->query( "ALTER TABLE `{$variants}` DROP INDEX legacy_relative_path, DROP COLUMN legacy_relative_path" );
+		$this->assertNull( $this->column_type( $variants, 'legacy_relative_path' ) );
+
+		update_option( 'trust_optimize_db_version', '2.0.0' );
+		$database->check_version();
+
+		$this->assertSame( DatabaseManager::DB_VERSION, get_option( 'trust_optimize_db_version' ) );
+		$this->assertSame( 'varchar(255)', $this->column_type( $variants, 'legacy_relative_path' ) );
 	}
 }

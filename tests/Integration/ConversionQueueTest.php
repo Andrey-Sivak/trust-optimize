@@ -76,7 +76,7 @@ class ConversionQueueTest extends WP_UnitTestCase {
 		$this->run_queue();
 
 		$this->assertSame( AttachmentState::OPTIMIZED, $this->attachments->get_state( $id ) );
-		$done = $this->variants->get_done_for_attachment( $id );
+		$done = $this->variants->get_servable_for_attachment( $id );
 		$this->assertNotEmpty( $done );
 		foreach ( $done as $row ) {
 			$this->assertFileExists( wp_upload_dir()['basedir'] . '/' . $row['relative_path'] );
@@ -122,7 +122,7 @@ class ConversionQueueTest extends WP_UnitTestCase {
 		$this->queue()->process( $id );
 
 		$this->assertSame( AttachmentState::QUEUED, $this->attachments->get_state( $id ) );
-		$this->assertSame( array(), $this->variants->get_done_for_attachment( $id ) );
+		$this->assertSame( array(), $this->variants->get_servable_for_attachment( $id ) );
 		$this->assertCount( 1, $this->pending_actions( $id ), 'The run continues in a new action.' );
 	}
 

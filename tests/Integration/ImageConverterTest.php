@@ -106,7 +106,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 		$result = $this->converter->convert( $row, $this->settings() );
 
 		$this->assertTrue( $result->is_success(), wp_json_encode( $result->to_array() ) );
-		$done = $this->variants->get_done_for_attachment( 901 )[0];
+		$done = $this->variants->get_servable_for_attachment( 901 )[0];
 		$this->assertSame( $this->relative_dir . '/photo.jpg.webp', $done['relative_path'] );
 		$this->assertSame( 80, $done['quality'] );
 		$this->assertGreaterThan( 0, $done['file_size'] );

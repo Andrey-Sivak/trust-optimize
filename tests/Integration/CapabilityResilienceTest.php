@@ -113,7 +113,7 @@ class CapabilityResilienceTest extends WP_UnitTestCase {
 		$this->assertFileExists( $this->abs( $target ) );
 		$kept = array_values(
 			array_filter(
-				$this->variants->get_done_for_attachment( $id ),
+				$this->variants->get_servable_for_attachment( $id ),
 				static function ( $row ) use ( $target ) {
 					return $row['relative_path'] === $target;
 				}

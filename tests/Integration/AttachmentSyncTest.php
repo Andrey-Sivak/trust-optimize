@@ -69,7 +69,7 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 
 		$this->assertTrue( $result->is_success(), wp_json_encode( $result->to_array() ) );
 		$this->assertSame( AttachmentState::OPTIMIZED, $result->get_data()['state'] );
-		$this->assertNotEmpty( $this->variants->get_done_for_attachment( $id ) );
+		$this->assertNotEmpty( $this->variants->get_servable_for_attachment( $id ) );
 
 		$again = $this->processor()->sync( $id );
 		$this->assertSame( 'up_to_date', $again->get_message() );
@@ -82,7 +82,7 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 			static function ( $row ) {
 				return wp_upload_dir()['basedir'] . '/' . $row['relative_path'];
 			},
-			$this->variants->get_done_for_attachment( $id )
+			$this->variants->get_servable_for_attachment( $id )
 		);
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 0, 'convert_to_avif' => 0 ) );
 

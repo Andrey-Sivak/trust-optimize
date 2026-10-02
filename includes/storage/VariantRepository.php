@@ -34,7 +34,7 @@ class VariantRepository {
 	 *
 	 * @var string[]
 	 */
-	const NULLABLE_COLUMNS = array( 'relative_path', 'file_hash', 'reason' );
+	const NULLABLE_COLUMNS = array( 'relative_path', 'legacy_relative_path', 'file_hash', 'reason' );
 
 	/**
 	 * Columns written by upsert(), with defaults for a new row.
@@ -46,6 +46,7 @@ class VariantRepository {
 		'naming'               => 'v2',
 		'source_relative_path' => '',
 		'relative_path'        => null,
+		'legacy_relative_path' => null,
 		'width'                => 0,
 		'height'               => 0,
 		'quality'              => 0,
@@ -185,24 +186,42 @@ class VariantRepository {
 	}
 
 	/**
-	 * Variants with status "done" of an attachment.
+	 * Path of the file that is served for a variant, relative to uploads.
+	 *
+	 * A finished variant is served from its own file. Until it is (re)generated, a file
+	 * of schema 1.x that is still on disk keeps being served. Delivery must use this
+	 * method and never look at statuses or paths itself.
+	 *
+	 * @param array $row Variant row.
+	 * @return string|null Null when nothing is served for the variant.
+	 */
+	public static function servable_path( array $row ) {
+		if ( VariantStatus::DONE === ( $row['status'] ?? '' ) && ! empty( $row['relative_path'] ) ) {
+			return $row['relative_path'];
+		}
+
+		return ! empty( $row['legacy_relative_path'] ) ? $row['legacy_relative_path'] : null;
+	}
+
+	/**
+	 * Variants that are served (see servable_path()) for an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return array[]
 	 */
-	public function get_done_for_attachment( $attachment_id ) {
-		$done = $this->get_done_for_attachments( array( $attachment_id ) );
+	public function get_servable_for_attachment( $attachment_id ) {
+		$servable = $this->get_servable_for_attachments( array( $attachment_id ) );
 
-		return $done[ (int) $attachment_id ];
+		return $servable[ (int) $attachment_id ];
 	}
 
 	/**
-	 * Variants with status "done" for several attachments in one query at most.
+	 * Variants that are served (see servable_path()) for several attachments in one query at most.
 	 *
 	 * @param int[] $attachment_ids Attachment IDs.
 	 * @return array[] Rows keyed by attachment ID (every requested ID is present).
 	 */
-	public function get_done_for_attachments( array $attachment_ids ) {
+	public function get_servable_for_attachments( array $attachment_ids ) {
 		$ids    = array_values( array_unique( array_map( 'intval', $attachment_ids ) ) );
 		$loaded = $this->load( $ids );
 		$result = array();
@@ -212,7 +231,7 @@ class VariantRepository {
 				array_filter(
 					$loaded[ $id ],
 					static function ( $row ) {
-						return VariantStatus::DONE === $row['status'];
+						return null !== self::servable_path( $row );
 					}
 				)
 			);
@@ -239,7 +258,7 @@ class VariantRepository {
 	}
 
 	/**
-	 * Whether a variant row owns the file at a relative path.
+	 * Whether a variant row owns the file at a relative path (as its file or its 1.x file).
 	 *
 	 * @param string $relative_path Path relative to uploads.
 	 * @return bool
@@ -248,7 +267,7 @@ class VariantRepository {
 		global $wpdb;
 
 		return (bool) $wpdb->get_var(
-			$wpdb->prepare( "SELECT 1 FROM {$this->table} WHERE relative_path = %s LIMIT 1", $relative_path )
+			$wpdb->prepare( "SELECT 1 FROM {$this->table} WHERE relative_path = %s OR legacy_relative_path = %s LIMIT 1", $relative_path, $relative_path )
 		);
 	}
 

@@ -76,7 +76,7 @@ class MetadataRegenerationTest extends WP_UnitTestCase {
 		$this->assertSame( 'done', $new['status'] );
 		$this->assertStringEndsWith( $new_name . '.webp', $new['relative_path'] );
 		$this->assertFileExists( $this->abs( $new['relative_path'] ) );
-		foreach ( $this->variants->get_done_for_attachment( $id ) as $row ) {
+		foreach ( $this->variants->get_servable_for_attachment( $id ) as $row ) {
 			$this->assertFileExists( $this->abs( $row['relative_path'] ), 'No done row without a file.' );
 		}
 	}
