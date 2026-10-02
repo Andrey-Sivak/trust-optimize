@@ -1,11 +1,39 @@
 #!/usr/bin/env sh
 # Usage: tools/bin/test <unit|integration> <8.0|8.4> [wp-version|latest]
+# Integration tests run against a separate WordPress core copy cached in /wp-core (not the stand's html/).
 set -eu
 suite="${1:-}"
 php="${2:-}"
-case "$suite" in unit|integration) ;; *) echo "Usage: $0 <unit|integration> <8.0|8.4> [wp-version|latest]" >&2; exit 2 ;; esac
-case "$php" in 8.0) service=tools-php80 ;; 8.4) service=tools-php84 ;; *) echo "PHP must be 8.0 or 8.4" >&2; exit 2 ;; esac
-exec "$(dirname "$0")/compose" run --rm "$service" sh -c '
+wp_version="${3:-latest}"
+usage() { echo "Usage: $0 <unit|integration> <8.0|8.4> [wp-version|latest]" >&2; exit 2; }
+case "$suite" in unit|integration) ;; *) usage ;; esac
+case "$php" in 8.0) service=tools-php80 ;; 8.4) service=tools-php84 ;; *) usage ;; esac
+
+exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSION=$wp_version" "$service" sh -c '
+  set -eu
   if [ ! -x vendor/bin/phpunit ]; then echo "phpunit is not installed: run tools/bin/composer install" >&2; exit 1; fi
-  exec vendor/bin/phpunit --testsuite '"$suite"'
+  if [ "$TO_SUITE" = unit ]; then exec composer test:unit; fi
+
+  mariadb --skip-ssl -h "$WP_TESTS_DB_HOST" -uroot -p"$WP_TESTS_DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $WP_TESTS_DB_NAME"
+
+  core="$WP_CORE_CACHE_DIR/$TO_WP_VERSION"
+  if [ ! -f "$core/wp-settings.php" ]; then
+    wp core download --version="$TO_WP_VERSION" --path="$core" --skip-content
+  elif [ "$TO_WP_VERSION" = latest ] && [ -n "$(find "$core/wp-settings.php" -mtime +0)" ]; then
+    wp core download --version=latest --path="$core" --skip-content --force
+  fi
+  # Core is downloaded with --skip-content: WP needs an (empty) wp-content for plugins/uploads lookups.
+  mkdir -p "$core/wp-content"
+
+  # The wp-phpunit library must match the core version; the vendor copy (latest) fits only "latest".
+  tests_lib=""
+  if [ "$TO_WP_VERSION" != latest ]; then
+    lib_root="$WP_CORE_CACHE_DIR/tests-$TO_WP_VERSION"
+    if [ ! -d "$lib_root/vendor/wp-phpunit/wp-phpunit" ]; then
+      mkdir -p "$lib_root"
+      composer require --working-dir="$lib_root" --no-interaction --no-plugins --no-scripts "wp-phpunit/wp-phpunit:$TO_WP_VERSION.*"
+    fi
+    tests_lib="$lib_root/vendor/wp-phpunit/wp-phpunit"
+  fi
+  WP_CORE_DIR="$core" WP_TESTS_LIB_DIR="$tests_lib" exec composer test:integration
 '
