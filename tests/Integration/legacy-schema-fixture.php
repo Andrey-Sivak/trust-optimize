@@ -80,7 +80,7 @@ trait Legacy_Schema_Fixture {
 	}
 
 	/**
-	 * Write the 1.x manifest of an attachment.
+	 * Write the 1.x manifest of an attachment (entries are added to an existing manifest).
 	 *
 	 * @param int     $attachment_id Attachment ID.
 	 * @param array[] $variants      Entries with size_name, format and file (relative to uploads); relative_dir and file_hash are derived.
@@ -105,6 +105,13 @@ trait Legacy_Schema_Fixture {
 				'relative_dir'  => '.' === dirname( $relative ) ? '' : dirname( $relative ),
 				'file_hash'     => $path ? hash_file( 'sha256', $path ) : '',
 			);
+		}
+
+		$existing = $wpdb->get_var( $wpdb->prepare( "SELECT metadata FROM `{$table}` WHERE attachment_id = %d", $attachment_id ) ); // phpcs:ignore WordPress.DB
+
+		if ( null !== $existing ) {
+			$wpdb->update( $table, array( 'metadata' => wp_json_encode( array( 'generated_variants' => array_merge( json_decode( $existing, true )['generated_variants'], $manifest ) ) ) ), array( 'attachment_id' => $attachment_id ) );
+			return;
 		}
 
 		$wpdb->insert(
