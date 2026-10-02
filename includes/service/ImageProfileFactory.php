@@ -36,7 +36,7 @@ class ImageProfileFactory {
 	 *
 	 * @param Settings|null $settings Settings instance.
 	 */
-	public function __construct( Settings $settings = null ) {
+	public function __construct( ?Settings $settings = null ) {
 		$this->settings = $settings ? $settings : new Settings();
 	}
 

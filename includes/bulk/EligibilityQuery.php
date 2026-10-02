@@ -26,7 +26,7 @@ class EligibilityQuery {
 	 *
 	 * @param ImageModel|null $image_model Image model instance.
 	 */
-	public function __construct( ImageModel $image_model = null ) {
+	public function __construct( ?ImageModel $image_model = null ) {
 		$this->image_model = $image_model ? $image_model : new ImageModel();
 	}
 

@@ -33,7 +33,7 @@ class BulkJobRepository {
 	 *
 	 * @param DatabaseManager|null $db_manager Database manager.
 	 */
-	public function __construct( DatabaseManager $db_manager = null ) {
+	public function __construct( ?DatabaseManager $db_manager = null ) {
 		$this->db_manager = $db_manager ? $db_manager : new DatabaseManager();
 	}
 

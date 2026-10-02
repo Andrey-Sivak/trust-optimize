@@ -36,7 +36,7 @@ class ImageCleanupService {
 	 * @param ImageModel|null      $image_model      Image model instance.
 	 * @param ConversionQueue|null $conversion_queue Conversion queue instance.
 	 */
-	public function __construct( ImageModel $image_model = null, ConversionQueue $conversion_queue = null ) {
+	public function __construct( ?ImageModel $image_model = null, ?ConversionQueue $conversion_queue = null ) {
 		$this->image_model      = $image_model ? $image_model : new ImageModel();
 		$this->conversion_queue = $conversion_queue;
 	}

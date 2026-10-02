@@ -57,7 +57,7 @@ class BulkJobRunner {
 	 * @param ImageOptimizationService|null $optimization Optimization service.
 	 * @param ImageCleanupService|null      $cleanup      Cleanup service.
 	 */
-	public function __construct( BulkJobRepository $jobs = null, EligibilityQuery $eligibility = null, ImageOptimizationService $optimization = null, ImageCleanupService $cleanup = null ) {
+	public function __construct( ?BulkJobRepository $jobs = null, ?EligibilityQuery $eligibility = null, ?ImageOptimizationService $optimization = null, ?ImageCleanupService $cleanup = null ) {
 		$this->jobs         = $jobs ? $jobs : new BulkJobRepository();
 		$this->eligibility  = $eligibility ? $eligibility : new EligibilityQuery();
 		$this->optimization = $optimization ? $optimization : new ImageOptimizationService();

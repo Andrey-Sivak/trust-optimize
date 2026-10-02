@@ -48,7 +48,7 @@ class ImageOptimizationService {
 	 * @param ImageModel|null          $image_model     Image model instance.
 	 * @param ImageProfileFactory|null $profile_factory Image profile factory instance.
 	 */
-	public function __construct( ImageConverter $converter = null, ImageModel $image_model = null, ImageProfileFactory $profile_factory = null ) {
+	public function __construct( ?ImageConverter $converter = null, ?ImageModel $image_model = null, ?ImageProfileFactory $profile_factory = null ) {
 		$this->converter       = $converter;
 		$this->image_model     = $image_model ? $image_model : new ImageModel();
 		$this->profile_factory = $profile_factory ? $profile_factory : new ImageProfileFactory( new Settings() );
