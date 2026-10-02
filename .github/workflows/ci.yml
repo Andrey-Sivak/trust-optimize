@@ -76,14 +76,15 @@ jobs:
           coverage: none
           tools: composer, wp-cli
       - run: composer install --no-interaction --prefer-dist
-      - name: Pin wp-phpunit to the WordPress version under test
-        if: matrix.wp != 'latest'
-        run: composer require --dev --no-interaction --with-all-dependencies "wp-phpunit/wp-phpunit:${{ matrix.wp }}.*"
       - name: Download WordPress core
         run: |
           wp core download --version=${{ matrix.wp }} --path="$RUNNER_TEMP/wp" --skip-content
           mkdir -p "$RUNNER_TEMP/wp/wp-content"
           echo "WP_CORE_DIR=$RUNNER_TEMP/wp" >> "$GITHUB_ENV"
+      - name: Pin wp-phpunit to the downloaded core version
+        run: |
+          lib_version="$(wp core version --path="$WP_CORE_DIR" | cut -d. -f1,2)"
+          composer require --dev --no-interaction --with-all-dependencies "wp-phpunit/wp-phpunit:${lib_version}.*"
       - name: Create test database
         run: mysql --protocol=tcp -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test"
       - run: composer test:integration

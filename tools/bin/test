@@ -25,15 +25,18 @@ exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSIO
   # Core is downloaded with --skip-content: WP needs an (empty) wp-content for plugins/uploads lookups.
   mkdir -p "$core/wp-content"
 
-  # The wp-phpunit library must match the core version; the vendor copy (latest) fits only "latest".
-  tests_lib=""
-  if [ "$TO_WP_VERSION" != latest ]; then
-    lib_root="$WP_CORE_CACHE_DIR/tests-$TO_WP_VERSION"
-    if [ ! -d "$lib_root/vendor/wp-phpunit/wp-phpunit" ]; then
-      mkdir -p "$lib_root"
-      composer require --working-dir="$lib_root" --no-interaction --no-plugins --no-scripts "wp-phpunit/wp-phpunit:$TO_WP_VERSION.*"
+  # The wp-phpunit library must match the core under test (X.Y), including for "latest".
+  core_version="$(wp core version --path="$core")"
+  lib_version="$(echo "$core_version" | cut -d. -f1,2)"
+  lib_root="$WP_CORE_CACHE_DIR/tests-$lib_version"
+  if [ ! -d "$lib_root/vendor/wp-phpunit/wp-phpunit" ]; then
+    mkdir -p "$lib_root"
+    if ! composer require --working-dir="$lib_root" --no-interaction --no-plugins --no-scripts "wp-phpunit/wp-phpunit:$lib_version.*"; then
+      echo "No wp-phpunit release for WordPress $lib_version yet; cannot run integration tests against it." >&2
+      exit 1
     fi
-    tests_lib="$lib_root/vendor/wp-phpunit/wp-phpunit"
   fi
+  tests_lib="$lib_root/vendor/wp-phpunit/wp-phpunit"
+  echo "WordPress core $core_version, wp-phpunit $(composer show --working-dir="$lib_root" wp-phpunit/wp-phpunit 2>/dev/null | sed -n "s/^versions : \* //p")"
   WP_CORE_DIR="$core" WP_TESTS_LIB_DIR="$tests_lib" exec composer test:integration
 '
