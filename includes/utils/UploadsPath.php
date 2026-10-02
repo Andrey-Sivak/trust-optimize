@@ -28,6 +28,23 @@ class UploadsPath {
 	}
 
 	/**
+	 * Path relative to uploads, lexically.
+	 *
+	 * @param string $path Absolute path.
+	 * @return string|null Relative path, or null when the path is not under uploads.
+	 */
+	public static function relative( $path ) {
+		$base = self::basedir();
+		$path = wp_normalize_path( (string) $path );
+
+		if ( '' === $base || 0 !== strpos( $path, $base . '/' ) ) {
+			return null;
+		}
+
+		return substr( $path, strlen( $base ) + 1 );
+	}
+
+	/**
 	 * Resolve a file in a directory relative to uploads.
 	 *
 	 * @param string $relative_dir Directory relative to uploads ('' for the uploads root).

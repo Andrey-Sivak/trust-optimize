@@ -66,6 +66,13 @@ class UploadsPathTest extends TestCase {
 		$this->assertSame( 'C:/www/uploads', UploadsPath::basedir() );
 	}
 
+	public function test_relative_strips_the_uploads_prefix() {
+		$this->assertSame( '2026/05/a.jpg', UploadsPath::relative( $this->uploads . '/2026/05/a.jpg' ) );
+		$this->assertSame( 'a.jpg', UploadsPath::relative( str_replace( '/', '\\', $this->uploads . '/a.jpg' ) ) );
+		$this->assertNull( UploadsPath::relative( $this->root . '/outside/a.jpg' ) );
+		$this->assertNull( UploadsPath::relative( $this->uploads ) );
+	}
+
 	public function test_resolve_joins_relative_dir_and_file() {
 		$this->assertSame( $this->uploads . '/2026/05/a.jpg.webp', UploadsPath::resolve( '2026/05', 'a.jpg.webp' ) );
 		$this->assertSame( $this->uploads . '/2026/05/a.jpg', UploadsPath::resolve( '2026/05/', 'a.jpg' ) );

@@ -90,3 +90,4 @@ require_once __DIR__ . '/../includes/domain/AttachmentState.php';
 require_once __DIR__ . '/../includes/storage/AttachmentRepository.php';
 require_once __DIR__ . '/../includes/naming/VariantNaming.php';
 require_once __DIR__ . '/../includes/settings/OptimizationSettings.php';
+require_once __DIR__ . '/../includes/planning/VariantPlanner.php';
