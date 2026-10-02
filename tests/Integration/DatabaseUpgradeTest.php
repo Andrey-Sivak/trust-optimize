@@ -52,6 +52,8 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$wpdb->query( "ALTER TABLE `{$tables['jobs']}` MODIFY status varchar(20) NOT NULL DEFAULT 'pending'" );
 		$this->assertSame( 'varchar(20)', $this->column_type( $tables['jobs'], 'status' ) );
 
+		// The upgrade commits implicitly, so the legacy row must be removed by hand.
+		$wpdb->delete( $tables['images'], array( 'attachment_id' => 987654 ) );
 		$wpdb->insert(
 			$tables['images'],
 			array(
@@ -67,6 +69,9 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$this->assertSame( DatabaseManager::DB_VERSION, get_option( 'trust_optimize_db_version' ) );
 		$this->assertSame( 'varchar(32)', $this->column_type( $tables['jobs'], 'status' ) );
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$this->assertSame( '1', (string) $wpdb->get_var( "SELECT COUNT(*) FROM `{$tables['images']}` WHERE attachment_id = 987654" ) );
+		$legacy_rows = (string) $wpdb->get_var( "SELECT COUNT(*) FROM `{$tables['images']}` WHERE attachment_id = 987654" );
+		$wpdb->delete( $tables['images'], array( 'attachment_id' => 987654 ) );
+
+		$this->assertSame( '1', $legacy_rows );
 	}
 }
