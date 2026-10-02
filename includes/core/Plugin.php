@@ -26,6 +26,7 @@ use TrustOptimize\Migration\ImportLegacyManifest;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Migration\RetireLegacyFiles;
 use TrustOptimize\Migration\ScheduleRegeneration;
+use TrustOptimize\Migration\StripAttachmentMetadata;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
@@ -140,6 +141,7 @@ class Plugin {
 				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
 				new ScheduleRegeneration( $variants, $this->conversion_queue ),
 				new RetireLegacyFiles( $variants, $this->cleanup ),
+				new StripAttachmentMetadata( $database ),
 			)
 		);
 
