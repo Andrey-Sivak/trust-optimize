@@ -90,34 +90,6 @@ class UploadsPath {
 	}
 
 	/**
-	 * Resolve a stored variant record to an absolute path.
-	 *
-	 * Uses the recorded relative directory, or the directory of the attachment's original file.
-	 *
-	 * @param array $variant       Variant record with 'file' and optional 'relative_dir'.
-	 * @param int   $attachment_id Attachment ID.
-	 * @return string|null Absolute path or null.
-	 */
-	public static function resolve_variant( array $variant, $attachment_id ) {
-		if ( empty( $variant['file'] ) ) {
-			return null;
-		}
-
-		$file = basename( $variant['file'] );
-
-		if ( isset( $variant['relative_dir'] ) && '' !== $variant['relative_dir'] ) {
-			return self::resolve( $variant['relative_dir'], $file );
-		}
-
-		$attached_file = get_attached_file( $attachment_id );
-		if ( $attached_file ) {
-			return trailingslashit( dirname( $attached_file ) ) . $file;
-		}
-
-		return null;
-	}
-
-	/**
 	 * Whether a path is inside uploads, following symlinks.
 	 *
 	 * The nearest existing ancestor directory is resolved with realpath(), so a symlink

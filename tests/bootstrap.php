@@ -65,18 +65,6 @@ if ( ! function_exists( 'wp_upload_dir' ) ) {
 	}
 }
 
-if ( ! function_exists( 'get_attached_file' ) ) {
-	/**
-	 * Unit-test stub: attached files are taken from $GLOBALS['trust_optimize_test_attached'][ $id ].
-	 *
-	 * @param int $attachment_id Attachment ID.
-	 * @return string|false
-	 */
-	function get_attached_file( $attachment_id ) {
-		return isset( $GLOBALS['trust_optimize_test_attached'][ $attachment_id ] ) ? $GLOBALS['trust_optimize_test_attached'][ $attachment_id ] : false;
-	}
-}
-
 require_once __DIR__ . '/../includes/core/Requirements.php';
 require_once __DIR__ . '/../includes/value/OperationResult.php';
 require_once __DIR__ . '/../includes/value/OptimizeResult.php';

@@ -36,11 +36,10 @@ class UploadsPathTest extends TestCase {
 		mkdir( $this->root . '/outside', 0777, true );
 
 		$GLOBALS['trust_optimize_test_uploads']  = $this->uploads;
-		$GLOBALS['trust_optimize_test_attached'] = array();
 	}
 
 	protected function tearDown(): void {
-		unset( $GLOBALS['trust_optimize_test_uploads'], $GLOBALS['trust_optimize_test_attached'] );
+		unset( $GLOBALS['trust_optimize_test_uploads'] );
 		$this->remove( $this->root );
 	}
 
@@ -106,23 +105,6 @@ class UploadsPathTest extends TestCase {
 			'file is traversal'  => array( '2026/05', '..' ),
 			'backslash in file'  => array( '2026/05', '..\\a.jpg' ),
 		);
-	}
-
-	public function test_resolve_variant_uses_relative_dir() {
-		$variant = array(
-			'file'         => 'a.jpg.webp',
-			'relative_dir' => '2026/05',
-		);
-
-		$this->assertSame( $this->uploads . '/2026/05/a.jpg.webp', UploadsPath::resolve_variant( $variant, 1 ) );
-	}
-
-	public function test_resolve_variant_falls_back_to_attached_file_directory() {
-		$GLOBALS['trust_optimize_test_attached'][7] = $this->uploads . '/2026/05/original.jpg';
-
-		$this->assertSame( $this->uploads . '/2026/05/a.webp', UploadsPath::resolve_variant( array( 'file' => 'dir/a.webp' ), 7 ) );
-		$this->assertNull( UploadsPath::resolve_variant( array( 'file' => 'a.webp' ), 8 ) );
-		$this->assertNull( UploadsPath::resolve_variant( array(), 7 ) );
 	}
 
 	public function test_is_inside_accepts_existing_and_missing_files() {
