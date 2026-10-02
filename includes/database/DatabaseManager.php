@@ -16,7 +16,7 @@ class DatabaseManager {
 	/**
 	 * Current database version
 	 */
-	const DB_VERSION = '1.3.0';
+	const DB_VERSION = '2.0.0';
 
 	/**
 	 * Initialize the database manager
@@ -48,6 +48,8 @@ class DatabaseManager {
 
 		$table_name      = $wpdb->prefix . 'trust_optimize_images';
 		$jobs_table_name = $wpdb->prefix . 'trust_optimize_jobs';
+		$attachments     = $wpdb->prefix . 'trust_optimize_attachments';
+		$variants        = $wpdb->prefix . 'trust_optimize_variants';
 
 		$sql = "CREATE TABLE {$table_name} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -67,7 +69,7 @@ class DatabaseManager {
 		$jobs_sql = "CREATE TABLE {$jobs_table_name} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			type varchar(20) NOT NULL,
-			status varchar(20) NOT NULL DEFAULT 'pending',
+			status varchar(32) NOT NULL DEFAULT 'pending',
 			cursor_id bigint(20) unsigned NOT NULL DEFAULT 0,
 			total int unsigned NOT NULL DEFAULT 0,
 			processed int unsigned NOT NULL DEFAULT 0,
@@ -87,9 +89,49 @@ class DatabaseManager {
 			KEY cursor_id (cursor_id)
 		) $charset_collate;";
 
+		$attachments_sql = "CREATE TABLE {$attachments} (
+			attachment_id bigint(20) unsigned NOT NULL,
+			state varchar(32) NOT NULL DEFAULT 'none',
+			reason varchar(64) NULL,
+			attempts tinyint unsigned NOT NULL DEFAULT 0,
+			job_id bigint(20) unsigned NULL,
+			last_error varchar(255) NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (attachment_id),
+			KEY state (state),
+			KEY job_state (job_id,state)
+		) $charset_collate;";
+
+		$variants_sql = "CREATE TABLE {$variants} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			attachment_id bigint(20) unsigned NOT NULL,
+			size_name varchar(100) NOT NULL,
+			format varchar(10) NOT NULL,
+			status varchar(32) NOT NULL DEFAULT 'pending',
+			naming varchar(16) NOT NULL DEFAULT 'v2',
+			source_relative_path varchar(255) NOT NULL DEFAULT '',
+			relative_path varchar(255) NULL,
+			width int unsigned NOT NULL DEFAULT 0,
+			height int unsigned NOT NULL DEFAULT 0,
+			quality tinyint unsigned NOT NULL DEFAULT 0,
+			file_size bigint(20) unsigned NOT NULL DEFAULT 0,
+			source_file_size bigint(20) unsigned NOT NULL DEFAULT 0,
+			file_hash char(64) NULL,
+			reason varchar(64) NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY attachment_size_format (attachment_id,size_name,format),
+			KEY status (status),
+			KEY source_path (source_relative_path(191)),
+			KEY relative_path (relative_path(191))
+		) $charset_collate;";
+
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta( $sql );
 		dbDelta( $jobs_sql );
+		dbDelta( $attachments_sql );
+		dbDelta( $variants_sql );
 	}
 
 	/**
@@ -110,8 +152,11 @@ class DatabaseManager {
 	 */
 	public function get_plugin_table_names() {
 		return array(
-			'images' => $this->get_table_name( 'trust_optimize_images' ),
-			'jobs'   => $this->get_table_name( 'trust_optimize_jobs' ),
+			'attachments' => $this->get_table_name( 'trust_optimize_attachments' ),
+			'variants'    => $this->get_table_name( 'trust_optimize_variants' ),
+			'jobs'        => $this->get_table_name( 'trust_optimize_jobs' ),
+			// Legacy 1.x storage: kept for the migration to 2.0.
+			'images'      => $this->get_table_name( 'trust_optimize_images' ),
 		);
 	}
 

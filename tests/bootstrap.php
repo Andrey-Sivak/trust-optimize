@@ -85,3 +85,5 @@ require_once __DIR__ . '/../includes/value/CapabilityCheck.php';
 require_once __DIR__ . '/../includes/value/ImageProfile.php';
 require_once __DIR__ . '/../includes/utils/HtmlFragment.php';
 require_once __DIR__ . '/../includes/utils/UploadsPath.php';
+require_once __DIR__ . '/../includes/domain/VariantStatus.php';
+require_once __DIR__ . '/../includes/domain/AttachmentState.php';
