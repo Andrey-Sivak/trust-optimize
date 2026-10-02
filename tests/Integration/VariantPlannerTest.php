@@ -76,7 +76,7 @@ class VariantPlannerTest extends WP_UnitTestCase {
 			$this->assertSame( VariantStatus::PENDING, $row['status'] );
 			$this->assertStringEndsWith( '.jpg', $row['source_relative_path'] );
 		}
-		$this->assertSame( AttachmentState::QUEUED, $this->attachments->get_state( $id ) );
+		$this->assertSame( AttachmentState::NONE, $this->attachments->get_state( $id ), 'Whoever queues or claims the attachment sets the state.' );
 	}
 
 	public function test_planning_twice_does_not_duplicate_rows() {

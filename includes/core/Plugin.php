@@ -14,6 +14,9 @@ use TrustOptimize\Admin\Settings;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Planning\VariantPlanner;
+use TrustOptimize\Processing\AttachmentProcessor;
+use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
@@ -144,15 +147,16 @@ class Plugin {
 		// Initialize image processor
 		$this->image_processor = new ImageProcessor();
 
-		// Initialize image converter (until 02.12 introduces the composition root)
+		// Storage, planning and processing (until 02.12 introduces the composition root)
 		$variants              = new VariantRepository( $this->db_manager );
+		$attachments           = new AttachmentRepository( $this->db_manager, $variants );
+		$this->settings        = new Settings();
 		$this->image_converter = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $this->capabilities );
+		$planner               = new VariantPlanner( $variants, $attachments, $this->settings, $this->capabilities );
+		$processor             = new AttachmentProcessor( $attachments, $variants, $this->image_converter, $this->settings, $this->capabilities );
 
-		// Initialize settings
-		$this->settings = new Settings();
-
-		// Initialize conversion queue (registers Action Scheduler hook)
-		$this->conversion_queue = new ConversionQueue( $this->image_converter );
+		// Initialize conversion queue (registers Action Scheduler hooks)
+		$this->conversion_queue = new ConversionQueue( $attachments, $processor, $planner );
 		$this->conversion_queue->init();
 
 		// Initialize bulk runner (registers self-chaining Action Scheduler hook)

@@ -27,6 +27,7 @@ class PluginBootTest extends WP_UnitTestCase {
 	}
 
 	public function test_conversion_hook_is_registered() {
-		$this->assertNotFalse( has_action( ConversionQueue::HOOK_CONVERT ) );
+		$this->assertNotFalse( has_action( ConversionQueue::HOOK_PROCESS ) );
+		$this->assertNotFalse( has_action( ConversionQueue::HOOK_CONVERT ), 'The 1.x per-variant hook stays as a shim until 03.6.' );
 	}
 }

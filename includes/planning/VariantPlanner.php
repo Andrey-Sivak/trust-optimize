@@ -114,11 +114,6 @@ class VariantPlanner {
 			);
 		}
 
-		$state = $this->attachments->recompute( $attachment_id );
-		if ( AttachmentState::SKIPPED === $state ) {
-			$this->attachments->set_state( $attachment_id, AttachmentState::NONE );
-		}
-
 		$doomed  = array_column( $actions['delete'], 'id' );
 		$pending = array_values(
 			array_filter(
@@ -128,6 +123,11 @@ class VariantPlanner {
 				}
 			)
 		);
+
+		// With work to do the state is set by whoever queues or claims the attachment.
+		if ( empty( $pending ) && AttachmentState::SKIPPED === $this->attachments->recompute( $attachment_id ) ) {
+			$this->attachments->set_state( $attachment_id, AttachmentState::NONE );
+		}
 
 		return new Plan( null, $pending, $actions['delete'], $actions['replaced'] );
 	}

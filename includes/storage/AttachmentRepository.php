@@ -24,6 +24,16 @@ class AttachmentRepository {
 	const LAST_ERROR_LENGTH = 255;
 
 	/**
+	 * Default age of a "processing" claim after which it is considered abandoned.
+	 */
+	const STALE_CLAIM_SECONDS = 900;
+
+	/**
+	 * Age after which a "queued" mark is considered lost (its Action Scheduler action vanished).
+	 */
+	const STALE_QUEUED_SECONDS = DAY_IN_SECONDS;
+
+	/**
 	 * Attachments table name.
 	 *
 	 * @var string
@@ -166,27 +176,33 @@ class AttachmentRepository {
 	/**
 	 * Take ownership of an attachment for processing (compare-and-set).
 	 *
+	 * A claim older than $stale_after seconds is taken over: the worker that made it died.
+	 *
 	 * @param int $attachment_id Attachment ID.
+	 * @param int $stale_after   Seconds after which a "processing" claim counts as abandoned.
 	 * @return bool True when this call changed the state to "processing".
 	 */
-	public function claim( $attachment_id ) {
+	public function claim( $attachment_id, $stale_after = self::STALE_CLAIM_SECONDS ) {
 		global $wpdb;
 
 		$this->ensure_row( $attachment_id );
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND state <> %s",
+				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state <> %s OR updated_at < %s)",
 				AttachmentState::PROCESSING,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
-				AttachmentState::PROCESSING
+				AttachmentState::PROCESSING,
+				gmdate( 'Y-m-d H:i:s', time() - (int) $stale_after )
 			)
 		);
 	}
 
 	/**
 	 * Mark an attachment as queued unless it is already queued or processing (compare-and-set).
+	 *
+	 * A "queued" mark older than a day is treated as lost and may be set again.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return bool True when this call changed the state to "queued".
@@ -198,12 +214,14 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND state NOT IN (%s, %s)",
+				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state NOT IN (%s, %s) OR (state = %s AND updated_at < %s))",
 				AttachmentState::QUEUED,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
 				AttachmentState::QUEUED,
-				AttachmentState::PROCESSING
+				AttachmentState::PROCESSING,
+				AttachmentState::QUEUED,
+				gmdate( 'Y-m-d H:i:s', time() - self::STALE_QUEUED_SECONDS )
 			)
 		);
 	}
@@ -248,7 +266,7 @@ class AttachmentRepository {
 
 		$wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, reason = NULL, updated_at = %s WHERE attachment_id = %d",
+				"UPDATE {$this->table} SET state = %s, reason = NULL, last_error = NULL, updated_at = %s WHERE attachment_id = %d",
 				$state,
 				current_time( 'mysql', true ),
 				(int) $attachment_id

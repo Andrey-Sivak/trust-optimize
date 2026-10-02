@@ -2,17 +2,16 @@
 /**
  * Conversion Queue class
  *
- * Manages asynchronous image conversion tasks via Action Scheduler.
+ * Manages asynchronous image conversion via Action Scheduler: one action per attachment.
  *
  * @package TrustOptimize\Queue
  */
 
 namespace TrustOptimize\Queue;
 
-use TrustOptimize\Features\Optimization\ImageConverter;
-use TrustOptimize\Database\ImageModel;
-use TrustOptimize\Service\ImageOptimizationService;
-use TrustOptimize\Value\ImageVariant;
+use TrustOptimize\Planning\VariantPlanner;
+use TrustOptimize\Processing\AttachmentProcessor;
+use TrustOptimize\Storage\AttachmentRepository;
 
 /**
  * Class ConversionQueue
@@ -20,7 +19,12 @@ use TrustOptimize\Value\ImageVariant;
 class ConversionQueue {
 
 	/**
-	 * Action Scheduler hook name for individual conversion tasks.
+	 * Action Scheduler hook that processes one attachment.
+	 */
+	const HOOK_PROCESS = 'trust_optimize_process_attachment';
+
+	/**
+	 * Per-variant hook of schema 1.x; its tasks are turned into attachment tasks (removed in 03.6).
 	 */
 	const HOOK_CONVERT = 'trust_optimize_convert_image';
 
@@ -30,48 +34,106 @@ class ConversionQueue {
 	const GROUP = 'trust-optimize';
 
 	/**
-	 * Image converter instance.
+	 * Attachment repository.
 	 *
-	 * @var ImageConverter
+	 * @var AttachmentRepository
 	 */
-	protected $converter;
+	private $attachments;
 
 	/**
-	 * Image model instance.
+	 * Attachment processor.
 	 *
-	 * @var ImageModel
+	 * @var AttachmentProcessor
 	 */
-	protected $image_model;
+	private $processor;
 
 	/**
-	 * Optimization service instance.
+	 * Variant planner.
 	 *
-	 * @var ImageOptimizationService
+	 * @var VariantPlanner
 	 */
-	protected $optimization;
+	private $planner;
 
 	/**
 	 * Constructor.
 	 *
-	 * @param ImageConverter $converter Image converter instance.
+	 * @param AttachmentRepository $attachments Attachment repository.
+	 * @param AttachmentProcessor  $processor   Attachment processor.
+	 * @param VariantPlanner       $planner     Variant planner.
 	 */
-	public function __construct( ImageConverter $converter ) {
-		$this->converter    = $converter;
-		$this->image_model  = new ImageModel();
-		$this->optimization = new ImageOptimizationService( $this->converter, $this->image_model );
+	public function __construct( AttachmentRepository $attachments, AttachmentProcessor $processor, VariantPlanner $planner ) {
+		$this->attachments = $attachments;
+		$this->processor   = $processor;
+		$this->planner     = $planner;
 	}
 
 	/**
-	 * Register the Action Scheduler hook for processing tasks
-	 * and ensure the queue runner is triggered on admin page loads.
+	 * Register the Action Scheduler hooks and the upload handler.
+	 *
+	 * The queue runner is also triggered on admin page loads as a fallback for
+	 * environments where WP-Cron loopback requests fail (removed in 04.1).
 	 */
 	public function init() {
-		add_action( self::HOOK_CONVERT, array( $this, 'process_task' ), 10, 4 );
-
-		// Trigger Action Scheduler queue processing on admin page loads.
-		// This serves as a fallback for environments where WP-Cron loopback
-		// requests fail (e.g., Docker, reverse proxies, firewalls).
+		add_action( self::HOOK_PROCESS, array( $this, 'process' ), 10, 1 );
+		add_action( self::HOOK_CONVERT, array( $this, 'process_legacy_task' ), 10, 4 );
+		add_filter( 'wp_generate_attachment_metadata', array( $this, 'handle_new_metadata' ), 20, 2 );
 		add_action( 'admin_init', array( $this, 'register_shutdown_dispatch' ) );
+	}
+
+	/**
+	 * Plan and queue an attachment whose metadata was just generated.
+	 *
+	 * @param array $metadata      Attachment metadata (returned unchanged).
+	 * @param int   $attachment_id Attachment ID.
+	 * @return array
+	 */
+	public function handle_new_metadata( $metadata, $attachment_id ) {
+		if ( $this->planner->plan( $attachment_id )->has_work() ) {
+			$this->enqueue( $attachment_id );
+		}
+
+		return $metadata;
+	}
+
+	/**
+	 * Queue an attachment unless it is already queued or being processed.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool True when an action was scheduled.
+	 */
+	public function enqueue( $attachment_id ) {
+		if ( ! function_exists( 'as_enqueue_async_action' ) || ! $this->attachments->mark_queued( $attachment_id ) ) {
+			return false;
+		}
+
+		return $this->schedule( $attachment_id );
+	}
+
+	/**
+	 * Action Scheduler callback: process one attachment, continuing in a new action when the time budget ran out.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 */
+	public function process( $attachment_id ) {
+		$result = $this->processor->run( (int) $attachment_id );
+		$data   = $result->get_data();
+
+		if ( ! empty( $data['more'] ) ) {
+			$this->schedule( (int) $attachment_id );
+		}
+	}
+
+	/**
+	 * Turn a schema 1.x per-variant task into an attachment task (removed in 03.6).
+	 *
+	 * @param int|array $payload Attachment ID or the old variant payload.
+	 */
+	public function process_legacy_task( $payload ) {
+		$attachment_id = is_array( $payload ) ? (int) ( $payload['attachment_id'] ?? 0 ) : (int) $payload;
+
+		if ( $attachment_id > 0 ) {
+			$this->enqueue( $attachment_id );
+		}
 	}
 
 	/**
@@ -91,14 +153,13 @@ class ConversionQueue {
 	 * Dispatch pending Action Scheduler tasks if any exist.
 	 *
 	 * Runs at the 'shutdown' hook to avoid impacting page response times.
-	 * Action Scheduler's own runner handles concurrency and batch limits.
 	 */
 	public function maybe_dispatch_queue() {
 		if ( ! function_exists( 'as_has_scheduled_action' ) ) {
 			return;
 		}
 
-		$has_pending = as_has_scheduled_action( self::HOOK_CONVERT, null, self::GROUP );
+		$has_pending = as_has_scheduled_action( self::HOOK_PROCESS, null, self::GROUP ) || as_has_scheduled_action( self::HOOK_CONVERT, null, self::GROUP );
 
 		if ( $has_pending && class_exists( 'ActionScheduler_QueueRunner' ) ) {
 			\ActionScheduler_QueueRunner::instance()->run();
@@ -106,137 +167,7 @@ class ConversionQueue {
 	}
 
 	/**
-	 * Schedule conversion tasks for specific image variants.
-	 *
-	 * @param int   $attachment_id The attachment ID.
-	 * @param array $variants      Variant plan records or ImageVariant instances.
-	 * @return int Number of scheduled variants.
-	 */
-	public function schedule_variants( $attachment_id, array $variants ) {
-		$scheduled = 0;
-
-		foreach ( $variants as $variant ) {
-			if ( $this->schedule_variant_conversion( $attachment_id, $variant ) ) {
-				++$scheduled;
-			}
-		}
-
-		return $scheduled;
-	}
-
-	/**
-	 * Schedule conversion for one concrete image variant.
-	 *
-	 * @param int                $attachment_id The attachment ID.
-	 * @param array|ImageVariant $variant       Variant payload.
-	 * @return bool True when the action was scheduled.
-	 */
-	public function schedule_variant_conversion( $attachment_id, $variant ) {
-		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
-			return false;
-		}
-
-		$payload = $this->normalize_variant_payload( $attachment_id, $variant );
-
-		if ( empty( $payload['size_name'] ) || empty( $payload['target_format'] ) || empty( $payload['target_mime'] ) ) {
-			return false;
-		}
-
-		as_enqueue_async_action(
-			self::HOOK_CONVERT,
-			array( $payload ),
-			self::GROUP
-		);
-
-		return true;
-	}
-
-	/**
-	 * Process a single conversion task.
-	 *
-	 * Called by Action Scheduler when the task is ready to run. Supports the new
-	 * single-payload variant format and already scheduled legacy positional args.
-	 *
-	 * @param int|array $attachment_id The attachment ID or variant payload.
-	 * @param string    $size_name     The size name (legacy payload).
-	 * @param string    $target_format The target format (legacy payload).
-	 * @param string    $target_mime   The target MIME type (legacy payload).
-	 */
-	public function process_task( $attachment_id, $size_name = null, $target_format = null, $target_mime = null ) {
-		$payload       = $this->normalize_task_payload( $attachment_id, $size_name, $target_format, $target_mime );
-		$attachment_id = $payload['attachment_id'];
-		$size_name     = $payload['size_name'];
-		$target_format = $payload['target_format'];
-		$target_mime   = $payload['target_mime'];
-
-		if ( empty( $attachment_id ) || empty( $size_name ) || empty( $target_format ) || empty( $target_mime ) ) {
-			return;
-		}
-
-		$this->optimization->process_variant_conversion( $attachment_id, $size_name, $target_format, $target_mime );
-	}
-
-	/**
-	 * Normalize a variant into the Action Scheduler payload shape.
-	 *
-	 * @param int                $attachment_id Attachment ID.
-	 * @param array|ImageVariant $variant       Variant data.
-	 * @return array Normalized payload.
-	 */
-	private function normalize_variant_payload( $attachment_id, $variant ) {
-		if ( $variant instanceof ImageVariant ) {
-			$variant = $variant->to_array();
-		}
-
-		if ( ! is_array( $variant ) ) {
-			$variant = array();
-		}
-
-		$payload = array(
-			'attachment_id' => (int) $attachment_id,
-			'size_name'     => isset( $variant['size_name'] ) ? (string) $variant['size_name'] : '',
-			'target_format' => isset( $variant['target_format'] ) ? (string) $variant['target_format'] : '',
-			'target_mime'   => isset( $variant['target_mime'] ) ? (string) $variant['target_mime'] : '',
-		);
-
-		foreach ( array( 'quality', 'source_path', 'target_path', 'size_info', 'profile_hash' ) as $key ) {
-			if ( array_key_exists( $key, $variant ) ) {
-				$payload[ $key ] = $variant[ $key ];
-			}
-		}
-
-		return $payload;
-	}
-
-	/**
-	 * Normalize current and legacy Action Scheduler task payloads.
-	 *
-	 * @param int|array $attachment_id Attachment ID or new variant payload.
-	 * @param string    $size_name     Legacy size name.
-	 * @param string    $target_format Legacy target format.
-	 * @param string    $target_mime   Legacy target MIME.
-	 * @return array Normalized payload.
-	 */
-	private function normalize_task_payload( $attachment_id, $size_name = null, $target_format = null, $target_mime = null ) {
-		if ( is_array( $attachment_id ) ) {
-			return $this->normalize_variant_payload(
-				isset( $attachment_id['attachment_id'] ) ? (int) $attachment_id['attachment_id'] : 0,
-				$attachment_id
-			);
-		}
-
-		return $this->normalize_variant_payload(
-			(int) $attachment_id,
-			array(
-				'size_name'     => $size_name,
-				'target_format' => $target_format,
-				'target_mime'   => $target_mime,
-			)
-		);
-	}
-
-	/**
-	 * Cancel all pending conversion tasks for a specific attachment.
+	 * Cancel pending tasks of an attachment.
 	 *
 	 * @param int $attachment_id The attachment ID.
 	 */
@@ -245,52 +176,14 @@ class ConversionQueue {
 	}
 
 	/**
-	 * Cancel pending conversion tasks for a specific attachment.
+	 * Cancel pending tasks of an attachment.
 	 *
 	 * @param int $attachment_id The attachment ID.
 	 */
 	public static function cancel_tasks_for_attachment( $attachment_id ) {
-		if ( ! function_exists( 'as_get_scheduled_actions' ) || ! function_exists( 'as_unschedule_action' ) ) {
-			return;
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::HOOK_PROCESS, array( 'attachment_id' => (int) $attachment_id ), self::GROUP );
 		}
-
-		$actions = as_get_scheduled_actions(
-			array(
-				'hook'     => self::HOOK_CONVERT,
-				'group'    => self::GROUP,
-				'status'   => \ActionScheduler_Store::STATUS_PENDING,
-				'per_page' => -1,
-			)
-		);
-
-		foreach ( $actions as $action ) {
-			if ( ! is_object( $action ) || ! is_callable( array( $action, 'get_args' ) ) ) {
-				continue;
-			}
-
-			$args = $action->get_args();
-			if ( empty( $args ) || self::get_attachment_id_from_action_args( $args ) !== (int) $attachment_id ) {
-				continue;
-			}
-
-			as_unschedule_action( self::HOOK_CONVERT, $args, self::GROUP );
-		}
-	}
-
-	/**
-	 * Extract attachment ID from current or legacy scheduled action args.
-	 *
-	 * @param array $args Action Scheduler args.
-	 * @return int Attachment ID or zero.
-	 */
-	private static function get_attachment_id_from_action_args( array $args ) {
-		$first = reset( $args );
-
-		if ( is_array( $first ) ) {
-			return isset( $first['attachment_id'] ) ? (int) $first['attachment_id'] : 0;
-		}
-
-		return (int) $first;
 	}
 
 	/**
@@ -298,7 +191,18 @@ class ConversionQueue {
 	 */
 	public static function cancel_all_tasks() {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::HOOK_PROCESS, null, self::GROUP );
 			as_unschedule_all_actions( self::HOOK_CONVERT, null, self::GROUP );
 		}
+	}
+
+	/**
+	 * Schedule the action for an attachment.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool
+	 */
+	private function schedule( $attachment_id ) {
+		return 0 !== as_enqueue_async_action( self::HOOK_PROCESS, array( 'attachment_id' => (int) $attachment_id ), self::GROUP );
 	}
 }
