@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (PHP 8.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0'
+          coverage: none
+          tools: composer
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer phpcs
+
+  unit:
+    name: Unit (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.0', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: gd, imagick, mysqli
+          coverage: none
+          tools: composer
+      - run: composer install --no-interaction --prefer-dist
+      - run: composer test:unit
+
+  integration:
+    name: Integration (PHP ${{ matrix.php }}, WP ${{ matrix.wp }}, ${{ matrix.db }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { php: '8.0', wp: '6.5', db: 'mariadb:10.6' }
+          - { php: '8.4', wp: 'latest', db: 'mariadb:10.6' }
+          - { php: '8.0', wp: '6.5', db: 'mysql:5.7' }
+    services:
+      db:
+        image: ${{ matrix.db }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      WP_TESTS_DB_HOST: 127.0.0.1
+      WP_TESTS_DB_NAME: wordpress_test
+      WP_TESTS_DB_USER: root
+      WP_TESTS_DB_PASSWORD: root
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: gd, imagick, mysqli
+          coverage: none
+          tools: composer, wp-cli
+      - run: composer install --no-interaction --prefer-dist
+      - name: Pin wp-phpunit to the WordPress version under test
+        if: matrix.wp != 'latest'
+        run: composer require --dev --no-interaction --with-all-dependencies "wp-phpunit/wp-phpunit:${{ matrix.wp }}.*"
+      - name: Download WordPress core
+        run: |
+          wp core download --version=${{ matrix.wp }} --path="$RUNNER_TEMP/wp" --skip-content
+          mkdir -p "$RUNNER_TEMP/wp/wp-content"
+          echo "WP_CORE_DIR=$RUNNER_TEMP/wp" >> "$GITHUB_ENV"
+      - name: Create test database
+        run: mysql --protocol=tcp -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test"
+      - run: composer test:integration
