@@ -284,6 +284,28 @@ class VariantRepository {
 	}
 
 	/**
+	 * IDs of attachments that have variant rows, in ascending order.
+	 *
+	 * @param int $after_id Return IDs greater than this one.
+	 * @param int $limit    Maximum number of IDs.
+	 * @return int[]
+	 */
+	public function get_attachment_ids_after( $after_id, $limit ) {
+		global $wpdb;
+
+		return array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					(int) $after_id,
+					(int) $limit
+				)
+			)
+		);
+	}
+
+	/**
 	 * Number of variants per status for an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

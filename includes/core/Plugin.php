@@ -49,6 +49,13 @@ class Plugin {
 	public $admin;
 
 	/**
+	 * Cleanup service.
+	 *
+	 * @var ImageCleanupService
+	 */
+	public $cleanup;
+
+	/**
 	 * Capability service.
 	 *
 	 * @var CapabilityService
@@ -155,12 +162,14 @@ class Plugin {
 		$planner               = new VariantPlanner( $variants, $attachments, $this->settings, $this->capabilities );
 		$processor             = new AttachmentProcessor( $attachments, $variants, $this->image_converter, $this->settings, $this->capabilities );
 
+		$this->cleanup = new ImageCleanupService( $variants, $attachments );
+
 		// Initialize conversion queue (registers Action Scheduler hooks)
 		$this->conversion_queue = new ConversionQueue( $attachments, $processor, $planner );
 		$this->conversion_queue->init();
 
 		// Initialize bulk runner (registers self-chaining Action Scheduler hook)
-		$this->bulk_runner = new BulkJobRunner();
+		$this->bulk_runner = new BulkJobRunner( null, null, null, $this->cleanup );
 		$this->bulk_runner->init();
 	}
 
@@ -190,7 +199,6 @@ class Plugin {
 	 * @param int $attachment_id The attachment ID being deleted.
 	 */
 	public function clean_image_data( $attachment_id ) {
-		$cleanup_service = new ImageCleanupService();
-		$cleanup_service->cleanup_attachment( $attachment_id );
+		$this->cleanup->cleanup_attachment( $attachment_id );
 	}
 }

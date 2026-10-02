@@ -39,13 +39,13 @@ trust_optimize_drop_plugin_tables();
 trust_optimize_delete_plugin_options();
 
 /**
- * Clean generated files from plugin manifest records.
+ * Clean generated files recorded in the variants table.
  */
 function trust_optimize_uninstall_cleanup_generated_files() {
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
-	$table            = $database_manager->get_table_name( 'trust_optimize_images' );
+	$tables           = $database_manager->get_plugin_table_names();
 
-	if ( ! $database_manager->table_exists( $table ) ) {
+	if ( ! $database_manager->table_exists( $tables['variants'] ) ) {
 		return array(
 			'done'      => true,
 			'processed' => 0,
@@ -53,11 +53,12 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 			'skipped'   => 0,
 			'failed'    => 0,
 			'errors'    => array(),
-			'reason'    => 'images_table_missing',
+			'reason'    => 'variants_table_missing',
 		);
 	}
 
-	$cleanup     = new \TrustOptimize\Service\ImageCleanupService();
+	$variants    = new \TrustOptimize\Storage\VariantRepository( $database_manager );
+	$cleanup     = new \TrustOptimize\Service\ImageCleanupService( $variants, new \TrustOptimize\Storage\AttachmentRepository( $database_manager, $variants ) );
 	$batch_size  = (int) apply_filters( 'trust_optimize_uninstall_cleanup_batch_size', 100 );
 	$max_records = (int) apply_filters( 'trust_optimize_uninstall_cleanup_max_records', 5000 );
 	$max_seconds = (float) apply_filters( 'trust_optimize_uninstall_cleanup_max_seconds', 20 );
@@ -137,6 +138,7 @@ function trust_optimize_delete_plugin_options() {
 	delete_option( 'trust_optimize_options' );
 	delete_option( 'trust_optimize_db_version' );
 	delete_option( 'trust_optimize_preflight' );
+	delete_option( 'trust_optimize_capabilities' );
 	delete_option( 'trust_optimize_remove_data_on_uninstall' );
 }
 

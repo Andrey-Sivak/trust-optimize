@@ -7,73 +7,71 @@
 
 namespace TrustOptimize\Service;
 
-use TrustOptimize\Database\ImageModel;
+use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Storage\AttachmentRepository;
+use TrustOptimize\Storage\VariantRepository;
 use TrustOptimize\Utils\UploadsPath;
 use TrustOptimize\Value\DeleteResult;
 
 /**
  * Class ImageCleanupService
+ *
+ * Deletes only files that a variant row of the plugin points at. A row is removed
+ * once its file is confirmed gone (or turned out not to be ours); a file that cannot
+ * be deleted keeps its row, marked failed.
  */
 class ImageCleanupService {
 
 	/**
-	 * Image model instance.
+	 * Variant repository.
 	 *
-	 * @var ImageModel
+	 * @var VariantRepository
 	 */
-	private $image_model;
+	private $variants;
 
 	/**
-	 * Conversion queue instance.
+	 * Attachment repository.
 	 *
-	 * @var ConversionQueue|null
+	 * @var AttachmentRepository
 	 */
-	private $conversion_queue;
+	private $attachments;
 
 	/**
 	 * Constructor.
 	 *
-	 * @param ImageModel|null      $image_model      Image model instance.
-	 * @param ConversionQueue|null $conversion_queue Conversion queue instance.
+	 * @param VariantRepository    $variants    Variant repository.
+	 * @param AttachmentRepository $attachments Attachment repository.
 	 */
-	public function __construct( ?ImageModel $image_model = null, ?ConversionQueue $conversion_queue = null ) {
-		$this->image_model      = $image_model ? $image_model : new ImageModel();
-		$this->conversion_queue = $conversion_queue;
+	public function __construct( VariantRepository $variants, AttachmentRepository $attachments ) {
+		$this->variants    = $variants;
+		$this->attachments = $attachments;
 	}
 
 	/**
-	 * Clean all TrustOptimize-generated files for a single attachment.
+	 * Remove every generated file and row of an attachment.
 	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $args          Optional cleanup args.
+	 * @param int $attachment_id Attachment ID.
 	 * @return DeleteResult
 	 */
-	public function cleanup_attachment( $attachment_id, array $args = array() ) {
-		$this->cancel_pending_actions( $attachment_id );
+	public function cleanup_attachment( $attachment_id ) {
+		ConversionQueue::cancel_tasks_for_attachment( $attachment_id );
 
-		$variants = $this->filter_plugin_managed_variants(
-			$attachment_id,
-			$this->image_model->get_generated_variants( $attachment_id )
-		);
+		$rows = $this->variants->get_for_attachment( $attachment_id );
 
-		if ( empty( $variants ) ) {
-			$this->remove_attachment_metadata( $attachment_id );
-
-			if ( empty( $args['keep_record'] ) ) {
-				$this->image_model->delete( $attachment_id );
-			}
-
+		if ( empty( $rows ) ) {
+			$this->attachments->delete( $attachment_id );
 			$this->clear_caches( $attachment_id );
+
 			return DeleteResult::skipped( 'no_generated_variants' );
 		}
 
-		$result = $this->delete_variant_files( $attachment_id, $variants );
+		$result = $this->remove( $attachment_id, $rows, true );
 
-		$this->remove_attachment_metadata( $attachment_id );
-
-		if ( empty( $args['keep_record'] ) ) {
-			$this->image_model->delete( $attachment_id );
+		if ( empty( $this->variants->get_for_attachment( $attachment_id ) ) ) {
+			$this->attachments->delete( $attachment_id );
+		} else {
+			$this->attachments->recompute( $attachment_id );
 		}
 
 		$this->clear_caches( $attachment_id );
@@ -82,40 +80,47 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Delete selected TrustOptimize-generated variants for a single attachment.
+	 * Remove selected variants (files and rows) of an attachment.
 	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $variants      Generated variant manifest records.
+	 * @param int     $attachment_id Attachment ID.
+	 * @param array[] $rows          Variant rows of that attachment.
 	 * @return DeleteResult
 	 */
-	public function cleanup_variants( $attachment_id, array $variants ) {
-		$variants = $this->filter_plugin_managed_variants( $attachment_id, $variants );
-
-		if ( empty( $variants ) ) {
+	public function cleanup_variants( $attachment_id, array $rows ) {
+		if ( empty( $rows ) ) {
 			return DeleteResult::skipped( 'no_generated_variants' );
 		}
 
-		$result = $this->delete_variant_files( $attachment_id, $variants );
-
-		$this->remove_attachment_metadata_variants( $attachment_id, $variants );
+		$result = $this->remove( $attachment_id, $rows, true );
+		$this->attachments->recompute( $attachment_id );
 		$this->clear_caches( $attachment_id );
 
 		return $result;
 	}
 
 	/**
-	 * Clean plugin-managed files for a bounded batch of image records.
+	 * Remove only the files of superseded rows (their rows were re-pointed at another source).
 	 *
-	 * This is intended for uninstall/maintenance paths where loading every
-	 * record into memory or running until timeout would be unsafe.
+	 * @param int     $attachment_id Attachment ID.
+	 * @param array[] $rows          Earlier snapshots of variant rows.
+	 * @return DeleteResult
+	 */
+	public function cleanup_replaced_files( $attachment_id, array $rows ) {
+		return empty( $rows ) ? DeleteResult::skipped( 'no_generated_variants' ) : $this->remove( $attachment_id, $rows, false );
+	}
+
+	/**
+	 * Clean plugin-managed files for a bounded batch of attachments.
+	 *
+	 * Intended for uninstall/maintenance paths where running until timeout would be unsafe.
 	 *
 	 * @param int $cursor_id Last processed attachment ID.
-	 * @param int $limit     Maximum records to process.
+	 * @param int $limit     Maximum attachments to process.
 	 * @return array Batch summary.
 	 */
 	public function cleanup_managed_records_batch( $cursor_id = 0, $limit = 100 ) {
 		$limit          = max( 1, (int) $limit );
-		$attachment_ids = $this->image_model->get_attachment_ids_with_generated_variants( (int) $cursor_id, $limit );
+		$attachment_ids = $this->variants->get_attachment_ids_after( (int) $cursor_id, $limit );
 		$summary        = array(
 			'cursor_id' => (int) $cursor_id,
 			'processed' => 0,
@@ -134,7 +139,7 @@ class ImageCleanupService {
 
 			if ( $result->is_success() ) {
 				$data                = $result->get_data();
-				$summary['deleted'] += isset( $data['deleted'] ) && is_array( $data['deleted'] ) ? count( $data['deleted'] ) : 0;
+				$summary['deleted'] += count( $data['deleted'] ?? array() );
 				continue;
 			}
 
@@ -156,100 +161,44 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Cancel pending conversion actions for one attachment.
+	 * Delete the files of rows after safety checks, and the rows themselves when asked to.
 	 *
-	 * @param int $attachment_id Attachment ID.
-	 */
-	private function cancel_pending_actions( $attachment_id ) {
-		if ( $this->conversion_queue ) {
-			$this->conversion_queue->cancel_attachment_tasks( $attachment_id );
-			return;
-		}
-
-		if ( method_exists( ConversionQueue::class, 'cancel_tasks_for_attachment' ) ) {
-			ConversionQueue::cancel_tasks_for_attachment( $attachment_id );
-		}
-	}
-
-	/**
-	 * Keep only explicit TrustOptimize generated variant manifest records.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $variants      Candidate variant manifest records.
-	 * @return array Plugin-managed variant records.
-	 */
-	private function filter_plugin_managed_variants( $attachment_id, array $variants ) {
-		$filtered = array();
-
-		foreach ( $variants as $variant ) {
-			if ( ! is_array( $variant ) ) {
-				continue;
-			}
-
-			if ( isset( $variant['attachment_id'] ) && (int) $variant['attachment_id'] !== (int) $attachment_id ) {
-				continue;
-			}
-
-			if ( empty( $variant['file'] ) || empty( $variant['size_name'] ) || empty( $variant['format'] ) ) {
-				continue;
-			}
-
-			$filtered[] = $variant;
-		}
-
-		return $filtered;
-	}
-
-	/**
-	 * Delete generated variant files after safety validation.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $variants      Generated variant manifest records.
+	 * @param int     $attachment_id Attachment ID.
+	 * @param array[] $rows          Variant rows.
+	 * @param bool    $delete_rows   Whether rows are removed once their file is gone.
 	 * @return DeleteResult
 	 */
-	private function delete_variant_files( $attachment_id, array $variants ) {
-		$protected_paths = $this->get_protected_paths( $attachment_id );
-		$deleted         = array();
-		$skipped         = array();
-		$errors          = array();
+	private function remove( $attachment_id, array $rows, $delete_rows ) {
+		$protected = $this->get_protected_paths( $attachment_id );
+		$deleted   = array();
+		$skipped   = array();
+		$errors    = array();
 
-		foreach ( $variants as $variant ) {
-			$target_path = UploadsPath::resolve_variant( $variant, $attachment_id );
+		foreach ( $rows as $row ) {
+			$outcome = $this->remove_file( $row, $protected );
 
-			if ( null === $target_path || ! UploadsPath::is_inside( $target_path ) ) {
-				$skipped[] = array(
-					'variant' => $variant,
-					'reason'  => 'outside_uploads',
+			if ( 'deleted' === $outcome['status'] ) {
+				$deleted[] = $outcome['path'];
+			} elseif ( 'failed' === $outcome['status'] ) {
+				$errors[] = array(
+					'variant' => $row,
+					'reason'  => $outcome['reason'],
 				);
+				if ( $delete_rows ) {
+					$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => $outcome['reason'] ) );
+				}
 				continue;
-			}
-
-			$normalized_path = wp_normalize_path( $target_path );
-			if ( isset( $protected_paths[ $normalized_path ] ) || $this->is_scaled_or_rotated_file( $normalized_path ) ) {
+			} else {
 				$skipped[] = array(
-					'variant' => $variant,
-					'reason'  => 'protected_file',
+					'variant' => $row,
+					'reason'  => $outcome['reason'],
 				);
-				continue;
 			}
 
-			if ( ! file_exists( $target_path ) ) {
-				$skipped[] = array(
-					'variant' => $variant,
-					'reason'  => 'missing_file',
-				);
-				continue;
+			// "outside_uploads" is refused outright and keeps its row for inspection.
+			if ( $delete_rows && 'outside_uploads' !== ( $outcome['reason'] ?? '' ) ) {
+				$this->variants->delete( $row['id'] );
 			}
-
-			if ( wp_delete_file( $target_path ) ) {
-				$deleted[] = $normalized_path;
-				continue;
-			}
-
-			$errors[] = array(
-				'variant' => $variant,
-				'reason'  => 'delete_failed',
-			);
 		}
 
 		$data = array(
@@ -269,7 +218,68 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Build protected path set for originals and WordPress-generated files.
+	 * Delete the file of one row when it is safe to.
+	 *
+	 * @param array $row       Variant row.
+	 * @param array $protected Protected paths keyed by normalized path.
+	 * @return array{status:string,reason?:string,path?:string} Status: deleted, skipped or failed.
+	 */
+	private function remove_file( array $row, array $protected ) {
+		if ( empty( $row['relative_path'] ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'no_file',
+			);
+		}
+
+		$path = UploadsPath::absolute( $row['relative_path'] );
+
+		if ( null === $path || ! UploadsPath::is_inside( $path ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'outside_uploads',
+			);
+		}
+
+		if ( isset( $protected[ $path ] ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'protected_file',
+			);
+		}
+
+		if ( ! file_exists( $path ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'missing_file',
+			);
+		}
+
+		if ( ! empty( $row['file_hash'] ) && hash_file( 'sha256', $path ) !== $row['file_hash'] ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'hash_mismatch',
+			);
+		}
+
+		wp_delete_file( $path );
+
+		// wp_delete_file() returns nothing before WordPress 6.7: judge by the file system.
+		if ( file_exists( $path ) ) {
+			return array(
+				'status' => 'failed',
+				'reason' => 'delete_failed',
+			);
+		}
+
+		return array(
+			'status' => 'deleted',
+			'path'   => $path,
+		);
+	}
+
+	/**
+	 * Originals and WordPress-generated files of an attachment, which are never deleted.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @return array Protected normalized paths keyed by path.
@@ -283,22 +293,18 @@ class ImageCleanupService {
 		}
 
 		$metadata = wp_get_attachment_metadata( $attachment_id );
-		if ( ! is_array( $metadata ) ) {
+		if ( ! is_array( $metadata ) || ! $file_path ) {
 			return $protected;
 		}
 
-		$base_dir = $file_path ? dirname( $file_path ) : '';
+		$base_dir = dirname( $file_path );
 
-		if ( ! empty( $metadata['original_image'] ) && '' !== $base_dir ) {
+		if ( ! empty( $metadata['original_image'] ) ) {
 			$protected[ wp_normalize_path( trailingslashit( $base_dir ) . basename( $metadata['original_image'] ) ) ] = true;
 		}
 
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) && '' !== $base_dir ) {
-			foreach ( $metadata['sizes'] as $size_data ) {
-				if ( empty( $size_data['file'] ) ) {
-					continue;
-				}
-
+		foreach ( (array) ( $metadata['sizes'] ?? array() ) as $size_data ) {
+			if ( ! empty( $size_data['file'] ) ) {
 				$protected[ wp_normalize_path( trailingslashit( $base_dir ) . basename( $size_data['file'] ) ) ] = true;
 			}
 		}
@@ -307,74 +313,11 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Check whether a filename is a WordPress scaled/rotated original.
-	 *
-	 * @param string $path Absolute path.
-	 * @return bool
-	 */
-	private function is_scaled_or_rotated_file( $path ) {
-		return (bool) preg_match( '/-(scaled|rotated)\.[^.]+$/i', basename( $path ) );
-	}
-
-	/**
-	 * Remove TrustOptimize conversion data from WordPress attachment metadata.
-	 *
-	 * @param int $attachment_id Attachment ID.
-	 */
-	private function remove_attachment_metadata( $attachment_id ) {
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-
-		if ( ! is_array( $metadata ) ) {
-			return;
-		}
-
-		unset( $metadata['trust_optimize_converted'] );
-
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			foreach ( $metadata['sizes'] as $size_name => $size_data ) {
-				unset( $metadata['sizes'][ $size_name ]['trust_optimize_converted'] );
-			}
-		}
-
-		wp_update_attachment_metadata( $attachment_id, $metadata );
-	}
-
-	/**
-	 * Remove selected TrustOptimize conversion data from attachment metadata.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $variants      Generated variant manifest records.
-	 */
-	private function remove_attachment_metadata_variants( $attachment_id, array $variants ) {
-		$metadata = wp_get_attachment_metadata( $attachment_id );
-
-		if ( ! is_array( $metadata ) ) {
-			return;
-		}
-
-		foreach ( $variants as $variant ) {
-			if ( empty( $variant['size_name'] ) || empty( $variant['format'] ) ) {
-				continue;
-			}
-
-			if ( 'original' === $variant['size_name'] ) {
-				unset( $metadata['trust_optimize_converted'][ 'original_' . $variant['format'] ] );
-			} elseif ( isset( $metadata['sizes'][ $variant['size_name'] ]['trust_optimize_converted'] ) ) {
-				unset( $metadata['sizes'][ $variant['size_name'] ]['trust_optimize_converted'][ $variant['format'] ] );
-			}
-		}
-
-		wp_update_attachment_metadata( $attachment_id, $metadata );
-	}
-
-	/**
 	 * Clear attachment-specific caches.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function clear_caches( $attachment_id ) {
-		ImageModel::clear_cache( $attachment_id );
-		delete_transient( 'trust_optimize_formats_' . $attachment_id );
 		clean_attachment_cache( $attachment_id );
 	}
 }
