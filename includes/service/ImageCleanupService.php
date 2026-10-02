@@ -49,6 +49,13 @@ class ImageCleanupService {
 	}
 
 	/**
+	 * Clean up when an attachment is deleted.
+	 */
+	public function register() {
+		add_action( 'delete_attachment', array( $this, 'cleanup_attachment' ) );
+	}
+
+	/**
 	 * Remove every generated file and row of an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

@@ -28,14 +28,6 @@ class Settings {
 	);
 
 	/**
-	 * Settings constructor.
-	 */
-	public function __construct() {
-		// Register default settings during activation
-		add_action( 'activate_' . TRUST_OPTIMIZE_PLUGIN_BASENAME, array( $this, 'add_default_settings' ) );
-	}
-
-	/**
 	 * Add default settings.
 	 */
 	public function add_default_settings() {

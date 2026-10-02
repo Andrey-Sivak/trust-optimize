@@ -111,6 +111,13 @@ class RestController extends WP_REST_Controller {
 	}
 
 	/**
+	 * Register the routes on rest_api_init.
+	 */
+	public function register() {
+		add_action( 'rest_api_init', array( $this, 'register_routes' ) );
+	}
+
+	/**
 	 * Register routes
 	 */
 	public function register_routes() {

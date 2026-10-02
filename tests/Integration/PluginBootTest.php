@@ -30,4 +30,41 @@ class PluginBootTest extends WP_UnitTestCase {
 		$this->assertNotFalse( has_action( ConversionQueue::HOOK_PROCESS ) );
 		$this->assertNotFalse( has_action( ConversionQueue::HOOK_CONVERT ), 'The 1.x per-variant hook stays as a shim until 03.6.' );
 	}
+
+	/**
+	 * Whether an object of a class is hooked to a hook.
+	 *
+	 * @param string $hook  Hook name.
+	 * @param string $class Class name.
+	 * @return bool
+	 */
+	private function is_hooked( $hook, $class ) {
+		global $wp_filter;
+
+		foreach ( $wp_filter[ $hook ]->callbacks ?? array() as $callbacks ) {
+			foreach ( $callbacks as $callback ) {
+				if ( is_array( $callback['function'] ) && $callback['function'][0] instanceof $class ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	public function test_every_component_registers_its_own_hooks() {
+		$expected = array(
+			'the_content'                     => TrustOptimize\Features\Optimization\ImageProcessor::class,
+			'delete_attachment'               => TrustOptimize\Service\ImageCleanupService::class,
+			'rest_api_init'                   => TrustOptimize\API\RestController::class,
+			'admin_menu'                      => TrustOptimize\Admin\Admin::class,
+			'admin_init'                      => TrustOptimize\Capabilities\CapabilityService::class,
+			'wp_generate_attachment_metadata' => ConversionQueue::class,
+			'plugins_loaded'                  => DatabaseManager::class,
+		);
+
+		foreach ( $expected as $hook => $class ) {
+			$this->assertTrue( $this->is_hooked( $hook, $class ), "{$class} is not hooked to {$hook}." );
+		}
+	}
 }

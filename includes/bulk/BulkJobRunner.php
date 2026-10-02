@@ -77,7 +77,7 @@ class BulkJobRunner {
 	/**
 	 * Register Action Scheduler hook.
 	 */
-	public function init() {
+	public function register() {
 		add_action( self::HOOK_BULK_TICK, array( $this, 'tick' ), 10, 1 );
 		add_action( 'admin_init', array( $this, 'recover_stale_jobs' ) );
 	}

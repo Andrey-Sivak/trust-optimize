@@ -58,7 +58,12 @@ class Admin {
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
+	}
 
+	/**
+	 * Register the admin hooks.
+	 */
+	public function register() {
 		// Hook into WordPress admin
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );

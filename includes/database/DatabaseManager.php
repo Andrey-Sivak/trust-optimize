@@ -19,9 +19,9 @@ class DatabaseManager {
 	const DB_VERSION = '2.0.0';
 
 	/**
-	 * Initialize the database manager
+	 * Register the schema version check.
 	 */
-	public function init() {
+	public function register() {
 		// Check if tables need to be created or updated
 		add_action( 'plugins_loaded', array( $this, 'check_version' ), 20 );
 	}

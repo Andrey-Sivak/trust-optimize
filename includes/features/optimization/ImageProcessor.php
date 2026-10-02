@@ -45,6 +45,15 @@ class ImageProcessor {
 	}
 
 	/**
+	 * Register the frontend filters.
+	 */
+	public function register() {
+		add_filter( 'the_content', array( $this, 'process_content' ), 999 );
+		add_filter( 'post_thumbnail_html', array( $this, 'process_thumbnail' ), 999 );
+		add_filter( 'wp_get_attachment_image', array( $this, 'process_attachment_image_html' ), 999, 5 );
+	}
+
+	/**
 	 * Process content to optimize images.
 	 *
 	 * @param string $content The content to process.

@@ -73,7 +73,7 @@ class ConversionQueue {
 	 * The queue runner is also triggered on admin page loads as a fallback for
 	 * environments where WP-Cron loopback requests fail (removed in 04.1).
 	 */
-	public function init() {
+	public function register() {
 		add_action( self::HOOK_PROCESS, array( $this, 'process' ), 10, 1 );
 		add_action( self::HOOK_CONVERT, array( $this, 'process_legacy_task' ), 10, 4 );
 		add_filter( 'wp_generate_attachment_metadata', array( $this, 'handle_new_metadata' ), 20, 2 );

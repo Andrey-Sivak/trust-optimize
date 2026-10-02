@@ -29,6 +29,13 @@ class CapabilityService {
 	const FORMATS = array( 'webp', 'avif' );
 
 	/**
+	 * Re-check support when the environment changed.
+	 */
+	public function register() {
+		add_action( 'admin_init', array( $this, 'maybe_recheck' ) );
+	}
+
+	/**
 	 * Whether a format can be written.
 	 *
 	 * Reads the stored result only; it is computed once if missing (normally at activation).
