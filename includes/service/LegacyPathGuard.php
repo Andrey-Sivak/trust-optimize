@@ -53,11 +53,11 @@ class LegacyPathGuard {
 	private $variants;
 
 	/**
-	 * Files per directory, kept while a batch runs (see begin_batch()); null when not caching.
+	 * Owners per path, kept while a batch runs (see begin_batch()); null when not caching.
 	 *
 	 * @var array|null
 	 */
-	private $directories = null;
+	private $owners = null;
 
 	/**
 	 * Constructor.
@@ -71,20 +71,19 @@ class LegacyPathGuard {
 	}
 
 	/**
-	 * Remember the files of every directory until end_batch().
+	 * Remember who owns the paths asked about until end_batch().
 	 *
-	 * For a loop over many attachments: the metadata of a directory is read once instead of once per
-	 * attachment. Nothing may be added to the media library meanwhile.
+	 * For a loop over many attachments: a path is looked up once however many attachments ask. Nothing may be added to the media library meanwhile.
 	 */
 	public function begin_batch() {
-		$this->directories = array();
+		$this->owners = array();
 	}
 
 	/**
-	 * Forget the remembered directories.
+	 * Forget the remembered paths.
 	 */
 	public function end_batch() {
-		$this->directories = null;
+		$this->owners = null;
 	}
 
 	/**
@@ -141,14 +140,10 @@ class LegacyPathGuard {
 	private function attachment_files( $attachment_id, array $paths ) {
 		$found = array();
 
-		foreach ( array_unique( array_map( array( __CLASS__, 'directory_of' ), $paths ) ) as $dir ) {
-			$files = $this->directory_files( $dir );
-
-			foreach ( $paths as $path ) {
-				foreach ( $files[ $path ] ?? array() as $owner ) {
-					if ( $owner !== $attachment_id ) {
-						$found += array( $path => $owner );
-					}
+		foreach ( $this->owners_of( $paths ) as $path => $owners ) {
+			foreach ( $owners as $owner ) {
+				if ( $owner !== $attachment_id ) {
+					$found += array( $path => $owner );
 				}
 			}
 		}
@@ -157,36 +152,53 @@ class LegacyPathGuard {
 	}
 
 	/**
-	 * Files that attachments keep in a directory: the attached file, the original of a scaled image and every size.
+	 * Attachments that keep a file at each path: as the attached file, the original of a scaled image or a size.
 	 *
-	 * @param string $dir Directory relative to uploads ('' for the uploads root).
-	 * @return int[][] Attachment IDs keyed by path relative to uploads.
+	 * One query for all paths; only the attachments that mention one of the file names are read.
+	 *
+	 * @param string[] $paths Paths relative to uploads.
+	 * @return int[][] Attachment IDs keyed by path (every path is present).
 	 */
-	private function directory_files( $dir ) {
+	private function owners_of( array $paths ) {
 		global $wpdb;
 
-		if ( isset( $this->directories[ $dir ] ) ) {
-			return $this->directories[ $dir ];
+		$owners  = array();
+		$unknown = array();
+
+		foreach ( $paths as $path ) {
+			if ( isset( $this->owners[ $path ] ) ) {
+				$owners[ $path ] = $this->owners[ $path ];
+			} else {
+				$owners[ $path ] = array();
+				$unknown[]       = $path;
+			}
 		}
 
-		$like  = '' === $dir ? '%' : $wpdb->esc_like( $dir . '/' ) . '%';
-		$rows  = $wpdb->get_results(
-			$wpdb->prepare( "SELECT post_id, meta_value AS file FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s", $like ),
+		if ( empty( $unknown ) ) {
+			return $owners;
+		}
+
+		$in    = implode( ', ', array_fill( 0, count( $unknown ), '%s' ) );
+		$likes = array();
+		$args  = $unknown;
+		foreach ( $unknown as $path ) {
+			$name    = basename( $path );
+			$likes[] = 'm.meta_value LIKE %s';
+			$args[]  = '%' . $wpdb->esc_like( 's:' . strlen( $name ) . ':"' . $name . '";' ) . '%';
+		}
+
+		// Size files and original_image exist only inside the serialized metadata, so it is matched by the serialized file name.
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT a.post_id, a.meta_value AS file, m.meta_value AS data FROM {$wpdb->postmeta} a LEFT JOIN {$wpdb->postmeta} m ON m.post_id = a.post_id AND m.meta_key = '_wp_attachment_metadata' WHERE a.meta_key = '_wp_attached_file' AND (a.meta_value IN ({$in}) OR " . implode( ' OR ', $likes ) . ')',
+				$args
+			),
 			ARRAY_A
 		);
-		$rows  = array_filter(
-			(array) $rows,
-			static function ( $row ) use ( $dir ) {
-				return self::directory_of( $row['file'] ) === $dir;
-			}
-		);
-		$files = array();
 
-		update_meta_cache( 'post', array_column( $rows, 'post_id' ) );
-
-		foreach ( $rows as $row ) {
-			$id       = (int) $row['post_id'];
-			$metadata = wp_get_attachment_metadata( $id );
+		foreach ( (array) $rows as $row ) {
+			$dir      = self::directory_of( $row['file'] );
+			$metadata = maybe_unserialize( $row['data'] );
 			$names    = array( basename( $row['file'] ) );
 
 			if ( is_array( $metadata ) ) {
@@ -197,15 +209,21 @@ class LegacyPathGuard {
 			}
 
 			foreach ( array_filter( $names ) as $name ) {
-				$files[ ( '' === $dir ? '' : $dir . '/' ) . basename( $name ) ][] = $id;
+				$path = ( '' === $dir ? '' : $dir . '/' ) . basename( $name );
+
+				if ( in_array( $path, $unknown, true ) ) {
+					$owners[ $path ][] = (int) $row['post_id'];
+				}
 			}
 		}
 
-		if ( null !== $this->directories ) {
-			$this->directories[ $dir ] = $files;
+		if ( null !== $this->owners ) {
+			foreach ( $unknown as $path ) {
+				$this->owners[ $path ] = $owners[ $path ];
+			}
 		}
 
-		return $files;
+		return $owners;
 	}
 
 	/**
