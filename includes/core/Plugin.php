@@ -24,6 +24,8 @@ use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Migration\DetectCollisions;
 use TrustOptimize\Migration\ImportLegacyManifest;
 use TrustOptimize\Migration\MigrationRunner;
+use TrustOptimize\Migration\RetireLegacyFiles;
+use TrustOptimize\Migration\ScheduleRegeneration;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
@@ -122,13 +124,6 @@ class Plugin {
 		$eligibility  = new EligibilityQuery( $variants );
 		$conflicts    = new ConflictReport();
 		$guard        = new LegacyPathGuard( $database, $variants );
-		$migration    = new MigrationRunner(
-			$database,
-			array(
-				new ImportLegacyManifest( $database, $variants, $attachments ),
-				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
-			)
-		);
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
@@ -137,6 +132,16 @@ class Plugin {
 		$this->bulk_runner      = new BulkJobRunner( $jobs, $eligibility, $this->planner, $this->processor, $this->cleanup );
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $eligibility, $this->bulk_runner );
+
+		$migration = new MigrationRunner(
+			$database,
+			array(
+				new ImportLegacyManifest( $database, $variants, $attachments ),
+				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
+				new ScheduleRegeneration( $variants, $this->conversion_queue ),
+				new RetireLegacyFiles( $variants, $this->cleanup ),
+			)
+		);
 
 		foreach ( array(
 			$database,

@@ -383,6 +383,40 @@ class VariantRepository {
 	}
 
 	/**
+	 * IDs of attachments that have a row with a 1.x file to retire, in ascending order.
+	 *
+	 * @param int $after_id Return IDs greater than this one.
+	 * @param int $limit    Maximum number of IDs.
+	 * @return int[]
+	 */
+	public function get_attachment_ids_with_legacy_file_after( $after_id, $limit ) {
+		global $wpdb;
+
+		return array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE legacy_relative_path IS NOT NULL AND legacy_relative_path <> '' AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					(int) $after_id,
+					(int) $limit
+				)
+			)
+		);
+	}
+
+	/**
+	 * Forget the 1.x file of a row (it was deleted, or it must not be served).
+	 *
+	 * @param int $id Row id.
+	 */
+	public function clear_legacy_path( $id ) {
+		global $wpdb;
+
+		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table} SET legacy_relative_path = NULL, updated_at = %s WHERE id = %d", current_time( 'mysql', true ), (int) $id ) );
+		$this->invalidate_by_id( $id );
+	}
+
+	/**
 	 * Number of attachments that have variant rows.
 	 *
 	 * @return int
