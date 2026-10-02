@@ -23,3 +23,7 @@ Prerequisites: the stand is running (`docker compose up -d`) and tool images are
 Extensions (both): ctype curl dom exif fileinfo gd iconv imagick intl json mbstring mysqli mysqlnd openssl pdo_sqlite sodium xml zip zlib.
 
 Check: `tools/bin/compose run --rm -T tools-php80 php -m`.
+
+## Git pre-commit hook
+
+`.husky/pre-commit` runs lint-staged, which runs phpcbf and phpcs through `tools/bin/composer` (relative paths, no TTY). Run `npm install` once so husky sets `core.hooksPath`. On filesystems that drop the executable bit (e.g. some ACL mounts) the hooks in `.husky/_/` and `node_modules/lint-staged/bin/lint-staged.js` need `chmod u+x` locally.
