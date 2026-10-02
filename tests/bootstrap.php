@@ -88,3 +88,4 @@ require_once __DIR__ . '/../includes/utils/UploadsPath.php';
 require_once __DIR__ . '/../includes/domain/VariantStatus.php';
 require_once __DIR__ . '/../includes/domain/AttachmentState.php';
 require_once __DIR__ . '/../includes/storage/AttachmentRepository.php';
+require_once __DIR__ . '/../includes/naming/VariantNaming.php';
