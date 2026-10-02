@@ -23,8 +23,6 @@ class Settings {
 		'webp_quality'           => 85,
 		'avif_quality'           => 80,
 		'jpeg_quality'           => 85,
-		'breakpoints'            => array( 320, 480, 768, 1024, 1280, 1440, 1920 ),
-		'lazy_load'              => 1,
 		'convert_to_webp'        => 1,
 		'convert_to_avif'        => 1,
 	);

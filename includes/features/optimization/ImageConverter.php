@@ -7,7 +7,6 @@
 
 namespace TrustOptimize\Features\Optimization;
 
-use Imagick;
 use TrustOptimize\Database\ImageModel;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Service\ImageProfileFactory;
@@ -123,52 +122,6 @@ class ImageConverter {
 		}
 
 		return $result;
-	}
-
-	/**
-	 * Convert image to a different format for all sizes
-	 *
-	 * @param array  $metadata The attachment metadata
-	 * @param int    $attachment_id The attachment ID
-	 * @param string $file_path The file path of the original image
-	 * @param string $target_format The target format extension (e.g., 'webp', 'avif')
-	 * @param string $target_mime The target mime type (e.g., 'image/webp', 'image/avif')
-	 * @return array The modified attachment metadata
-	 */
-	private function convert_image_formats( $metadata, $attachment_id, $file_path, $target_format, $target_mime ) {
-		// Get the directory of the original image
-		$image_dir = dirname( $file_path );
-
-		// Process the original image size
-		$this->convert_single_image(
-			$metadata,
-			$attachment_id,
-			$file_path,
-			$image_dir,
-			'original',
-			$target_format,
-			$target_mime
-		);
-
-		// Process all generated sizes
-		if ( isset( $metadata['sizes'] ) && is_array( $metadata['sizes'] ) ) {
-			foreach ( $metadata['sizes'] as $size_name => &$size_info ) {
-				$image_path = trailingslashit( $image_dir ) . $size_info['file'];
-
-				$this->convert_single_image(
-					$metadata,
-					$attachment_id,
-					$image_path,
-					$image_dir,
-					$size_name,
-					$target_format,
-					$target_mime,
-					$size_info
-				);
-			}
-		}
-
-		return $metadata;
 	}
 
 	/**
@@ -471,49 +424,5 @@ class ImageConverter {
 		}
 
 		wp_update_attachment_metadata( $attachment_id, $metadata );
-	}
-
-	/**
-	 * Check if WebP conversion is enabled.
-	 *
-	 * @return bool
-	 */
-	private function is_webp_conversion_enabled() {
-		return (bool) $this->settings->get( 'convert_to_webp', 1 );
-	}
-
-	/**
-	 * Check if AVIF conversion is enabled.
-	 *
-	 * @return bool
-	 */
-	private function is_avif_conversion_enabled() {
-		return (bool) $this->settings->get( 'convert_to_avif', 1 );
-	}
-
-	/**
-	 * Check if server supports AVIF image generation
-	 *
-	 * @return bool True if AVIF conversion is supported
-	 */
-	private function is_avif_supported() {
-		// Check GD support for AVIF
-		if ( function_exists( 'gd_info' ) ) {
-			$gd_info = gd_info();
-			if ( isset( $gd_info['AVIF Support'] ) && $gd_info['AVIF Support'] ) {
-				return true;
-			}
-		}
-
-		// Check Imagick support for AVIF
-		if ( extension_loaded( 'imagick' ) ) {
-			$imagick = new Imagick();
-			$formats = $imagick->queryFormats();
-			if ( in_array( 'AVIF', $formats ) ) {
-				return true;
-			}
-		}
-
-		return false;
 	}
 }

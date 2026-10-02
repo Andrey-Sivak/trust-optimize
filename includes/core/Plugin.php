@@ -8,7 +8,6 @@
 namespace TrustOptimize\Core;
 
 use TrustOptimize\Admin\Admin;
-use TrustOptimize\Frontend\Frontend;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Admin\Settings;
@@ -42,13 +41,6 @@ class Plugin {
 	 * @var Admin
 	 */
 	public $admin;
-
-	/**
-	 * Frontend class instance.
-	 *
-	 * @var Frontend
-	 */
-	public $frontend;
 
 	/**
 	 * Image processor instance.
@@ -136,9 +128,6 @@ class Plugin {
 		// Initialize admin class
 		$this->admin = new Admin();
 
-		// Initialize frontend class
-		$this->frontend = new Frontend();
-
 		// Initialize image processor
 		$this->image_processor = new ImageProcessor();
 
@@ -173,23 +162,8 @@ class Plugin {
 		// Hook for generating WebP on image upload (backend conversion)
 		$this->loader->add_filter( 'wp_generate_attachment_metadata', $this->image_converter, 'handle_image_upload', 10, 2 );
 
-		// Hook for add WebP support
-		$this->loader->add_filter( 'upload_mimes', $this, 'allow_modern_image_uploads' );
-
 		// Hook for cleaning up image data when an attachment is deleted
 		$this->loader->add_action( 'delete_attachment', $this, 'clean_image_data', 10 );
-	}
-
-	/**
-	 * Allow modern image formats for uploads.
-	 *
-	 * @param array $mime_types The list of MIME types.
-	 * @return array
-	 */
-	public function allow_modern_image_uploads( $mime_types ) {
-		$mime_types['webp'] = 'image/webp';
-		$mime_types['avif'] = 'image/avif';
-		return $mime_types;
 	}
 
 	/**

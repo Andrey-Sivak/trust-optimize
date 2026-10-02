@@ -18,7 +18,7 @@ use TrustOptimize\Utils\HtmlFragment;
 /**
  * Class ImageProcessor
  */
-class ImageProcessor implements OptimizerInterface {
+class ImageProcessor {
 
 
 	/**
@@ -60,28 +60,6 @@ class ImageProcessor implements OptimizerInterface {
 	 */
 	public function process_content( $content ) {
 		return $this->process_content_images( $content );
-	}
-
-	/**
-	 * Check if this optimizer is enabled.
-	 *
-	 * @return bool
-	 */
-	public function is_enabled() {
-		return $this->is_feature_enabled();
-	}
-
-	/**
-	 * Get optimizer statistics.
-	 *
-	 * @return array
-	 */
-	public function get_stats() {
-		// Placeholder for real implementation
-		return array(
-			'processed' => 0,
-			'saved'     => '0 KB',
-		);
 	}
 
 	/**
@@ -391,36 +369,6 @@ class ImageProcessor implements OptimizerInterface {
 		);
 
 		return implode( ', ', $srcset_items );
-	}
-
-	/**
-	 * Get an adaptive URL for a specific width and format.
-	 *
-	 * @param string $src The original image URL.
-	 * @param int    $width The target width.
-	 * @param string $format The desired image format.
-	 *
-	 * @return string The adaptive URL.
-	 */
-	private function get_adaptive_url( $src, $width, $format = '' ) {
-		$parsed_url = wp_parse_url( $src );
-		$base_url   = $src;
-		$query      = array();
-
-		if ( isset( $parsed_url['query'] ) ) {
-			parse_str( $parsed_url['query'], $query );
-			$base_url = str_replace( '?' . $parsed_url['query'], '', $src );
-		}
-
-		$query['width']          = $width;
-		$query['trust_optimize'] = 1; // Keep this to potentially indicate a request from the plugin
-
-		// Add format parameter to the URL
-		if ( ! empty( $format ) ) {
-			$query['format'] = $format;
-		}
-
-		return $base_url . '?' . http_build_query( $query );
 	}
 
 	/**

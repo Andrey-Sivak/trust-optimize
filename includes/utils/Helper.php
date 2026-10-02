@@ -13,60 +13,6 @@ namespace TrustOptimize\Utils;
 class Helper {
 
 	/**
-	 * Check if current request is an AJAX request
-	 *
-	 * @return bool
-	 */
-	public static function is_ajax() {
-		return defined( 'DOING_AJAX' ) && DOING_AJAX;
-	}
-
-	/**
-	 * Check if current request is on admin screen
-	 *
-	 * @return bool
-	 */
-	public static function is_admin_screen() {
-		return is_admin() && ! self::is_ajax();
-	}
-
-	/**
-	 * Get file size in human-readable format
-	 *
-	 * @param int $bytes     File size in bytes
-	 * @param int $precision Precision of rounding
-	 * @return string
-	 */
-	public static function format_file_size( $bytes, $precision = 2 ) {
-		$units = array( 'B', 'KB', 'MB', 'GB', 'TB' );
-
-		$bytes = max( $bytes, 0 );
-		$pow   = floor( ( $bytes ? log( $bytes ) : 0 ) / log( 1024 ) );
-		$pow   = min( $pow, count( $units ) - 1 );
-
-		$bytes /= pow( 1024, $pow );
-
-		return round( $bytes, $precision ) . ' ' . $units[ $pow ];
-	}
-
-	/**
-	 * Get the savings percentage between original and optimized size
-	 *
-	 * @param int $original_size    Original file size in bytes
-	 * @param int $optimized_size   Optimized file size in bytes
-	 * @param int $precision        Precision of rounding
-	 * @return string|null
-	 */
-	public static function get_savings_percentage( $original_size, $optimized_size, $precision = 1 ) {
-		if ( ! $original_size || ! $optimized_size ) {
-			return null;
-		}
-
-		$savings = ( ( $original_size - $optimized_size ) / $original_size ) * 100;
-		return round( $savings, $precision ) . '%';
-	}
-
-	/**
 	 * Get the attachment ID from an image URL
 	 *
 	 * @param string $image_url Image URL
@@ -103,27 +49,6 @@ class Helper {
 		);
 
 		return ! empty( $attachment[0] ) ? $attachment[0] : false;
-	}
-
-	/**
-	 * Check if the image is a valid image that can be optimized
-	 *
-	 * @param string $url Image URL
-	 * @return bool
-	 */
-	public static function is_valid_image_url( $url ) {
-		$parsed_url = parse_url( $url );
-
-		// Skip if no path
-		if ( ! isset( $parsed_url['path'] ) ) {
-			return false;
-		}
-
-		// Check if it's a valid image extension
-		$valid_extensions = array( 'jpg', 'jpeg', 'png', 'gif', 'webp' );
-		$extension        = strtolower( pathinfo( $parsed_url['path'], PATHINFO_EXTENSION ) );
-
-		return in_array( $extension, $valid_extensions, true );
 	}
 
 	/**

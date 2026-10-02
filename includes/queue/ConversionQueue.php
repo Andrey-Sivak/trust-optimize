@@ -152,31 +152,6 @@ class ConversionQueue {
 	}
 
 	/**
-	 * Schedule conversion tasks for all sizes and formats of an attachment.
-	 *
-	 * Backward-compatible wrapper for legacy callers. New code should schedule
-	 * explicit variants to avoid accidental size x format fan-out.
-	 *
-	 * @param int   $attachment_id          The attachment ID.
-	 * @param array $size_names             Array of size names to convert.
-	 * @param array $conversion_strategies  Conversion strategies.
-	 */
-	public function schedule_conversions( $attachment_id, array $size_names, array $conversion_strategies ) {
-		foreach ( $size_names as $size_name ) {
-			foreach ( $conversion_strategies as $strategy ) {
-				$this->schedule_variant_conversion(
-					$attachment_id,
-					array(
-						'size_name'     => $size_name,
-						'target_format' => isset( $strategy['target_format'] ) ? $strategy['target_format'] : '',
-						'target_mime'   => isset( $strategy['target_mime'] ) ? $strategy['target_mime'] : '',
-					)
-				);
-			}
-		}
-	}
-
-	/**
 	 * Process a single conversion task.
 	 *
 	 * Called by Action Scheduler when the task is ready to run. Supports the new

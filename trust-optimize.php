@@ -151,8 +151,6 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Settings.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Helper.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/HtmlFragment.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/utils/Logger.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/OptimizerInterface.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageProcessor.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/features/optimization/ImageConverter.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/service/ImageProfileFactory.php';
@@ -165,7 +163,6 @@ if ( ! class_exists( 'TrustOptimize\\Core\\Plugin' ) ) {
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/queue/ConversionQueue.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/api/RestController.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/admin/Admin.php';
-	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/frontend/Frontend.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Requirements.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Loader.php';
 	require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'includes/core/Plugin.php';
