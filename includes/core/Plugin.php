@@ -20,9 +20,9 @@ use TrustOptimize\CLI\Command;
 use TrustOptimize\CLI\MigrationCommand;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
-use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Frontend\ContentPrimer;
+use TrustOptimize\Frontend\ImageDelivery;
 use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
@@ -142,6 +142,7 @@ class Plugin {
 		$progress     = new JobProgress( $attachments, $eligibility );
 		$conflicts    = new ConflictReport();
 		$guard        = new LegacyPathGuard( $database, $variants );
+		$primer       = new ContentPrimer( $variants, $settings );
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
@@ -170,8 +171,8 @@ class Plugin {
 			$database,
 			$migration,
 			$capabilities,
-			new ContentPrimer( $variants, $settings ),
-			new ImageProcessor( new PictureRenderer( $variants ), $settings ),
+			$primer,
+			new ImageDelivery( new PictureRenderer( $variants ), $primer, $settings ),
 			$this->cleanup,
 			$this->conversion_queue,
 			new Maintenance( $attachments, $this->conversion_queue ),

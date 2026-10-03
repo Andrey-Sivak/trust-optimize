@@ -55,7 +55,9 @@ class PluginBootTest extends WP_UnitTestCase {
 
 	public function test_every_component_registers_its_own_hooks() {
 		$expected = array(
-			'the_content'                     => TrustOptimize\Features\Optimization\ImageProcessor::class,
+			'the_content'                     => TrustOptimize\Frontend\ContentPrimer::class,
+			'wp_content_img_tag'              => TrustOptimize\Frontend\ImageDelivery::class,
+			'wp_get_attachment_image'         => TrustOptimize\Frontend\ImageDelivery::class,
 			'delete_attachment'               => TrustOptimize\Service\ImageCleanupService::class,
 			'rest_api_init'                   => TrustOptimize\API\RestController::class,
 			'admin_menu'                      => TrustOptimize\Admin\Admin::class,

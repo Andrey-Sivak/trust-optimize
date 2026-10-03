@@ -1,6 +1,7 @@
 <?php
 /**
- * Loads variant data for every attachment of a content string in one query.
+ * One pass over the content before core looks at its images: loads the variant data of
+ * all attachments in one query and remembers the images that already sit in a <picture>.
  *
  * @package TrustOptimize
  */
@@ -9,6 +10,7 @@ namespace TrustOptimize\Frontend;
 
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\Storage\VariantRepository;
+use WP_HTML_Tag_Processor;
 
 /**
  * Class ContentPrimer
@@ -35,6 +37,13 @@ class ContentPrimer {
 	private $settings;
 
 	/**
+	 * The src attributes of images found inside a <picture>, as keys.
+	 *
+	 * @var bool[]
+	 */
+	private $in_picture = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @param VariantRepository $variants Variant repository.
@@ -53,6 +62,18 @@ class ContentPrimer {
 	}
 
 	/**
+	 * Whether an image with this src was found inside a <picture> of the content processed so far.
+	 *
+	 * The same src outside a <picture> is skipped as well; the image only loses the optimization.
+	 *
+	 * @param string $src Value of the src attribute.
+	 * @return bool
+	 */
+	public function is_inside_picture( $src ) {
+		return isset( $this->in_picture[ $src ] );
+	}
+
+	/**
 	 * Prime the variant cache for the attachments mentioned in the content.
 	 *
 	 * @param string $content Post content.
@@ -67,6 +88,34 @@ class ContentPrimer {
 			$this->variants->prime( array_map( 'intval', $matches[1] ) );
 		}
 
+		if ( false !== stripos( $content, '<picture' ) ) {
+			$this->collect_images_inside_picture( $content );
+		}
+
 		return $content;
+	}
+
+	/**
+	 * Remember the src of every <img> that is inside a <picture>.
+	 *
+	 * @param string $content Post content.
+	 */
+	private function collect_images_inside_picture( $content ) {
+		$processor = new WP_HTML_Tag_Processor( $content );
+		$depth     = 0;
+
+		while ( $processor->next_tag( array( 'tag_closers' => 'visit' ) ) ) {
+			$tag = $processor->get_tag();
+
+			if ( 'PICTURE' === $tag ) {
+				$depth += $processor->is_tag_closer() ? -1 : 1;
+				$depth  = max( 0, $depth );
+			} elseif ( 'IMG' === $tag && $depth > 0 ) {
+				$src = $processor->get_attribute( 'src' );
+				if ( is_string( $src ) ) {
+					$this->in_picture[ $src ] = true;
+				}
+			}
+		}
 	}
 }
