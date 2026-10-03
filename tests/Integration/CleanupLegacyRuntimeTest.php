@@ -111,6 +111,31 @@ class CleanupLegacyRuntimeTest extends WP_UnitTestCase {
 		$this->assertFalse( get_transient( 'trust_optimize_formats_5' ) );
 	}
 
+	public function test_empty_probe_directories_of_1x_are_removed_and_others_are_kept() {
+		$uploads = wp_upload_dir()['basedir'];
+		$empty   = array( $uploads . '/trust-optimize-capability', $uploads . '/trust-optimize-capability-abc123' );
+		$full    = $uploads . '/trust-optimize-capability-full';
+		$other   = $uploads . '/trust-optimize-diagnostics';
+		foreach ( array_merge( $empty, array( $full, $other ) ) as $dir ) {
+			wp_mkdir_p( $dir );
+		}
+		file_put_contents( $full . '/probe.webp', 'x' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+
+		$result = $this->step->run_batch( 0, 10 );
+
+		$this->assertTrue( $result->is_done() );
+		$this->assertDirectoryDoesNotExist( $empty[0] );
+		$this->assertDirectoryDoesNotExist( $empty[1] );
+		$this->assertFileExists( $full . '/probe.webp', 'A directory with a file is never touched.' );
+		$this->assertDirectoryExists( $other, 'Only the probe directories are candidates.' );
+		$this->assertSame( 2, $result->get_counts()['probe_dirs_removed'] );
+		$this->assertSame( 1, $result->get_counts()['probe_dirs_kept'] );
+
+		unlink( $full . '/probe.webp' );
+		rmdir( $full );
+		rmdir( $other );
+	}
+
 	public function test_options_and_transients_of_1x_are_deleted() {
 		update_option( 'trust_optimize_preflight', array( 'x' => 1 ) );
 		set_transient( 'trust_optimize_formats_5', array( 'webp' ), HOUR_IN_SECONDS );

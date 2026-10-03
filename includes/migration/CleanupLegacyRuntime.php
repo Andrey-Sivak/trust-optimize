@@ -9,6 +9,7 @@ namespace TrustOptimize\Migration;
 
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Utils\LegacyProbeDirectories;
 
 // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Deletes plugin options by prefix; every value is prepared.
 
@@ -22,6 +23,8 @@ use TrustOptimize\Queue\ConversionQueue;
  * The Action Scheduler runs 1.x tasks as soon as the plugin is upgraded, long before the
  * migration reaches this step, and an action without a callback is just completed. So the
  * hook keeps a callback that does what the step does, as long as the plugin is installed.
+ *
+ * Empty directories of the 1.x capability probe are removed at the end; non-empty ones are counted.
  *
  * The bulk tick runner of 1.x is gone: its tick actions, lock options and status transients are
  * removed and a bulk job of 1.x that is still active is closed. Its attachments are not lost,
@@ -149,7 +152,15 @@ class CleanupLegacyRuntime implements MigrationStep {
 
 		$counts['transients'] = $this->delete_transients( $limit );
 
-		return $counts['transients'] >= (int) $limit ? BatchResult::more( $cursor, $counts ) : BatchResult::finished( $counts );
+		if ( $counts['transients'] >= (int) $limit ) {
+			return BatchResult::more( $cursor, $counts );
+		}
+
+		$probe                        = LegacyProbeDirectories::remove_empty();
+		$counts['probe_dirs_removed'] = count( $probe['removed'] );
+		$counts['probe_dirs_kept']    = count( $probe['kept'] );
+
+		return BatchResult::finished( $counts );
 	}
 
 	/**
