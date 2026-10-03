@@ -181,7 +181,7 @@ class Plugin {
 		}
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $progress, $this->bulk_producer, $this->processor, $this->cleanup, $migration ) );
+			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->inventory, $progress, $this->bulk_producer, $this->processor, $this->cleanup, $migration ) );
 			\WP_CLI::add_command( 'trust-optimize migration', new MigrationCommand( $conflicts ) );
 		}
 	}

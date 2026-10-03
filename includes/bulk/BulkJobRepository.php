@@ -201,13 +201,11 @@ class BulkJobRepository {
 	}
 
 	/**
-	 * Get the active library job.
+	 * Get the active library job. Reading never changes it; abandoned jobs are recovered by recover_stale_running().
 	 *
 	 * @return BulkJob|null
 	 */
 	public function get_active_job() {
-		$this->recover_stale_running();
-
 		global $wpdb;
 
 		$table    = $this->get_table_name();
