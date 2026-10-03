@@ -24,6 +24,8 @@ use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Frontend\ContentPrimer;
 use TrustOptimize\Frontend\ImageDelivery;
 use TrustOptimize\Frontend\PictureRenderer;
+use TrustOptimize\Frontend\SourceResolver;
+use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
@@ -143,6 +145,7 @@ class Plugin {
 		$conflicts    = new ConflictReport();
 		$guard        = new LegacyPathGuard( $database, $variants );
 		$primer       = new ContentPrimer( $variants, $settings );
+		$urls         = new UploadsUrl();
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
@@ -172,7 +175,7 @@ class Plugin {
 			$migration,
 			$capabilities,
 			$primer,
-			new ImageDelivery( new PictureRenderer( $variants ), $primer, $settings ),
+			new ImageDelivery( new PictureRenderer( $variants, $urls ), $primer, new SourceResolver( $variants, $urls ), $settings ),
 			$this->cleanup,
 			$this->conversion_queue,
 			new Maintenance( $attachments, $this->conversion_queue ),

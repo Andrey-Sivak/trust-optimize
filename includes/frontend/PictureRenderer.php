@@ -37,12 +37,21 @@ class PictureRenderer {
 	private $variants;
 
 	/**
+	 * URL mapping.
+	 *
+	 * @var UploadsUrl
+	 */
+	private $urls;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param VariantRepository $variants Variant repository.
+	 * @param UploadsUrl        $urls     URL mapping.
 	 */
-	public function __construct( VariantRepository $variants ) {
+	public function __construct( VariantRepository $variants, UploadsUrl $urls ) {
 		$this->variants = $variants;
+		$this->urls     = $urls;
 	}
 
 	/**
@@ -76,8 +85,7 @@ class PictureRenderer {
 		$srcset     = $processor->get_attribute( 'srcset' );
 		$sizes      = $processor->get_attribute( 'sizes' );
 		$candidates = is_string( $srcset ) && '' !== trim( $srcset ) ? self::parse_srcset( $srcset ) : array( array( $src, '' ) );
-		$location   = $this->uploads_location();
-		$src_path   = self::relative_path( $src, $location );
+		$src_path   = $this->urls->relative_path( $src );
 		$sources    = '';
 
 		foreach ( self::FORMATS as $format => $mime ) {
@@ -87,7 +95,7 @@ class PictureRenderer {
 
 			$items = array();
 			foreach ( $candidates as list( $url, $descriptor ) ) {
-				$path = self::relative_path( $url, $location );
+				$path = $this->urls->relative_path( $url );
 				if ( null !== $path && isset( $servable[ $format ][ $path ] ) ) {
 					$items[] = trim( self::directory_of( $url ) . $servable[ $format ][ $path ] . ' ' . $descriptor );
 				}
@@ -131,45 +139,5 @@ class PictureRenderer {
 		$url = (string) strtok( $url, '?#' );
 
 		return substr( $url, 0, (int) strrpos( $url, '/' ) + 1 );
-	}
-
-	/**
-	 * Where uploads are served from.
-	 *
-	 * @return array{prefix:string,hosts:string[]} URL path prefix with a trailing slash, and the accepted hosts in lower case.
-	 */
-	private function uploads_location() {
-		$base = wp_parse_url( wp_upload_dir( null, false )['baseurl'] );
-
-		/**
-		 * Hosts that serve the uploads directory besides the site itself, for example a CDN.
-		 *
-		 * The path after the host must mirror the uploads URL.
-		 *
-		 * @param string[] $hosts Host names.
-		 */
-		$cdn_hosts = (array) apply_filters( 'trust_optimize_cdn_hosts', array() );
-
-		return array(
-			'prefix' => trailingslashit( $base['path'] ?? '' ),
-			'hosts'  => array_map( 'strtolower', array_merge( array( $base['host'] ?? '' ), $cdn_hosts ) ),
-		);
-	}
-
-	/**
-	 * Path of an image URL relative to uploads; the scheme is ignored.
-	 *
-	 * @param string $url      Image URL.
-	 * @param array  $location Result of uploads_location().
-	 * @return string|null Null when the URL does not point into uploads.
-	 */
-	private static function relative_path( $url, array $location ) {
-		$parts = wp_parse_url( $url );
-
-		if ( empty( $parts['path'] ) || ( ! empty( $parts['host'] ) && ! in_array( strtolower( $parts['host'] ), $location['hosts'], true ) ) ) {
-			return null;
-		}
-
-		return 0 === strpos( $parts['path'], $location['prefix'] ) ? substr( $parts['path'], strlen( $location['prefix'] ) ) : null;
 	}
 }

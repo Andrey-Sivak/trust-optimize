@@ -113,4 +113,39 @@ class ImageDeliveryTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '<picture', $this->render( $id ) );
 		$this->assertStringNotContainsString( '<picture', wp_get_attachment_image( $id, 'medium' ) );
 	}
+
+	public function test_an_image_without_an_id_is_found_by_its_source_path_whatever_the_scheme() {
+		$id = $this->upload();
+		ActionScheduler_QueueRunner::instance()->run();
+		$url = set_url_scheme( wp_get_attachment_url( $id ), 'https' );
+
+		$html = apply_filters( 'the_content', '<img src="' . $url . '" alt="x">' );
+
+		$this->assertStringContainsString( '<picture>', $html );
+		$this->assertStringContainsString( 'srcset="' . $url . '.webp"', $html );
+	}
+
+	public function test_a_size_suffix_in_the_name_does_not_make_the_image_another_attachment() {
+		$dir = get_temp_dir();
+		copy( DIR_TESTDATA . '/images/canola.jpg', $dir . 'banner.jpg' );
+		copy( DIR_TESTDATA . '/images/canola.jpg', $dir . 'banner-1920x600.jpg' );
+		$plain = self::factory()->attachment->create_upload_object( $dir . 'banner.jpg' );
+		$sized = self::factory()->attachment->create_upload_object( $dir . 'banner-1920x600.jpg' );
+		unlink( $dir . 'banner.jpg' );
+		unlink( $dir . 'banner-1920x600.jpg' );
+		ActionScheduler_QueueRunner::instance()->run();
+		$url = wp_get_attachment_url( $sized );
+		$this->assertStringContainsString( 'banner-1920x600', $url );
+
+		$html = apply_filters( 'the_content', '<img src="' . $url . '" alt="x">' );
+
+		$this->assertStringContainsString( 'srcset="' . $url . '.webp"', $html );
+		$this->assertStringNotContainsString( wp_get_attachment_url( $plain ) . '.webp', $html );
+	}
+
+	public function test_an_unknown_file_is_left_alone() {
+		$html = apply_filters( 'the_content', '<img src="' . wp_upload_dir()['baseurl'] . '/2020/01/not-ours.jpg" alt="x">' );
+
+		$this->assertStringNotContainsString( '<picture', $html );
+	}
 }

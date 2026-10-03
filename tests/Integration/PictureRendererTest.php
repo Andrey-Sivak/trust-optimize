@@ -8,6 +8,7 @@
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Frontend\PictureRenderer;
+use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Storage\VariantRepository;
 
 /**
@@ -35,7 +36,7 @@ class PictureRendererTest extends WP_UnitTestCase {
 	public function set_up() {
 		parent::set_up();
 		$this->variants = new VariantRepository( new DatabaseManager() );
-		$this->renderer = new PictureRenderer( $this->variants );
+		$this->renderer = new PictureRenderer( $this->variants, new UploadsUrl() );
 		$this->base     = wp_upload_dir()['baseurl'] . '/2026/05';
 	}
 
