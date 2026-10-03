@@ -10,8 +10,8 @@
  * @wordpress-plugin
  * Plugin Name:       TrustOptimize
  * Plugin URI:        https://github.com/Andrey-Sivak/trust-optimize
- * Description:       Advanced media optimization for WordPress. Dynamically resizes images based on visitor's device and viewport.
- * Version:           1.0.0
+ * Description:       Converts WordPress image sizes to WebP and AVIF and serves them through picture elements.
+ * Version:           2.0.0
  * Requires at least: 6.5
  * Requires PHP:      8.0
  * Author:            Andrii Sivak
@@ -35,7 +35,7 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 // Define plugin constants
-define( 'TRUST_OPTIMIZE_VERSION', '1.0.0' );
+define( 'TRUST_OPTIMIZE_VERSION', '2.0.0' );
 define( 'TRUST_OPTIMIZE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );

@@ -5,7 +5,7 @@ Tags: optimization, images, performance, media, webp, avif
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 1.0.0
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -160,10 +160,20 @@ Actions:
 
 == Changelog ==
 
+= 2.0.0 =
+* New storage in database tables and new variant file names (`photo.jpg.webp`); the data of 1.x is migrated in the background.
+* AVIF output, `<picture>` delivery on top of the core `srcset`, one background task per image, bulk jobs with pause and resume, WP-CLI, Site Health tests.
+* Requires PHP 8.0, WordPress 6.5 and MySQL 5.7 / MariaDB 10.3.
+* Fixes: variants never overwrite foreign files, safer uninstall, working settings and reset, real statistics.
+* See CHANGELOG.md in the plugin for the complete list.
+
 = 1.0.0 =
 * Initial release
 
 == Upgrade Notice ==
+
+= 2.0.0 =
+Major release. Back up the uploads folder and the database first. The images are regenerated in the background with new file names and the old files are removed afterwards; files of 1.x that collide with other attachments are reported and never deleted. Requires PHP 8.0 and WordPress 6.5.
 
 = 1.0.0 =
 This is the first version of TrustOptimize.

@@ -1,6 +1,6 @@
 {
   "name": "trust-optimize",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Advanced media optimization solution for WordPress",
   "scripts": {
     "prepare": "husky",
