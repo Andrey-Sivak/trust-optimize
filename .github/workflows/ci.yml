@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_call:
 
 permissions:
   contents: read
@@ -91,5 +92,5 @@ jobs:
       - name: Create test database
         run: mysql --protocol=tcp -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test"
       - run: composer test:integration
-      - name: Multisite uninstall
+      - name: Multisite
         run: WP_MULTISITE=1 composer test:integration -- --group ms-required
