@@ -35,6 +35,21 @@ class VariantRepository {
 	 *
 	 * @var string[]
 	 */
+	/**
+	 * Reason of a row whose 1.x file belongs to another attachment.
+	 */
+	const REASON_LEGACY_CONFLICT = 'legacy_conflict';
+
+	/**
+	 * Reason of a row whose file lies outside the uploads directory.
+	 */
+	const REASON_OUTSIDE_UPLOADS = 'outside_uploads';
+
+	/**
+	 * SQL condition for a parked row (see get_parked()); the reasons are internal constants.
+	 */
+	const PARKED_SQL = "status = 'failed' AND reason IN ('legacy_conflict', 'outside_uploads')";
+
 	const NULLABLE_COLUMNS = array( 'relative_path', 'legacy_relative_path', 'file_hash', 'reason' );
 
 	/**
@@ -428,18 +443,27 @@ class VariantRepository {
 	}
 
 	/**
-	 * Number of rows whose file is still to be removed: all but the 1.x rows parked as conflicts.
-	 *
-	 * A parked row points at a file that belongs to another attachment and is never deleted (D-15).
+	 * Number of rows whose file is still to be removed: all but the parked ones.
 	 *
 	 * @return int
 	 */
 	public function count_removable() {
 		global $wpdb;
 
-		return (int) $wpdb->get_var(
-			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE status <> %s OR reason IS NULL OR reason <> 'legacy_conflict'", VariantStatus::FAILED )
-		);
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$this->table} WHERE NOT (" . self::PARKED_SQL . ')' );
+	}
+
+	/**
+	 * Rows whose file the plugin must leave alone and never will delete: a 1.x file that belongs to
+	 * another attachment (D-15) and a file outside the uploads directory. They are failed rows with
+	 * one of two reasons and do not count as work left to do.
+	 *
+	 * @return array[] Rows with attachment_id, relative_path, legacy_relative_path and reason.
+	 */
+	public function get_parked() {
+		global $wpdb;
+
+		return (array) $wpdb->get_results( "SELECT attachment_id, relative_path, legacy_relative_path, reason FROM {$this->table} WHERE " . self::PARKED_SQL . ' ORDER BY id', ARRAY_A );
 	}
 
 	/**

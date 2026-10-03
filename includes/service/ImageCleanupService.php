@@ -289,15 +289,21 @@ class ImageCleanupService {
 					'reason'  => $outcome['reason'],
 				);
 
-				// "outside_uploads" is refused outright and keeps its row for inspection.
-				$keep = $keep || 'outside_uploads' === $outcome['reason'];
+				// "outside_uploads" is refused outright. The row of the file itself stays, parked, for the report.
+				if ( 'outside_uploads' === $outcome['reason'] ) {
+					$keep = true;
+
+					if ( $delete_rows && ! $is_old_file ) {
+						$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => VariantRepository::REASON_OUTSIDE_UPLOADS ) );
+					}
+				}
 
 				if ( 'legacy_conflict' === $outcome['reason'] ) {
 					$this->conflicts->add( $attachment_id, $relative_path, $conflict['attachment_id'], $conflict['source'] );
 
 					// The file is never deleted. A 1.x row that points at it is parked for the report, unless it goes away with its attachment.
 					if ( $delete_rows && ! $attachment_gone && $legacy && $relative_path === $row['relative_path'] ) {
-						$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => 'legacy_conflict' ) );
+						$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => VariantRepository::REASON_LEGACY_CONFLICT ) );
 						$keep = true;
 					}
 				}

@@ -35,11 +35,21 @@ class UninstallTest extends WP_UnitTestCase {
 	 */
 	private $attachment_ids = array();
 
+	/**
+	 * Directory outside uploads created by a test.
+	 *
+	 * @var string|null
+	 */
+	private $outside_dir;
+
 	public function set_up() {
 		parent::set_up();
 		$this->use_real_tables();
 		$this->load_uninstall_functions();
 		$this->capture_error_log();
+		// An earlier uninstall test commits its leftovers (DROP TABLE ends the transaction).
+		delete_option( ConflictReport::OPTION );
+		delete_option( 'trust_optimize_uninstall_conflicts' );
 		$this->relative_dir = 'uninstall-test-' . wp_generate_uuid4();
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'remove_data_on_uninstall' => 1 ) );
@@ -56,6 +66,11 @@ class UninstallTest extends WP_UnitTestCase {
 
 		foreach ( array( 'trust_optimize_options', 'trust_optimize_db_version', 'trust_optimize_pending_cleanup', 'trust_optimize_uninstall_conflicts', ConflictReport::OPTION, CapabilityService::OPTION ) as $option ) {
 			delete_option( $option );
+		}
+
+		if ( $this->outside_dir ) {
+			array_map( 'unlink', glob( $this->outside_dir . '/*' ) ?: array() );
+			@rmdir( $this->outside_dir ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.file_system_operations_rmdir
 		}
 
 		foreach ( glob( wp_upload_dir()['basedir'] . '/' . $this->relative_dir . '/*' ) ?: array() as $file ) {
@@ -142,5 +157,36 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->assertContains( $a_original, $paths );
 		$this->assertContains( '2024/01/old.png', $paths );
 		$this->assertStringContainsString( basename( $a_original ), $this->logged() );
+	}
+
+	public function test_a_row_outside_uploads_does_not_block_the_final_cleanup() {
+		$inside    = $this->add_variant_file( 3001, $this->relative_dir, 'a.jpg.webp' );
+		$outside   = dirname( wp_upload_dir()['basedir'] ) . '/outside-uploads-test';
+		$this->outside_dir = $outside;
+		wp_mkdir_p( $outside );
+		file_put_contents( $outside . '/b.jpg.webp', 'not ours to delete' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		( new TrustOptimize\Storage\VariantRepository( new TrustOptimize\Database\DatabaseManager() ) )->upsert(
+			array(
+				'attachment_id'        => 3002,
+				'size_name'            => 'b.jpg.webp',
+				'format'               => 'webp',
+				'status'               => TrustOptimize\Domain\VariantStatus::DONE,
+				'source_relative_path' => '../outside-uploads-test/b.jpg',
+				'relative_path'        => '../outside-uploads-test/b.jpg.webp',
+				'file_hash'            => hash( 'sha256', 'not ours to delete' ),
+			)
+		);
+
+		trust_optimize_uninstall_site();
+
+		$this->assertFileDoesNotExist( $inside );
+		$this->assertFileExists( $outside . '/b.jpg.webp', 'A file outside uploads is never touched.' );
+		$this->assertFalse( $this->table_exists( 'variants' ), 'The registry is dropped: nothing is left that may be deleted.' );
+		$this->assertFalse( get_option( 'trust_optimize_pending_cleanup', false ) );
+
+		$report = get_option( 'trust_optimize_uninstall_conflicts' );
+		$this->assertSame( array( '../outside-uploads-test/b.jpg.webp' ), array_column( $report, 'path' ) );
+		$this->assertSame( array( 'outside_uploads' ), array_column( $report, 'source' ) );
+		$this->assertStringContainsString( 'outside-uploads-test', $this->logged() );
 	}
 }

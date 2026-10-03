@@ -93,15 +93,46 @@ function trust_optimize_uninstall_site() {
 	}
 
 	// Files that were not deleted because they belong to something else stay on disk: list them first.
-	$conflicts = ( new \TrustOptimize\Migration\ConflictReport() )->all();
+	$conflicts = array_merge( ( new \TrustOptimize\Migration\ConflictReport() )->all(), trust_optimize_uninstall_outside_uploads_files() );
 
 	trust_optimize_drop_plugin_tables();
 	trust_optimize_delete_plugin_options();
 
 	if ( ! empty( $conflicts ) ) {
-		trust_optimize_uninstall_log( 'TrustOptimize uninstall left these files untouched because they belong to other attachments.', array_column( $conflicts, 'path' ) );
+		trust_optimize_uninstall_log( 'TrustOptimize uninstall left these files untouched because they belong to other attachments or lie outside the uploads directory.', array_column( $conflicts, 'path' ) );
 		update_option( 'trust_optimize_uninstall_conflicts', $conflicts, false );
 	}
+}
+
+/**
+ * Report entries for the rows whose file lies outside uploads: the plugin never deletes such a file.
+ *
+ * The rows must be read before the tables are dropped.
+ *
+ * @return array[] Entries in the format of ConflictReport.
+ */
+function trust_optimize_uninstall_outside_uploads_files() {
+	$database_manager = new \TrustOptimize\Database\DatabaseManager();
+
+	if ( ! $database_manager->table_exists( $database_manager->get_plugin_table_names()['variants'] ) ) {
+		return array();
+	}
+
+	$entries = array();
+
+	foreach ( ( new \TrustOptimize\Storage\VariantRepository( $database_manager ) )->get_parked() as $row ) {
+		if ( \TrustOptimize\Storage\VariantRepository::REASON_OUTSIDE_UPLOADS === $row['reason'] ) {
+			$entries[] = array(
+				'attachment_id'  => (int) $row['attachment_id'],
+				'path'           => (string) $row['relative_path'],
+				'conflicts_with' => 0,
+				'source'         => $row['reason'],
+				'found_at'       => current_time( 'mysql', true ),
+			);
+		}
+	}
+
+	return $entries;
 }
 
 /**
