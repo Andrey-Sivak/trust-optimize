@@ -172,6 +172,7 @@ class Plugin {
 
 		foreach ( array(
 			$database,
+			$settings,
 			$migration,
 			$capabilities,
 			$primer,

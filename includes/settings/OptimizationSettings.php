@@ -70,18 +70,11 @@ final class OptimizationSettings {
 	 * @return self
 	 */
 	public static function from_options( Settings $settings, CapabilityService $capabilities ) {
-		$options        = $settings->get_all();
-		$legacy_quality = isset( $options['image_quality'] ) ? (int) $options['image_quality'] : 85;
-		$defaults       = array(
-			'webp' => min( $legacy_quality, 90 ),
-			'avif' => min( $legacy_quality, 85 ),
-		);
-
 		$enabled   = array();
 		$plannable = array();
 		$quality   = array();
 		foreach ( self::FORMAT_OPTIONS as $format => $enabled_key ) {
-			$value = isset( $options[ $format . '_quality' ] ) ? (int) $options[ $format . '_quality' ] : $defaults[ $format ];
+			$value = (int) $settings->get( $format . '_quality' );
 
 			$quality[ $format ] = max( 1, min( 100, (int) apply_filters( "trust_optimize_{$format}_quality", $value ) ) );
 

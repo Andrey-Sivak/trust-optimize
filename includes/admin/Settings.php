@@ -7,10 +7,26 @@
 
 namespace TrustOptimize\Admin;
 
+use TrustOptimize\Planning\ImageLimits;
+
 /**
  * Class Settings
  */
 class Settings {
+
+	/**
+	 * Keys that are on/off switches.
+	 *
+	 * @var string[]
+	 */
+	const CHECKBOXES = array( 'enable_adaptive_images', 'convert_to_webp', 'convert_to_avif', 'force_lazy', 'remove_data_on_uninstall' );
+
+	/**
+	 * Keys that hold a quality from 1 to 100.
+	 *
+	 * @var string[]
+	 */
+	const QUALITY_KEYS = array( 'webp_quality', 'avif_quality' );
 
 	/**
 	 * Default settings.
@@ -18,15 +34,91 @@ class Settings {
 	 * @var array
 	 */
 	private $defaults = array(
-		'enable_adaptive_images' => 1,
-		'image_quality'          => 85,
-		'webp_quality'           => 85,
-		'avif_quality'           => 80,
-		'jpeg_quality'           => 85,
-		'convert_to_webp'        => 1,
-		'convert_to_avif'        => 1,
-		'force_lazy'             => 0,
+		'enable_adaptive_images'   => 1,
+		'convert_to_webp'          => 1,
+		'convert_to_avif'          => 1,
+		'webp_quality'             => 85,
+		'avif_quality'             => 80,
+		'force_lazy'               => 0,
+		'max_pixels'               => ImageLimits::DEFAULT_MAX_PIXELS,
+		'min_free_disk'            => 0,
+		'remove_data_on_uninstall' => 0,
 	);
+
+	/**
+	 * Option that held the uninstall flag before it moved into trust_optimize_options.
+	 */
+	const LEGACY_REMOVE_DATA_OPTION = 'trust_optimize_remove_data_on_uninstall';
+
+	/**
+	 * Feed the stored limits into the filters that the limit classes already apply.
+	 *
+	 * Priority 5 lets site code that filters at the default priority override the setting.
+	 */
+	public function register() {
+		add_filter( 'trust_optimize_max_pixels', array( $this, 'filter_max_pixels' ), 5 );
+		add_filter( 'trust_optimize_min_free_disk_bytes', array( $this, 'filter_min_free_disk' ), 5 );
+		add_action( 'update_option_trust_optimize_options', array( $this, 'drop_legacy_remove_data_option' ) );
+	}
+
+	/**
+	 * The uninstall flag lives in the options array now; the separate option is obsolete once settings are saved.
+	 */
+	public function drop_legacy_remove_data_option() {
+		delete_option( self::LEGACY_REMOVE_DATA_OPTION );
+	}
+
+	/**
+	 * Largest image in pixels.
+	 *
+	 * @param int $default Value before the setting.
+	 * @return int
+	 */
+	public function filter_max_pixels( $default ) {
+		$value = (int) $this->get( 'max_pixels' );
+
+		return $value > 0 ? $value : $default;
+	}
+
+	/**
+	 * Free disk threshold in bytes; the setting is in megabytes and 0 keeps the automatic value.
+	 *
+	 * @param int $default Value before the setting.
+	 * @return int
+	 */
+	public function filter_min_free_disk( $default ) {
+		$value = (int) $this->get( 'min_free_disk' );
+
+		return $value > 0 ? $value * MB_IN_BYTES : $default;
+	}
+
+	/**
+	 * Validate submitted settings into a clean option value.
+	 *
+	 * Only known keys survive, so keys of earlier versions disappear on the next save. Checkboxes
+	 * that are absent from the input are off, other missing values fall back to the defaults.
+	 *
+	 * @param mixed $input Submitted values.
+	 * @return array
+	 */
+	public function sanitize( $input ) {
+		$input  = is_array( $input ) ? $input : array();
+		$output = array();
+
+		foreach ( self::CHECKBOXES as $key ) {
+			$output[ $key ] = empty( $input[ $key ] ) ? 0 : 1;
+		}
+
+		foreach ( self::QUALITY_KEYS as $key ) {
+			$output[ $key ] = max( 1, min( 100, (int) ( $input[ $key ] ?? $this->defaults[ $key ] ) ) );
+		}
+
+		$max_pixels              = (int) ( $input['max_pixels'] ?? 0 );
+		$output['max_pixels']    = $max_pixels > 0 ? $max_pixels : $this->defaults['max_pixels'];
+		$output['min_free_disk'] = max( 0, (int) ( $input['min_free_disk'] ?? 0 ) );
+
+		return $output;
+	}
 
 	/**
 	 * Add default settings.
@@ -50,6 +142,10 @@ class Settings {
 
 		if ( isset( $options[ $key ] ) ) {
 			return $options[ $key ];
+		}
+
+		if ( 'remove_data_on_uninstall' === $key && false !== get_option( self::LEGACY_REMOVE_DATA_OPTION, false ) ) {
+			return (int) get_option( self::LEGACY_REMOVE_DATA_OPTION );
 		}
 
 		if ( null !== $default ) {

@@ -11,6 +11,7 @@ use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Migration\ConflictReport;
+use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
 
 /**
@@ -77,6 +78,7 @@ class Admin {
 		// Hook into WordPress admin
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_action( 'admin_post_trust_optimize_recheck_capabilities', array( $this, 'handle_recheck_capabilities' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
 
 		// Add plugin action links
@@ -137,7 +139,7 @@ class Admin {
 		register_setting(
 			'trust_optimize_settings',
 			'trust_optimize_options',
-			array( $this, 'validate_settings' )
+			array( 'sanitize_callback' => array( $this->settings, 'sanitize' ) )
 		);
 
 		add_settings_section(
@@ -147,24 +149,86 @@ class Admin {
 			'trust_optimize_settings'
 		);
 
-		add_settings_field(
-			'enable_adaptive_images',
-			__( 'Enable Adaptive Images', 'trust-optimize' ),
-			array( $this, 'render_enable_adaptive_images_field' ),
-			'trust_optimize_settings',
-			'trust_optimize_general_section'
-		);
-
-		foreach ( array( 'webp_quality', 'avif_quality', 'jpeg_quality' ) as $quality_field ) {
+		foreach ( $this->get_fields() as $key => $field ) {
 			add_settings_field(
-				$quality_field,
-				$this->get_quality_label( $quality_field ),
-				array( $this, 'render_quality_field' ),
+				$key,
+				$field['label'],
+				array( $this, 'render_field' ),
 				'trust_optimize_settings',
 				'trust_optimize_general_section',
-				array( 'key' => $quality_field )
+				array_merge(
+					$field,
+					array(
+						'key'       => $key,
+						'label_for' => $key,
+					)
+				)
 			);
 		}
+	}
+
+	/**
+	 * The settings shown on the page.
+	 *
+	 * @return array[] Field definitions keyed by option key.
+	 */
+	private function get_fields() {
+		$fields = array(
+			'enable_adaptive_images' => array(
+				'label'       => __( 'Serve optimized images', 'trust-optimize' ),
+				'type'        => 'checkbox',
+				'description' => __( 'Wrap images in a picture element that offers the generated WebP and AVIF files.', 'trust-optimize' ),
+			),
+		);
+
+		foreach ( array_keys( OptimizationSettings::FORMAT_OPTIONS ) as $format ) {
+			$fields[ 'convert_to_' . $format ] = array(
+				/* translators: %s: format name, e.g. WebP. */
+				'label'       => sprintf( __( 'Create %s', 'trust-optimize' ), strtoupper( $format ) ),
+				'type'        => 'checkbox',
+				'disabled'    => ! $this->capabilities->supports( $format ),
+				'description' => $this->capabilities->supports( $format )
+					? ''
+					/* translators: %s: format name, e.g. WebP. */
+					: sprintf( __( 'This server cannot write %s files.', 'trust-optimize' ), strtoupper( $format ) ),
+			);
+		}
+
+		foreach ( Settings::QUALITY_KEYS as $key ) {
+			$fields[ $key ] = array(
+				/* translators: %s: format name, e.g. WebP. */
+				'label'       => sprintf( __( '%s quality', 'trust-optimize' ), strtoupper( strtok( $key, '_' ) ) ),
+				'type'        => 'number',
+				'min'         => 1,
+				'max'         => 100,
+				'description' => __( 'From 1 to 100. Lower values give smaller files; a changed value applies to images converted from now on.', 'trust-optimize' ),
+			);
+		}
+
+		return $fields + array(
+			'force_lazy'               => array(
+				'label'       => __( 'Force lazy loading', 'trust-optimize' ),
+				'type'        => 'checkbox',
+				'description' => __( 'Add loading="lazy" to images that have no loading attribute. Off by default so that the largest image of a page is not delayed.', 'trust-optimize' ),
+			),
+			'max_pixels'               => array(
+				'label'       => __( 'Largest image to convert (pixels)', 'trust-optimize' ),
+				'type'        => 'number',
+				'min'         => 1,
+				'description' => __( 'Width times height. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
+			),
+			'min_free_disk'            => array(
+				'label'       => __( 'Minimum free disk space (MB)', 'trust-optimize' ),
+				'type'        => 'number',
+				'min'         => 0,
+				'description' => __( 'Conversion pauses below this value. 0 keeps the automatic value: 1 GB or 5% of the disk, whichever is larger.', 'trust-optimize' ),
+			),
+			'remove_data_on_uninstall' => array(
+				'label'       => __( 'Remove data on uninstall', 'trust-optimize' ),
+				'type'        => 'checkbox',
+				'description' => __( 'Delete the generated files and the plugin data when the plugin is deleted. Originals are never deleted.', 'trust-optimize' ),
+			),
+		);
 	}
 
 	/**
@@ -175,73 +239,61 @@ class Admin {
 	}
 
 	/**
-	 * Render the enable adaptive images field.
-	 */
-	public function render_enable_adaptive_images_field() {
-		$options = get_option( 'trust_optimize_options', array() );
-		$enabled = isset( $options['enable_adaptive_images'] ) ? $options['enable_adaptive_images'] : 1;
-
-		echo '<input type="checkbox" id="enable_adaptive_images" name="trust_optimize_options[enable_adaptive_images]" value="1" ' . checked( 1, $enabled, false ) . '>';
-		echo '<label for="enable_adaptive_images">' . esc_html__( 'Enable adaptive images feature', 'trust-optimize' ) . '</label>';
-	}
-
-	/**
-	 * Render a quality field.
+	 * Render one settings field.
 	 *
-	 * @param array $args Field args.
-	 */
-	public function render_quality_field( $args ) {
-		$key      = isset( $args['key'] ) ? $args['key'] : '';
-		$options  = $this->settings->get_all();
-		$defaults = $this->settings->get_defaults();
-		$value    = isset( $options[ $key ] ) ? (int) $options[ $key ] : ( isset( $defaults[ $key ] ) ? (int) $defaults[ $key ] : 85 );
-
-		printf(
-			'<input type="number" min="1" max="100" id="%1$s" name="trust_optimize_options[%1$s]" value="%2$d" class="small-text">',
-			esc_attr( $key ),
-			(int) $value
-		);
-		echo '<p class="description">' . esc_html__( 'Lower values reduce file size and CPU work during bulk jobs; higher values preserve more detail but produce larger files.', 'trust-optimize' ) . '</p>';
-	}
-
-	/**
-	 * Get label for a quality field.
+	 * A disabled checkbox is not submitted, so its stored value is carried in a hidden input.
 	 *
-	 * @param string $key Field key.
-	 * @return string
+	 * @param array $args Field definition with the option key.
 	 */
-	private function get_quality_label( $key ) {
-		$labels = array(
-			'webp_quality' => __( 'WebP Quality', 'trust-optimize' ),
-			'avif_quality' => __( 'AVIF Quality', 'trust-optimize' ),
-			'jpeg_quality' => __( 'JPEG Fallback Quality', 'trust-optimize' ),
-		);
+	public function render_field( $args ) {
+		$key   = $args['key'];
+		$value = $this->settings->get( $key );
+		$name  = 'trust_optimize_options[' . $key . ']';
 
-		return isset( $labels[ $key ] ) ? $labels[ $key ] : $key;
-	}
+		if ( 'checkbox' === $args['type'] ) {
+			$disabled = ! empty( $args['disabled'] );
 
-	/**
-	 * Validate settings before saving.
-	 *
-	 * @param array $input The input array to validate.
-	 * @return array
-	 */
-	public function validate_settings( $input ) {
-		$existing = $this->settings->get_all();
-		$output   = is_array( $existing ) ? $existing : array();
-
-		// Validate enable_adaptive_images
-		$output['enable_adaptive_images'] = isset( $input['enable_adaptive_images'] ) ? 1 : 0;
-
-		foreach ( array( 'webp_quality', 'avif_quality', 'jpeg_quality', 'image_quality' ) as $quality_key ) {
-			if ( ! isset( $input[ $quality_key ] ) ) {
-				continue;
+			if ( $disabled ) {
+				printf( '<input type="hidden" name="%s" value="%d">', esc_attr( $name ), (int) $value );
 			}
 
-			$output[ $quality_key ] = max( 1, min( 100, (int) $input[ $quality_key ] ) );
+			printf(
+				'<input type="checkbox" id="%1$s" name="%2$s" value="1" %3$s %4$s>',
+				esc_attr( $key ),
+				esc_attr( $name ),
+				checked( 1, (int) $value, false ),
+				disabled( $disabled, true, false )
+			);
+		} else {
+			printf(
+				'<input type="number" id="%1$s" name="%2$s" value="%3$d" min="%4$d" %5$s class="regular-text">',
+				esc_attr( $key ),
+				esc_attr( $name ),
+				(int) $value,
+				(int) $args['min'],
+				isset( $args['max'] ) ? 'max="' . (int) $args['max'] . '"' : ''
+			);
 		}
 
-		return $output;
+		if ( '' !== $args['description'] ) {
+			echo '<p class="description">' . esc_html( $args['description'] ) . '</p>';
+		}
+	}
+
+	/**
+	 * Re-detect the supported formats and return to the settings page.
+	 */
+	public function handle_recheck_capabilities() {
+		check_admin_referer( 'trust_optimize_recheck_capabilities' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You are not allowed to do this.', 'trust-optimize' ), '', array( 'response' => 403 ) );
+		}
+
+		$this->capabilities->recheck();
+
+		wp_safe_redirect( admin_url( 'admin.php?page=trust-optimize-settings&trust_optimize_notice=rechecked' ) );
+		exit;
 	}
 
 	/**

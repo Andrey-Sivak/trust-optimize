@@ -21,7 +21,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 \TrustOptimize\Queue\Maintenance::unschedule();
 trust_optimize_delete_runtime_transients();
 
-$trust_optimize_remove_data = (bool) get_option( 'trust_optimize_remove_data_on_uninstall', false );
+$trust_optimize_remove_data = (bool) ( new \TrustOptimize\Admin\Settings() )->get( 'remove_data_on_uninstall' );
 
 if ( ! $trust_optimize_remove_data ) {
 	return;
@@ -185,7 +185,7 @@ function trust_optimize_delete_plugin_options() {
 	delete_option( 'trust_optimize_migration' );
 	delete_option( 'trust_optimize_migration_conflicts' );
 	delete_option( 'trust_optimize_capabilities' );
-	delete_option( 'trust_optimize_remove_data_on_uninstall' );
+	delete_option( \TrustOptimize\Admin\Settings::LEGACY_REMOVE_DATA_OPTION );
 	delete_option( 'trust_optimize_bulk_active' );
 }
 

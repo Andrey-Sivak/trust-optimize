@@ -171,7 +171,6 @@ $trust_optimize_smoke = new class() {
 				'convert_to_avif'        => 1,
 				'webp_quality'           => 82,
 				'avif_quality'           => 78,
-				'jpeg_quality'           => 85,
 			)
 		);
 

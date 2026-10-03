@@ -16,10 +16,14 @@ if ( ! defined( 'WPINC' ) ) {
 
 	<?php settings_errors(); ?>
 
+	<?php if ( isset( $_GET['trust_optimize_notice'] ) && 'rechecked' === $_GET['trust_optimize_notice'] ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
+		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Format support was checked again.', 'trust-optimize' ); ?></p></div>
+	<?php endif; ?>
+
 	<div class="trust-optimize-settings-container">
 		<div class="notice notice-info inline">
 			<p>
-				<?php esc_html_e( 'Default quality for new installs is tuned for practical bulk optimization: WebP 85, AVIF 80, and JPEG fallback 85. Lower quality usually means smaller files and faster bulk jobs; higher quality increases file size and processing cost.', 'trust-optimize' ); ?>
+				<?php esc_html_e( 'Default quality for new installs is tuned for practical bulk optimization: WebP 85 and AVIF 80. Lower quality usually means smaller files and faster bulk jobs; higher quality increases file size and processing cost.', 'trust-optimize' ); ?>
 			</p>
 			<p>
 				<?php esc_html_e( 'Existing saved quality settings are preserved until you change them or reset settings to defaults.', 'trust-optimize' ); ?>
@@ -37,6 +41,12 @@ if ( ! defined( 'WPINC' ) ) {
 			// Submit button
 			submit_button( __( 'Save Settings', 'trust-optimize' ) );
 			?>
+		</form>
+
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="trust_optimize_recheck_capabilities">
+			<?php wp_nonce_field( 'trust_optimize_recheck_capabilities' ); ?>
+			<?php submit_button( __( 'Re-check format support', 'trust-optimize' ), 'secondary', 'submit', false ); ?>
 		</form>
 
 		<!-- Reset Settings Form -->
