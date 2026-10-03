@@ -9,6 +9,7 @@ namespace TrustOptimize\Core;
 
 use TrustOptimize\Admin\Admin;
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Admin\Statistics;
 use TrustOptimize\API\RestController;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
@@ -153,7 +154,8 @@ class Plugin {
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants );
+		$statistics             = new Statistics( $this->inventory, $variants );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
 		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
@@ -184,6 +186,7 @@ class Plugin {
 			new SiteHealth( $capabilities ),
 			$legacy_runtime,
 			$this->bulk_producer,
+			$statistics,
 			$this->admin,
 			$this->rest_controller,
 		) as $component ) {

@@ -10,15 +10,10 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// $trust_optimize_total_eligible, $trust_optimize_webp_supported, $trust_optimize_avif_supported and $trust_optimize_conflicts come from Admin::display_admin_page().
-// Statistics (placeholder for now).
-$trust_optimize_total_images            = 0;
-$trust_optimize_optimized_images        = 0;
-$trust_optimize_saved_bytes             = 0;
-$trust_optimize_optimization_percentage = 0;
-$trust_optimize_upload_dir              = wp_upload_dir();
-$trust_optimize_uploads_writable        = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
-$trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
+// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, conflicts and stats, all prefixed with trust_optimize_.
+$trust_optimize_upload_dir       = wp_upload_dir();
+$trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
+$trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
 ?>
 
 <div class="wrap trust-optimize-admin-wrap">
@@ -44,26 +39,26 @@ $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['b
 				<div class="trust-optimize-stat-box">
 					<h3><?php esc_html_e( 'Total Images', 'trust-optimize' ); ?></h3>
 					<div
-						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_total_images ) ); ?></div>
+						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['total_images'] ) ); ?></div>
 				</div>
 
 				<div class="trust-optimize-stat-box">
 					<h3><?php esc_html_e( 'Optimized Images', 'trust-optimize' ); ?></h3>
 					<div
-						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_optimized_images ) ); ?></div>
+						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></div>
 				</div>
 
 				<div class="trust-optimize-stat-box">
 					<h3><?php esc_html_e( 'Storage Saved', 'trust-optimize' ); ?></h3>
 					<div class="trust-optimize-stat-value">
-						<?php echo esc_html( size_format( $trust_optimize_saved_bytes, 1 ) ); ?>
+						<?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?>
 					</div>
 				</div>
 
 				<div class="trust-optimize-stat-box">
 					<h3><?php esc_html_e( 'Optimization Rate', 'trust-optimize' ); ?></h3>
 					<div class="trust-optimize-stat-value">
-						<?php echo esc_html( number_format( $trust_optimize_optimization_percentage, 1 ) . '%' ); ?>
+						<?php echo esc_html( number_format_i18n( $trust_optimize_stats['rate'], 1 ) . '%' ); ?>
 					</div>
 				</div>
 			</div>
@@ -141,7 +136,7 @@ $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['b
 								<tr><th><?php esc_html_e( 'Processed', 'trust-optimize' ); ?></th><td data-field="processed">0</td></tr>
 								<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td data-field="skipped">0</td></tr>
 								<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td data-field="failed_count">0</td></tr>
-								<tr><th><?php esc_html_e( 'Created', 'trust-optimize' ); ?></th><td data-field="created_count">0</td></tr>
+								<tr><th><?php esc_html_e( 'Optimized images', 'trust-optimize' ); ?></th><td data-field="created_count">0</td></tr>
 								<tr><th><?php esc_html_e( 'Deleted', 'trust-optimize' ); ?></th><td data-field="deleted_count">0</td></tr>
 								<tr><th><?php esc_html_e( 'Cursor', 'trust-optimize' ); ?></th><td data-field="cursor_id">0</td></tr>
 								<tr><th><?php esc_html_e( 'Last error', 'trust-optimize' ); ?></th><td data-field="last_error">—</td></tr>
@@ -152,12 +147,20 @@ $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['b
 
 				<div class="trust-optimize-tab-content" id="statistics" style="display:none;">
 					<h2><?php esc_html_e( 'Optimization Statistics', 'trust-optimize' ); ?></h2>
-					<p><?php esc_html_e( 'This tab will show detailed statistics about your image optimization.', 'trust-optimize' ); ?></p>
+					<p><?php esc_html_e( 'Counted from the plugin tables and refreshed at most every five minutes.', 'trust-optimize' ); ?></p>
 
-					<!-- Placeholder for statistics -->
-					<div class="trust-optimize-stats-placeholder">
-						<p><?php esc_html_e( 'Statistics will be available after you optimize some images.', 'trust-optimize' ); ?></p>
-					</div>
+					<table class="widefat striped trust-optimize-statistics">
+						<tbody>
+							<tr><th><?php esc_html_e( 'Images that can be optimized (JPEG, PNG)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['eligible'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Partially optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['partial'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Waiting or in progress', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['queued'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['failed'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['skipped'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Outdated variants (settings changed)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['outdated'] ) ); ?></td></tr>
+							<tr><th><?php esc_html_e( 'Storage saved by WebP files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?></td></tr>
+						</tbody>
+					</table>
 				</div>
 			</div>
 		</div>

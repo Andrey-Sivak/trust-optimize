@@ -516,6 +516,27 @@ class VariantRepository {
 	}
 
 	/**
+	 * Bytes saved by the finished variants of one format: source size minus variant size.
+	 *
+	 * Variants that are not smaller than their source are never stored (D-11); the guard only
+	 * keeps unsigned arithmetic from failing on a row with unknown sizes.
+	 *
+	 * @param string $format Format extension.
+	 * @return int
+	 */
+	public function sum_saved_bytes( $format ) {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COALESCE( SUM( CASE WHEN source_file_size > file_size THEN source_file_size - file_size ELSE 0 END ), 0 ) FROM {$this->table} WHERE status = %s AND naming <> 'legacy' AND format = %s",
+				VariantStatus::DONE,
+				$format
+			)
+		);
+	}
+
+	/**
 	 * Number of variants per status for an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

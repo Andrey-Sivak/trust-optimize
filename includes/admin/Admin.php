@@ -63,6 +63,13 @@ class Admin {
 	private $variants;
 
 	/**
+	 * Statistics.
+	 *
+	 * @var Statistics
+	 */
+	private $statistics;
+
+	/**
 	 * Admin constructor.
 	 *
 	 * @param Settings             $settings     Plugin settings.
@@ -71,14 +78,16 @@ class Admin {
 	 * @param CapabilityService    $capabilities Capability service.
 	 * @param ConflictReport       $conflicts    Conflict report.
 	 * @param VariantRepository    $variants     Variant repository.
+	 * @param Statistics           $statistics   Statistics.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants, Statistics $statistics ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
 		$this->conflicts    = $conflicts;
 		$this->variants     = $variants;
+		$this->statistics   = $statistics;
 	}
 
 	/**
@@ -133,6 +142,7 @@ class Admin {
 		$trust_optimize_webp_supported = $this->capabilities->supports( 'webp' );
 		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
 		$trust_optimize_conflicts      = array_values( $this->conflicts->all() );
+		$trust_optimize_stats          = $this->statistics->get();
 
 		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}
