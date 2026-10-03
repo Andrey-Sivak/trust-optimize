@@ -23,6 +23,7 @@ use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Features\Optimization\ImageProcessor;
 use TrustOptimize\Files\AtomicImageWriter;
 use TrustOptimize\Frontend\ContentPrimer;
+use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
@@ -170,7 +171,7 @@ class Plugin {
 			$migration,
 			$capabilities,
 			new ContentPrimer( $variants, $settings ),
-			new ImageProcessor( $variants, $settings ),
+			new ImageProcessor( new PictureRenderer( $variants ), $settings ),
 			$this->cleanup,
 			$this->conversion_queue,
 			new Maintenance( $attachments, $this->conversion_queue ),

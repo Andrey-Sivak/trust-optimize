@@ -503,7 +503,7 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 		$source   = $this->source_path( $id );
 		$legacy   = $this->legacy_name( $source, 'webp' );
 		$render   = static function () use ( $id ) {
-			return apply_filters( 'the_content', '<img src="' . wp_get_attachment_url( $id ) . '" alt="x">' );
+			return apply_filters( 'the_content', '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="x">' );
 		};
 		$this->add_legacy_manifest( $id, array( array( 'size_name' => 'original', 'format' => 'webp', 'file' => $legacy ) ) );
 

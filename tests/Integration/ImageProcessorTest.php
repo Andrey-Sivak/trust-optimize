@@ -27,7 +27,7 @@ class ImageProcessorTest extends WP_UnitTestCase {
 	}
 
 	private function render( $id ) {
-		return apply_filters( 'the_content', '<img src="' . wp_get_attachment_url( $id ) . '" alt="x">' );
+		return apply_filters( 'the_content', '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="x">' );
 	}
 
 	public function test_without_finished_variants_the_markup_is_left_alone() {
@@ -48,7 +48,8 @@ class ImageProcessorTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( '<picture>', $html );
 		$this->assertStringContainsString( 'type="image/webp"', $html );
 		$this->assertMatchesRegularExpression( '#srcset="[^"]*/canola(-\d+)?\.jpg\.webp 640w#', $html );
-		$this->assertStringContainsString( '.jpg.webp 150w', $html, 'Every finished size is offered.' );
+		$this->assertStringContainsString( '.jpg.webp 300w', $html, 'Candidates of the core srcset are offered.' );
+		$this->assertStringNotContainsString( '.jpg.webp 150w', $html, 'Sizes outside the core srcset (other crop) are not offered.' );
 		$this->assertStringNotContainsString( 'image/avif', $html, 'Formats without finished variants are not offered.' );
 	}
 
