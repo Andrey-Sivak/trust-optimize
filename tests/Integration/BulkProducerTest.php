@@ -163,7 +163,8 @@ class BulkProducerTest extends WP_UnitTestCase {
 			'image_editor_output_format',
 			static function ( $formats, $filename ) {
 				if ( false !== strpos( basename( $filename ), 'poison' ) ) {
-					trigger_error( 'The image editor crashed.', E_USER_ERROR ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_trigger_error
+					// Action Scheduler turns E_USER_ERROR into an exception too; trigger_error( E_USER_ERROR ) is deprecated in PHP 8.4.
+					throw new RuntimeException( 'The image editor crashed.' );
 				}
 
 				return $formats;
