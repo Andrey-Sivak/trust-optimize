@@ -102,7 +102,7 @@ class ImageDelivery {
 			return $img_tag;
 		}
 
-		return $this->renderer->render( $img_tag, $attachment_id );
+		return $this->deliver( $img_tag, $attachment_id, $context );
 	}
 
 	/**
@@ -120,7 +120,60 @@ class ImageDelivery {
 			return $html;
 		}
 
-		return $this->renderer->render( $html, (int) $attachment_id );
+		return $this->deliver( $html, (int) $attachment_id, 'wp_get_attachment_image' );
+	}
+
+	/**
+	 * Apply the attribute overrides and wrap the image.
+	 *
+	 * Loading attributes are the ones core chose (including fetchpriority and decoding). They are only
+	 * touched by the force_lazy setting and by the trust_optimize_img_attributes filter.
+	 *
+	 * @param string $img_tag       Image tag.
+	 * @param int    $attachment_id Attachment ID.
+	 * @param string $context       Where the tag comes from.
+	 * @return string
+	 */
+	private function deliver( $img_tag, $attachment_id, $context ) {
+		$processor = new WP_HTML_Tag_Processor( $img_tag );
+		if ( ! $processor->next_tag( 'img' ) ) {
+			return $img_tag;
+		}
+
+		$attrs = array();
+		if (
+			$this->settings->get( 'force_lazy', 0 )
+			&& null === $processor->get_attribute( 'loading' )
+			&& 'high' !== strtolower( (string) $processor->get_attribute( 'fetchpriority' ) )
+		) {
+			$attrs['loading'] = 'lazy';
+		}
+
+		/**
+		 * Filters the attributes the plugin sets on an <img> before it is wrapped into <picture>.
+		 *
+		 * Empty by default: loading, fetchpriority and decoding stay as core chose them. With the
+		 * force_lazy setting on it contains loading=lazy for images that have no loading attribute
+		 * and are not marked fetchpriority=high. A null or false value removes the attribute.
+		 *
+		 * To change a single image without this filter, pass the attributes to core:
+		 * `wp_get_attachment_image( $id, 'large', false, array( 'loading' => 'eager', 'fetchpriority' => 'high' ) )`.
+		 *
+		 * @param array  $attrs         Attribute values keyed by name.
+		 * @param int    $attachment_id Attachment ID.
+		 * @param string $context       Where the tag comes from: a content filter name or "wp_get_attachment_image".
+		 */
+		$attrs = (array) apply_filters( 'trust_optimize_img_attributes', $attrs, $attachment_id, $context );
+
+		foreach ( $attrs as $name => $value ) {
+			if ( null === $value || false === $value ) {
+				$processor->remove_attribute( $name );
+			} else {
+				$processor->set_attribute( $name, $value );
+			}
+		}
+
+		return $this->renderer->render( $processor->get_updated_html(), $attachment_id );
 	}
 
 	/**

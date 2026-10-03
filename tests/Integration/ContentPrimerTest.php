@@ -7,7 +7,9 @@
 
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Storage\VariantRepository;
 
 /**
  * @covers \TrustOptimize\Frontend\ContentPrimer
@@ -24,13 +26,24 @@ class ContentPrimerTest extends WP_UnitTestCase {
 	}
 
 	public function test_a_page_with_twenty_images_reads_the_variants_table_at_most_twice() {
-		$tables = ( new DatabaseManager() )->get_plugin_table_names();
-		$html   = '';
-		for ( $i = 0; $i < 20; $i++ ) {
-			$id    = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
-			$html .= '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="">';
+		$tables   = ( new DatabaseManager() )->get_plugin_table_names();
+		$variants = new VariantRepository( new DatabaseManager() );
+		$base     = wp_upload_dir()['baseurl'] . '/2026/05/';
+		$html     = '';
+		for ( $i = 1; $i <= 20; $i++ ) {
+			$id = 9000 + $i;
+			$variants->upsert(
+				array(
+					'attachment_id'        => $id,
+					'size_name'            => 'original',
+					'format'               => 'webp',
+					'status'               => VariantStatus::DONE,
+					'source_relative_path' => "2026/05/img-{$i}.jpg",
+					'relative_path'        => "2026/05/img-{$i}.jpg.webp",
+				)
+			);
+			$html .= '<img src="' . $base . "img-{$i}.jpg" . '" class="wp-image-' . $id . '" alt="">';
 		}
-		ActionScheduler_QueueRunner::instance()->run();
 		wp_cache_flush();
 
 		$queries = 0;

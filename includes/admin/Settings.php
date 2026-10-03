@@ -25,6 +25,7 @@ class Settings {
 		'jpeg_quality'           => 85,
 		'convert_to_webp'        => 1,
 		'convert_to_avif'        => 1,
+		'force_lazy'             => 0,
 	);
 
 	/**

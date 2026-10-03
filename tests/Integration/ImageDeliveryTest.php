@@ -148,4 +148,81 @@ class ImageDeliveryTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( '<picture', $html );
 	}
+
+	private function delivery() {
+		$variants = new TrustOptimize\Storage\VariantRepository( new TrustOptimize\Database\DatabaseManager() );
+		$urls     = new TrustOptimize\Frontend\UploadsUrl();
+		$settings = new TrustOptimize\Admin\Settings();
+
+		return new TrustOptimize\Frontend\ImageDelivery(
+			new TrustOptimize\Frontend\PictureRenderer( $variants, $urls ),
+			new TrustOptimize\Frontend\ContentPrimer( $variants, $settings ),
+			new TrustOptimize\Frontend\SourceResolver( $variants, $urls ),
+			$settings
+		);
+	}
+
+	private function deliver( $id, $attrs ) {
+		return $this->delivery()->filter_content_img_tag( '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="x"' . $attrs . '>', 'the_content', $id );
+	}
+
+	private function with_force_lazy( $value ) {
+		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0, 'enable_adaptive_images' => 1, 'force_lazy' => $value ) );
+	}
+
+	public function test_loading_attributes_are_not_touched_by_default() {
+		$id = $this->upload();
+		ActionScheduler_QueueRunner::instance()->run();
+
+		foreach ( array( '', ' loading="eager"', ' fetchpriority="high"', ' decoding="sync"' ) as $attrs ) {
+			$html = $this->deliver( $id, $attrs );
+			$this->assertStringContainsString( '<picture>', $html );
+			$this->assertStringContainsString( ' alt="x"' . $attrs . '></picture>', $html );
+		}
+	}
+
+	public function test_force_lazy_adds_loading_only_when_it_is_missing_and_the_image_is_not_the_lcp_candidate() {
+		$id = $this->upload();
+		ActionScheduler_QueueRunner::instance()->run();
+		$this->with_force_lazy( 1 );
+
+		$this->assertStringContainsString( '<img loading="lazy" src=', $this->deliver( $id, '' ) );
+		$this->assertStringContainsString( ' loading="eager"></picture>', $this->deliver( $id, ' loading="eager"' ) );
+		$lcp = $this->deliver( $id, ' fetchpriority="high"' );
+		$this->assertStringContainsString( '<picture>', $lcp );
+		$this->assertStringNotContainsString( 'loading=', $lcp, 'The LCP image is never made lazy.' );
+	}
+
+	public function test_the_attributes_filter_overrides_and_removes_attributes() {
+		$id = $this->upload();
+		ActionScheduler_QueueRunner::instance()->run();
+		$this->with_force_lazy( 1 );
+		$seen = array();
+		add_filter(
+			'trust_optimize_img_attributes',
+			static function ( $attrs, $attachment_id, $context ) use ( &$seen ) {
+				$seen = array( $attrs, $attachment_id, $context );
+				return array( 'loading' => 'eager', 'decoding' => null );
+			},
+			10,
+			3
+		);
+
+		$html = $this->deliver( $id, ' decoding="async"' );
+
+		$this->assertSame( array( array( 'loading' => 'lazy' ), $id, 'the_content' ), $seen );
+		$this->assertStringContainsString( ' loading="eager"', $html );
+		$this->assertStringNotContainsString( 'decoding', $html );
+	}
+
+	public function test_core_attributes_of_wp_get_attachment_image_are_kept() {
+		$id = $this->upload();
+		ActionScheduler_QueueRunner::instance()->run();
+
+		$html = wp_get_attachment_image( $id, 'large', false, array( 'loading' => 'eager', 'fetchpriority' => 'high' ) );
+
+		$this->assertStringContainsString( '<picture>', $html );
+		$this->assertStringContainsString( 'loading="eager"', $html );
+		$this->assertStringContainsString( 'fetchpriority="high"', $html );
+	}
 }
