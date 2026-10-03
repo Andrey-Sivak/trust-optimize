@@ -122,6 +122,18 @@ class ConversionQueue {
 	}
 
 	/**
+	 * Queue an attachment again whose task was lost or whose worker died.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return bool True when an action was scheduled.
+	 */
+	public function requeue( $attachment_id ) {
+		return function_exists( 'as_enqueue_async_action' )
+			&& $this->attachments->requeue( $attachment_id, AttachmentRepository::STALE_CLAIM_SECONDS )
+			&& $this->schedule( $attachment_id );
+	}
+
+	/**
 	 * Action Scheduler callback: process one attachment, continuing in a new action when the time budget ran out.
 	 *
 	 * @param int $attachment_id Attachment ID.

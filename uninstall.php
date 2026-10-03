@@ -18,6 +18,7 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 \TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();
 \TrustOptimize\Bulk\BulkProducer::cancel_all_tasks();
+\TrustOptimize\Queue\Maintenance::unschedule();
 trust_optimize_delete_runtime_transients();
 
 $trust_optimize_remove_data = (bool) get_option( 'trust_optimize_remove_data_on_uninstall', false );

@@ -93,7 +93,9 @@ class VariantPlanner {
 		}
 
 		$desired = self::desired_variants( $source['relative_path'], $source['metadata'], $settings->enabled_formats(), $source['mime'] );
-		$actions = self::reconcile( $existing, $desired, $settings );
+		// A file that keeps crashing workers is not retried by itself; an explicit sync resets the count.
+		$retry   = $this->attachments->get_attempts( $attachment_id ) < AttachmentRepository::MAX_ATTEMPTS;
+		$actions = self::reconcile( $existing, $desired, $settings, $retry );
 
 		foreach ( $actions['insert'] as $row ) {
 			$this->variants->upsert( $row + array( 'attachment_id' => $attachment_id ) );
@@ -165,8 +167,8 @@ class VariantPlanner {
 				$summary['unsupported_mime_type'] = (string) get_post_mime_type( $attachment_id );
 				$summary['warnings'][]            = $source;
 			} else {
-				$summary['missing_source_file'] = true;
-				$summary['errors'][]            = 'missing_file';
+				$summary['missing_source_file'] = 'missing_file' === $source;
+				$summary['errors'][]            = $source;
 			}
 
 			return $summary;
@@ -255,10 +257,11 @@ class VariantPlanner {
 	 *
 	 * @param array[]              $existing Stored rows.
 	 * @param array[]              $desired  Output of desired_variants().
-	 * @param OptimizationSettings $settings Current settings.
+	 * @param OptimizationSettings $settings     Current settings.
+	 * @param bool                 $retry_failed Whether failed rows go back to pending.
 	 * @return array{insert:array[],reset:array[],delete:array[],replaced:array[]}
 	 */
-	public static function reconcile( array $existing, array $desired, OptimizationSettings $settings ) {
+	public static function reconcile( array $existing, array $desired, OptimizationSettings $settings, $retry_failed = true ) {
 		$result = array(
 			'insert'   => array(),
 			'reset'    => array(),
@@ -307,7 +310,7 @@ class VariantPlanner {
 				continue;
 			}
 
-			$retry = VariantStatus::FAILED === $row['status'];
+			$retry = $retry_failed && VariantStatus::FAILED === $row['status'];
 			$stale = in_array( $row['status'], array( VariantStatus::DONE, VariantStatus::SKIPPED ), true ) && $settings->is_stale( $row );
 
 			if ( $retry || $stale ) {
@@ -344,7 +347,7 @@ class VariantPlanner {
 		}
 
 		$file = get_attached_file( $attachment_id );
-		if ( ! $file ) {
+		if ( ! $file || ! is_file( $file ) ) {
 			return 'missing_file';
 		}
 
@@ -354,10 +357,16 @@ class VariantPlanner {
 		}
 
 		$metadata = wp_get_attachment_metadata( $attachment_id );
+		$metadata = is_array( $metadata ) ? $metadata : array();
+		$reason   = ImageLimits::skip_reason( (int) ( $metadata['width'] ?? 0 ), (int) ( $metadata['height'] ?? 0 ) );
+
+		if ( null !== $reason ) {
+			return $reason;
+		}
 
 		return array(
 			'relative_path' => $relative,
-			'metadata'      => is_array( $metadata ) ? $metadata : array(),
+			'metadata'      => $metadata,
 			'mime'          => $mime,
 		);
 	}

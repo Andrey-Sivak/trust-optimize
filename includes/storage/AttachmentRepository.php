@@ -29,6 +29,11 @@ class AttachmentRepository {
 	const STALE_CLAIM_SECONDS = 900;
 
 	/**
+	 * Claims that may start without finishing before the attachment is given up as a poison file.
+	 */
+	const MAX_ATTEMPTS = 3;
+
+	/**
 	 * Age after which a "queued" mark is considered lost (its Action Scheduler action vanished).
 	 */
 	const STALE_QUEUED_SECONDS = DAY_IN_SECONDS;
@@ -114,6 +119,18 @@ class AttachmentRepository {
 	}
 
 	/**
+	 * Failed attempts of an attachment.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return int
+	 */
+	public function get_attempts( $attachment_id ) {
+		$row = $this->get( $attachment_id );
+
+		return $row ? $row['attempts'] : 0;
+	}
+
+	/**
 	 * Current state, "none" when there is no row.
 	 *
 	 * @param int $attachment_id Attachment ID.
@@ -177,6 +194,7 @@ class AttachmentRepository {
 	 * Take ownership of an attachment for processing (compare-and-set).
 	 *
 	 * A claim older than $stale_after seconds is taken over: the worker that made it died.
+	 * The claim counts as an attempt; the worker resets the count when it comes back alive.
 	 *
 	 * @param int $attachment_id Attachment ID.
 	 * @param int $stale_after   Seconds after which a "processing" claim counts as abandoned.
@@ -189,7 +207,7 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state <> %s OR updated_at < %s)",
+				"UPDATE {$this->table} SET state = %s, attempts = LEAST(attempts + 1, 255), updated_at = %s WHERE attachment_id = %d AND (state <> %s OR updated_at < %s)",
 				AttachmentState::PROCESSING,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
@@ -225,6 +243,73 @@ class AttachmentRepository {
 				gmdate( 'Y-m-d H:i:s', time() - self::STALE_QUEUED_SECONDS ),
 				AttachmentState::PROCESSING,
 				gmdate( 'Y-m-d H:i:s', time() - self::STALE_CLAIM_SECONDS )
+			)
+		);
+	}
+
+	/**
+	 * Forget the failed attempts of an attachment.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 */
+	public function reset_attempts( $attachment_id ) {
+		global $wpdb;
+
+		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table} SET attempts = 0 WHERE attachment_id = %d AND attempts > 0", (int) $attachment_id ) );
+	}
+
+	/**
+	 * Attachments that were queued or claimed long ago and never finished.
+	 *
+	 * @param int $older_than Seconds since the last change.
+	 * @param int $limit      Maximum number of rows.
+	 * @return array[] Rows with attachment_id, state and attempts, oldest first.
+	 */
+	public function find_stuck( $older_than, $limit ) {
+		global $wpdb;
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT attachment_id, state, attempts FROM {$this->table} WHERE state IN (%s, %s) AND updated_at < %s ORDER BY updated_at ASC LIMIT %d",
+				AttachmentState::QUEUED,
+				AttachmentState::PROCESSING,
+				gmdate( 'Y-m-d H:i:s', time() - (int) $older_than ),
+				(int) $limit
+			),
+			ARRAY_A
+		);
+
+		return array_map(
+			static function ( $row ) {
+				return array(
+					'attachment_id' => (int) $row['attachment_id'],
+					'state'         => $row['state'],
+					'attempts'      => (int) $row['attempts'],
+				);
+			},
+			$rows
+		);
+	}
+
+	/**
+	 * Mark a stuck attachment as queued again (compare-and-set on its state and age).
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @param int $older_than    Seconds the attachment must have been stuck.
+	 * @return bool True when this call changed the state.
+	 */
+	public function requeue( $attachment_id, $older_than ) {
+		global $wpdb;
+
+		return 1 === (int) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND state IN (%s, %s) AND updated_at < %s",
+				AttachmentState::QUEUED,
+				current_time( 'mysql', true ),
+				(int) $attachment_id,
+				AttachmentState::QUEUED,
+				AttachmentState::PROCESSING,
+				gmdate( 'Y-m-d H:i:s', time() - (int) $older_than )
 			)
 		);
 	}

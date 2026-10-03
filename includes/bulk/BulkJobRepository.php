@@ -286,11 +286,18 @@ class BulkJobRepository {
 	/**
 	 * Pause a job that has not finished.
 	 *
-	 * @param int $job_id Job ID.
+	 * @param int         $job_id Job ID.
+	 * @param string|null $reason Why it was paused by the plugin (stored as the last error).
 	 * @return bool True when the job was paused.
 	 */
-	public function pause( $job_id ) {
-		return $this->transition( $job_id, array( JobStatus::PENDING, JobStatus::RUNNING ), array( 'status' => JobStatus::PAUSED ) );
+	public function pause( $job_id, $reason = null ) {
+		$data = array( 'status' => JobStatus::PAUSED );
+
+		if ( null !== $reason ) {
+			$data['last_error'] = $reason;
+		}
+
+		return $this->transition( $job_id, array( JobStatus::PENDING, JobStatus::RUNNING ), $data );
 	}
 
 	/**

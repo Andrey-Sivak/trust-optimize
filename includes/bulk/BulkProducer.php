@@ -16,6 +16,7 @@ use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
+use TrustOptimize\Utils\DiskSpace;
 
 /**
  * Class BulkProducer
@@ -56,6 +57,11 @@ class BulkProducer {
 	 * Seconds one run may spend handing attachments over.
 	 */
 	const DEFAULT_TIME_BUDGET = 20;
+
+	/**
+	 * Reason (stored as the last error) of a job paused for lack of disk space.
+	 */
+	const REASON_LOW_DISK = 'low_disk_space';
 
 	/**
 	 * Job repository.
@@ -232,9 +238,16 @@ class BulkProducer {
 			return;
 		}
 
-		if ( BulkJob::TYPE_SYNC === $job->get_type() && $this->has_backlog() ) {
-			$this->wait( $job->get_id() );
-			return;
+		if ( BulkJob::TYPE_SYNC === $job->get_type() ) {
+			if ( DiskSpace::is_low() ) {
+				$this->jobs->pause( $job->get_id(), self::REASON_LOW_DISK );
+				return;
+			}
+
+			if ( $this->has_backlog() ) {
+				$this->wait( $job->get_id() );
+				return;
+			}
 		}
 
 		$limit    = self::batch_size();

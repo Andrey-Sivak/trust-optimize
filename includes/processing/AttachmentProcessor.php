@@ -109,6 +109,9 @@ class AttachmentProcessor {
 	 * @return OptimizeResult Data: 'state', 'deleted' (files removed) and, for a skipped attachment, 'reason'.
 	 */
 	public function sync( $attachment_id ) {
+		// An explicit request gives a file that failed too often another chance.
+		$this->attachments->reset_attempts( $attachment_id );
+
 		$plan    = $this->planner->plan( $attachment_id );
 		$deleted = $this->apply_removals( $attachment_id, $plan );
 
@@ -205,13 +208,15 @@ class AttachmentProcessor {
 		$deadline = microtime( true ) + ( null === $budget ? $this->time_budget() : $budget );
 		$last_err = null;
 		$more     = false;
+		$handled  = array();
 
 		// Rows may be added while this worker runs (metadata regeneration): look again until none is pending.
+		// A row is tried once per run, so one that stays pending cannot keep the loop going.
 		do {
 			$pending = array_filter(
 				$this->variants->get_for_attachment( $attachment_id ),
-				static function ( $row ) {
-					return VariantStatus::PENDING === $row['status'];
+				static function ( $row ) use ( $handled ) {
+					return VariantStatus::PENDING === $row['status'] && ! isset( $handled[ $row['id'] ] );
 				}
 			);
 
@@ -221,7 +226,8 @@ class AttachmentProcessor {
 					break 2;
 				}
 
-				$result = $this->converter->convert( $row, $settings );
+				$handled[ $row['id'] ] = true;
+				$result                = $this->converter->convert( $row, $settings );
 
 				// The 2.0 file exists now: the 1.x file it replaces is no longer needed (a failure keeps it served).
 				if ( $result->is_success() && ! empty( $row['legacy_relative_path'] ) ) {
@@ -234,6 +240,9 @@ class AttachmentProcessor {
 				}
 			}
 		} while ( $pending );
+
+		// The worker survived: whatever failed, it failed in an orderly way.
+		$this->attachments->reset_attempts( $attachment_id );
 
 		$state = $this->attachments->recompute( $attachment_id );
 

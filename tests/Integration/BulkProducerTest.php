@@ -369,4 +369,36 @@ class BulkProducerTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'webp' ), $job->get_settings_snapshot()['enabled'] );
 		$this->assertArrayHasKey( 'quality', $job->get_settings_snapshot() );
 	}
+
+	public function test_the_job_pauses_when_the_disk_is_nearly_full() {
+		$id  = $this->upload();
+		$job = $this->producer->launch( BulkJob::TYPE_SYNC );
+		add_filter(
+			'trust_optimize_min_free_disk_bytes',
+			static function () {
+				return PHP_INT_MAX;
+			}
+		);
+
+		$this->producer->produce( $job->get_id() );
+
+		$job = $this->jobs->get( $job->get_id() );
+		$this->assertSame( JobStatus::PAUSED, $job->get_status() );
+		$this->assertSame( 'low_disk_space', $job->to_array()['last_error'] );
+		$this->assertSame( AttachmentState::NONE, $this->attachments->get_state( $id ) );
+	}
+
+	public function test_an_oversized_image_is_skipped_and_the_job_goes_on() {
+		$big      = $this->upload();
+		$small    = $this->upload();
+		$metadata = wp_get_attachment_metadata( $big );
+		wp_update_attachment_metadata( $big, array_merge( $metadata, array( 'width' => 12000, 'height' => 12000 ) ) );
+
+		$job = $this->drive( $this->producer->launch( BulkJob::TYPE_SYNC )->get_id() );
+
+		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
+		$this->assertSame( 'too_large', $this->attachments->get( $big )['reason'] );
+		$this->assertSame( AttachmentState::SKIPPED, $this->attachments->get_state( $big ) );
+		$this->assertSame( AttachmentState::OPTIMIZED, $this->attachments->get_state( $small ) );
+	}
 }

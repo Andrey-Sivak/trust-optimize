@@ -29,6 +29,7 @@ use TrustOptimize\Core\Plugin;
 use TrustOptimize\Core\Requirements;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Queue\Maintenance;
 
 // If this file is called directly, abort.
 if ( ! defined( 'WPINC' ) ) {
@@ -92,6 +93,7 @@ function trust_optimize_activate() {
 	$settings->add_default_settings();
 
 	( new CapabilityService() )->recheck();
+	Maintenance::schedule();
 }
 
 /**
@@ -100,6 +102,7 @@ function trust_optimize_activate() {
 function trust_optimize_deactivate() {
 	BulkProducer::cancel_all_tasks();
 	ConversionQueue::cancel_all_tasks();
+	Maintenance::unschedule();
 }
 
 /**
