@@ -16,13 +16,6 @@ class BulkJob {
 	const TYPE_REMOVE    = 'remove';
 	const TYPE_INVENTORY = 'inventory';
 
-	const STATUS_PENDING   = 'pending';
-	const STATUS_RUNNING   = 'running';
-	const STATUS_PAUSED    = 'paused';
-	const STATUS_COMPLETED = 'completed';
-	const STATUS_CANCELLED = 'cancelled';
-	const STATUS_FAILED    = 'failed';
-
 	/**
 	 * Job data.
 	 *
@@ -73,6 +66,24 @@ class BulkJob {
 	 */
 	public function get_cursor_id() {
 		return isset( $this->data['cursor_id'] ) ? (int) $this->data['cursor_id'] : 0;
+	}
+
+	/**
+	 * Get the settings the job was created with.
+	 *
+	 * @return array
+	 */
+	public function get_settings_snapshot() {
+		return isset( $this->data['settings_snapshot'] ) && is_array( $this->data['settings_snapshot'] ) ? $this->data['settings_snapshot'] : array();
+	}
+
+	/**
+	 * Get total candidate attachments counted when the job was created.
+	 *
+	 * @return int
+	 */
+	public function get_total() {
+		return isset( $this->data['total'] ) ? (int) $this->data['total'] : 0;
 	}
 
 	/**

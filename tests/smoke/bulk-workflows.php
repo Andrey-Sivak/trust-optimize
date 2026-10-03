@@ -17,10 +17,10 @@ use TrustOptimize\Admin\Settings;
 use TrustOptimize\API\RestController;
 use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
-use TrustOptimize\Bulk\BulkJobRunner;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
+use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -86,7 +86,7 @@ $trust_optimize_smoke = new class() {
 			$this->check_unsupported_format_is_not_planned( $second_id );
 			$this->check_wp_cli_remove_synopsis();
 			$this->check_rest_endpoints( $second_id );
-			$this->check_bulk_inventory_and_sync();
+			$this->check_bulk_sync_through_the_queue();
 			$this->check_reprocess_after_quality_change( $second_id );
 
 			$this->pass( 'TrustOptimize smoke checks completed.' );
@@ -385,7 +385,7 @@ $trust_optimize_smoke = new class() {
 			)
 		);
 
-		foreach ( array( 'wp trust-optimize remove', '[--all]', '[--yes]', '[--batch-size=<number>]' ) as $expected ) {
+		foreach ( array( 'wp trust-optimize remove', '[--all]', '[--yes]' ) as $expected ) {
 			if ( false === strpos( $output, $expected ) ) {
 				throw new Exception( 'WP-CLI remove synopsis does not declare --all/--yes flags correctly.' );
 			}
@@ -408,148 +408,75 @@ $trust_optimize_smoke = new class() {
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/image/' . $attachment_id . '/sync' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/image/' . $attachment_id . '/remove', array( 'confirm' => true ) );
 
-		$repository = new BulkJobRepository();
-		$active     = $repository->get_active_job();
+		$active = ( new BulkJobRepository( new DatabaseManager() ) )->get_active_job();
 
 		if ( $active ) {
 			$this->skip( 'REST pause/resume/cancel checks skipped because a pre-existing active bulk job exists: #' . $active->get_id() . ' ' . $active->get_status() );
 			return;
 		}
 
-		$this->check_rest_start_runs_initial_tick();
+		$response = $this->dispatch_rest_request( 'POST', '/trust-optimize/v1/bulk/inventory' );
+		$job      = $response->get_data()['job'] ?? null;
 
-		$scope = $this->get_smoke_attachment_scope();
-		$job   = $repository->create(
-			BulkJob::TYPE_SYNC,
-			array(
-				'smoke'          => true,
-				'attachment_ids' => array_slice( $scope, 0, 1 ),
-			),
-			'',
-			min( 1, count( $scope ) )
-		);
-
-		if ( ! $job ) {
-			throw new Exception( 'Unable to create REST control smoke job; active job may already exist.' );
+		if ( empty( $job['id'] ) ) {
+			throw new Exception( 'REST inventory start did not return a job.' );
 		}
 
-		$runner = Plugin::get_instance()->bulk_runner;
-		$runner->start( $job->get_id() );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/pause' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/resume' );
 		$this->assert_rest_ok( 'POST', '/trust-optimize/v1/bulk/cancel', array( 'confirm' => true ) );
 
-		$this->pass( 'REST status, single sync/remove, pause/resume/cancel endpoints respond.' );
+		$this->pass( 'REST status, single sync/remove, inventory start and pause/resume/cancel endpoints respond.' );
 	}
 
 	/**
-	 * Check REST-started jobs make immediate bounded progress.
+	 * Check that a bulk sync job over the smoke attachments completes through the queue.
 	 */
-	private function check_rest_start_runs_initial_tick() {
-		$response = $this->dispatch_rest_request( 'POST', '/trust-optimize/v1/bulk/inventory' );
-		$data     = $response->get_data();
-		$job      = isset( $data['job'] ) && is_array( $data['job'] ) ? $data['job'] : array();
-
-		if ( empty( $job ) ) {
-			throw new Exception( 'REST inventory start did not return a job.' );
-		}
-
-		$processed = isset( $job['processed'] ) ? (int) $job['processed'] : 0;
-		$status    = isset( $job['status'] ) ? $job['status'] : '';
-
-		if ( BulkJob::STATUS_RUNNING === $status && 0 === $processed ) {
-			throw new Exception( 'REST-started inventory job remained running with processed=0.' );
-		}
-
-		if ( BulkJob::STATUS_RUNNING === $status ) {
-			$status_response = $this->dispatch_rest_request( 'GET', '/trust-optimize/v1/bulk/status' );
-			$status_data     = $status_response->get_data();
-			$status_job      = isset( $status_data['job'] ) && is_array( $status_data['job'] ) ? $status_data['job'] : array();
-			$status_processed = isset( $status_job['processed'] ) ? (int) $status_job['processed'] : 0;
-			$status_status    = isset( $status_job['status'] ) ? $status_job['status'] : '';
-
-			if ( BulkJob::STATUS_RUNNING === $status_status && $status_processed <= $processed ) {
-				throw new Exception( 'REST status polling did not advance a running inventory job.' );
-			}
-
-			$job    = $status_job;
-			$status = $status_status;
-		}
-
-		if ( BulkJob::STATUS_RUNNING === $status ) {
-			Plugin::get_instance()->bulk_runner->cancel( (int) $job['id'] );
-		}
-
-		$this->pass( 'REST-started inventory job makes immediate bounded progress and status polling advances it.' );
-	}
-
-	/**
-	 * Check bulk inventory and a bounded sync tick.
-	 */
-	private function check_bulk_inventory_and_sync() {
-		$repository = new BulkJobRepository();
-		$runner     = Plugin::get_instance()->bulk_runner;
-		$active     = $repository->get_active_job();
+	private function check_bulk_sync_through_the_queue() {
+		$producer = Plugin::get_instance()->bulk_producer;
+		$jobs     = new BulkJobRepository( new DatabaseManager() );
+		$active   = $jobs->get_active_job();
 
 		if ( $active ) {
-			$this->skip( 'Bulk inventory/sync checks skipped because a pre-existing active bulk job exists: #' . $active->get_id() . ' ' . $active->get_status() );
+			$this->skip( 'Bulk sync check skipped because a pre-existing active bulk job exists: #' . $active->get_id() . ' ' . $active->get_status() );
 			return;
 		}
 
 		$scope = $this->get_smoke_attachment_scope();
+		$job   = $producer->launch( BulkJob::TYPE_SYNC );
 
-		$inventory = $repository->create(
-			BulkJob::TYPE_INVENTORY,
-			array(
-				'smoke'          => true,
-				'attachment_ids' => $scope,
-			),
-			'',
-			count( $scope )
-		);
-		if ( ! $inventory ) {
-			throw new Exception( 'Unable to create inventory smoke job; active job may already exist.' );
+		if ( ! $job || ! $scope ) {
+			throw new Exception( 'Unable to launch the bulk sync smoke job.' );
 		}
 
-		add_filter( 'trust_optimize_bulk_batch_size', array( $this, 'smoke_batch_size' ) );
-		$runner->start( $inventory->get_id() );
-		$runner->tick( $inventory->get_id() );
-		$inventory = $repository->get( $inventory->get_id() );
-		$this->assert_job_progressed( $inventory, 'inventory' );
-		$this->assert_job_counters_within_total( $inventory );
-		$this->assert_inventory_counts_within_total( $inventory );
+		// Start right before the smoke attachments, so the stand library is left alone.
+		$jobs->set_cursor( $job->get_id(), min( $scope ) - 1 );
 
-		if ( BulkJob::STATUS_RUNNING === $inventory->get_status() ) {
-			$runner->cancel( $inventory->get_id() );
+		$status = '';
+		for ( $round = 0; $round < 40; $round++ ) {
+			ActionScheduler_QueueRunner::instance()->run();
+			$status = $jobs->get( $job->get_id() )->get_status();
+
+			if ( ! in_array( $status, array( JobStatus::PENDING, JobStatus::RUNNING ), true ) ) {
+				break;
+			}
+
+			$producer->produce( $job->get_id() );
 		}
 
-		$sync_scope = array_slice( $scope, 0, 2 );
-		$sync       = $repository->create(
-			BulkJob::TYPE_SYNC,
-			array(
-				'smoke'          => true,
-				'attachment_ids' => $sync_scope,
-			),
-			'',
-			count( $sync_scope )
-		);
-		if ( ! $sync ) {
-			throw new Exception( 'Unable to create sync smoke job; active job may already exist.' );
+		if ( ! in_array( $status, array( JobStatus::COMPLETED, JobStatus::COMPLETED_WITH_ERRORS ), true ) ) {
+			$producer->cancel( $job->get_id() );
+			throw new Exception( 'The bulk sync job did not finish: ' . $status );
 		}
 
-		$runner->start( $sync->get_id() );
-		$runner->tick( $sync->get_id() );
-		$sync = $repository->get( $sync->get_id() );
-		$this->assert_job_progressed( $sync, 'sync' );
-		$this->assert_job_counters_within_total( $sync );
+		$response = $this->dispatch_rest_request( 'GET', '/trust-optimize/v1/bulk/status' );
+		$data     = $response->get_data()['job'] ?? array();
 
-		if ( BulkJob::STATUS_RUNNING === $sync->get_status() ) {
-			$runner->cancel( $sync->get_id() );
+		if ( (int) ( $data['processed'] ?? 0 ) < 1 ) {
+			throw new Exception( 'Bulk status reports no processed attachments: ' . wp_json_encode( $data ) );
 		}
 
-		remove_filter( 'trust_optimize_bulk_batch_size', array( $this, 'smoke_batch_size' ) );
-
-		$this->pass( 'Bulk inventory and bounded bulk sync tick progressed.' );
+		$this->pass( 'Bulk sync job ran through the queue and finished as ' . $status . '.' );
 	}
 
 	/**
@@ -574,15 +501,6 @@ $trust_optimize_smoke = new class() {
 		}
 
 		$this->pass( 'Repeated sync applies a changed quality setting.' );
-	}
-
-	/**
-	 * Return small smoke batch size.
-	 *
-	 * @return int
-	 */
-	public function smoke_batch_size() {
-		return 2;
 	}
 
 	/**
@@ -616,57 +534,6 @@ $trust_optimize_smoke = new class() {
 		}
 
 		return rest_do_request( $request );
-	}
-
-	/**
-	 * Assert job processed at least one candidate.
-	 *
-	 * @param BulkJob $job  Job.
-	 * @param string  $type Expected type.
-	 */
-	private function assert_job_progressed( BulkJob $job, $type ) {
-		$data = $job->to_array();
-
-		if ( $type !== $job->get_type() ) {
-			throw new Exception( sprintf( 'Expected %s job, got %s.', $type, $job->get_type() ) );
-		}
-
-		if ( (int) $data['processed'] < 1 && BulkJob::STATUS_COMPLETED !== $job->get_status() ) {
-			throw new Exception( sprintf( 'Bulk %s job did not progress: %s', $type, wp_json_encode( $data ) ) );
-		}
-	}
-
-	/**
-	 * Assert job counters do not exceed total.
-	 *
-	 * @param BulkJob $job Job.
-	 */
-	private function assert_job_counters_within_total( BulkJob $job ) {
-		$data      = $job->to_array();
-		$total     = isset( $data['total'] ) ? (int) $data['total'] : 0;
-		$processed = isset( $data['processed'] ) ? (int) $data['processed'] : 0;
-
-		if ( $processed > $total ) {
-			throw new Exception( 'Bulk job processed more attachments than total: ' . wp_json_encode( $data ) );
-		}
-	}
-
-	/**
-	 * Assert scoped inventory counters do not exceed total.
-	 *
-	 * @param BulkJob $job Inventory job.
-	 */
-	private function assert_inventory_counts_within_total( BulkJob $job ) {
-		$data      = $job->to_array();
-		$total     = isset( $data['total'] ) ? (int) $data['total'] : 0;
-		$snapshot  = isset( $data['settings_snapshot'] ) && is_array( $data['settings_snapshot'] ) ? $data['settings_snapshot'] : array();
-		$inventory = isset( $snapshot['inventory'] ) && is_array( $snapshot['inventory'] ) ? $snapshot['inventory'] : array();
-
-		foreach ( array( 'total_image_attachments', 'eligible_attachments', 'missing_source_files' ) as $key ) {
-			if ( isset( $inventory[ $key ] ) && (int) $inventory[ $key ] > $total ) {
-				throw new Exception( sprintf( 'Inventory counter %s exceeds job total: %s', $key, wp_json_encode( $inventory ) ) );
-			}
-		}
 	}
 
 	/**

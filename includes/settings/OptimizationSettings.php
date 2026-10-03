@@ -147,6 +147,19 @@ final class OptimizationSettings {
 	}
 
 	/**
+	 * The settings as plain data (stored with a bulk job).
+	 *
+	 * @return array
+	 */
+	public function to_array() {
+		return array(
+			'enabled'   => $this->enabled,
+			'plannable' => $this->plannable,
+			'quality'   => $this->quality,
+		);
+	}
+
+	/**
 	 * Whether a stored variant no longer matches the settings.
 	 *
 	 * A variant of an enabled format that cannot be recreated now is not stale: it is

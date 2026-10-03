@@ -23,7 +23,7 @@
  */
 
 use TrustOptimize\Admin\Settings;
-use TrustOptimize\Bulk\BulkJobRunner;
+use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Core\Requirements;
@@ -98,7 +98,7 @@ function trust_optimize_activate() {
  * The code that runs during plugin deactivation.
  */
 function trust_optimize_deactivate() {
-	BulkJobRunner::cancel_all_ticks();
+	BulkProducer::cancel_all_tasks();
 	ConversionQueue::cancel_all_tasks();
 }
 

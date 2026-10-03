@@ -432,12 +432,15 @@ class VariantRepository {
 	/**
 	 * Number of attachments that have variant rows.
 	 *
+	 * @param int $after_id Count only attachments with a greater ID.
 	 * @return int
 	 */
-	public function count_attachments() {
+	public function count_attachments( $after_id = 0 ) {
 		global $wpdb;
 
-		return (int) $wpdb->get_var( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table}" );
+		return (int) $wpdb->get_var(
+			$wpdb->prepare( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table} WHERE attachment_id > %d", (int) $after_id )
+		);
 	}
 
 	/**

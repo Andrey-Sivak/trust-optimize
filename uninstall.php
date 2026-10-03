@@ -17,7 +17,7 @@ if ( ! file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 require_once __DIR__ . '/vendor/autoload.php';
 
 \TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();
-\TrustOptimize\Bulk\BulkJobRunner::cancel_all_ticks();
+\TrustOptimize\Bulk\BulkProducer::cancel_all_tasks();
 trust_optimize_delete_runtime_transients();
 
 $trust_optimize_remove_data = (bool) get_option( 'trust_optimize_remove_data_on_uninstall', false );
@@ -185,6 +185,7 @@ function trust_optimize_delete_plugin_options() {
 	delete_option( 'trust_optimize_migration_conflicts' );
 	delete_option( 'trust_optimize_capabilities' );
 	delete_option( 'trust_optimize_remove_data_on_uninstall' );
+	delete_option( 'trust_optimize_bulk_active' );
 }
 
 /**

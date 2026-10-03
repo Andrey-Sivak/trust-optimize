@@ -7,6 +7,7 @@
 
 namespace TrustOptimize\Migration;
 
+use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Queue\ConversionQueue;
 
 // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- Deletes plugin options by prefix; every value is prepared.
@@ -22,8 +23,9 @@ use TrustOptimize\Queue\ConversionQueue;
  * migration reaches this step, and an action without a callback is just completed. So the
  * hook keeps a callback that does what the step does, as long as the plugin is installed.
  *
- * The bulk tick action, its lock options and status transients are not touched: bulk jobs
- * still run on them in this version, and a job of 1.x continues under 2.0.
+ * The bulk tick runner of 1.x is gone: its tick actions, lock options and status transients are
+ * removed and a bulk job of 1.x that is still active is closed. Its attachments are not lost,
+ * a new job picks them up.
  */
 class CleanupLegacyRuntime implements MigrationStep {
 
@@ -31,6 +33,21 @@ class CleanupLegacyRuntime implements MigrationStep {
 	 * Action Scheduler hook of the per-variant tasks of 1.x.
 	 */
 	const LEGACY_TASK_HOOK = 'trust_optimize_convert_image';
+
+	/**
+	 * Action Scheduler hook of the bulk ticks of 1.x.
+	 */
+	const LEGACY_BULK_HOOK = 'trust_optimize_bulk_tick';
+
+	/**
+	 * Prefix of the per-job lock options of the bulk ticks of 1.x.
+	 */
+	const LEGACY_BULK_LOCK_PREFIX = 'trust_optimize_bulk_tick_lock_';
+
+	/**
+	 * Prefix of the transients that throttled the status polling of 1.x.
+	 */
+	const LEGACY_BULK_STATUS_PREFIX = 'trust_optimize_bulk_status_tick_';
 
 	/**
 	 * Option written by the 1.x preflight.
@@ -50,12 +67,21 @@ class CleanupLegacyRuntime implements MigrationStep {
 	private $queue;
 
 	/**
+	 * Bulk job repository.
+	 *
+	 * @var BulkJobRepository
+	 */
+	private $jobs;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param ConversionQueue $queue Conversion queue.
+	 * @param ConversionQueue   $queue Conversion queue.
+	 * @param BulkJobRepository $jobs  Bulk job repository.
 	 */
-	public function __construct( ConversionQueue $queue ) {
+	public function __construct( ConversionQueue $queue, BulkJobRepository $jobs ) {
 		$this->queue = $queue;
+		$this->jobs  = $jobs;
 	}
 
 	/**
@@ -117,6 +143,10 @@ class CleanupLegacyRuntime implements MigrationStep {
 
 		delete_option( self::PREFLIGHT_OPTION );
 
+		as_unschedule_all_actions( self::LEGACY_BULK_HOOK, null, ConversionQueue::GROUP );
+		$this->delete_options_with_prefix( self::LEGACY_BULK_LOCK_PREFIX );
+		$counts['jobs'] = $this->jobs->supersede_legacy_jobs();
+
 		$counts['transients'] = $this->delete_transients( $limit );
 
 		return $counts['transients'] >= (int) $limit ? BatchResult::more( $cursor, $counts ) : BatchResult::finished( $counts );
@@ -156,8 +186,9 @@ class CleanupLegacyRuntime implements MigrationStep {
 
 		$names = $wpdb->get_col(
 			$wpdb->prepare(
-				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT %d",
+				"SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s LIMIT %d",
 				$wpdb->esc_like( '_transient_' . self::FORMATS_TRANSIENT_PREFIX ) . '%',
+				$wpdb->esc_like( '_transient_' . self::LEGACY_BULK_STATUS_PREFIX ) . '%',
 				(int) $limit
 			)
 		);
@@ -167,5 +198,20 @@ class CleanupLegacyRuntime implements MigrationStep {
 		}
 
 		return count( $names );
+	}
+
+	/**
+	 * Delete the options whose names start with a prefix (one per bulk job in 1.x).
+	 *
+	 * @param string $prefix Option name prefix.
+	 */
+	private function delete_options_with_prefix( $prefix ) {
+		global $wpdb;
+
+		$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( $prefix ) . '%' ) );
+
+		foreach ( $names as $name ) {
+			delete_option( $name );
+		}
 	}
 }

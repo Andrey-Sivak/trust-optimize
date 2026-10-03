@@ -9,8 +9,9 @@ namespace TrustOptimize\CLI;
 
 use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
-use TrustOptimize\Bulk\BulkJobRunner;
+use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
@@ -35,11 +36,18 @@ class Command {
 	private $eligibility;
 
 	/**
-	 * Bulk job runner.
+	 * Bulk job progress.
 	 *
-	 * @var BulkJobRunner
+	 * @var JobProgress
 	 */
-	private $runner;
+	private $progress;
+
+	/**
+	 * Bulk job producer.
+	 *
+	 * @var BulkProducer
+	 */
+	private $producer;
 
 	/**
 	 * Attachment processor.
@@ -67,15 +75,17 @@ class Command {
 	 *
 	 * @param BulkJobRepository   $jobs        Bulk job repository.
 	 * @param EligibilityQuery    $eligibility Eligibility query.
-	 * @param BulkJobRunner       $runner      Bulk job runner.
+	 * @param JobProgress         $progress    Bulk job progress.
+	 * @param BulkProducer        $producer    Bulk job producer.
 	 * @param AttachmentProcessor $processor   Attachment processor.
 	 * @param ImageCleanupService $cleanup     Cleanup service.
 	 * @param MigrationRunner     $migration   Migration runner.
 	 */
-	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, BulkJobRunner $runner, AttachmentProcessor $processor, ImageCleanupService $cleanup, MigrationRunner $migration ) {
+	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, JobProgress $progress, BulkProducer $producer, AttachmentProcessor $processor, ImageCleanupService $cleanup, MigrationRunner $migration ) {
 		$this->jobs        = $jobs;
 		$this->eligibility = $eligibility;
-		$this->runner      = $runner;
+		$this->progress    = $progress;
+		$this->producer    = $producer;
 		$this->processor   = $processor;
 		$this->cleanup     = $cleanup;
 		$this->migration   = $migration;
@@ -93,19 +103,16 @@ class Command {
 	}
 
 	/**
-	 * Start and run a bulk sync job.
+	 * Start a bulk sync job.
 	 *
 	 * ## OPTIONS
-	 *
-	 * [--batch-size=<number>]
-	 * : Attachments to process per tick.
 	 *
 	 * [--yes]
 	 * : Confirm full-library sync.
 	 *
 	 * ## EXAMPLES
 	 *
-	 *     wp trust-optimize sync --batch-size=10 --yes
+	 *     wp trust-optimize sync --yes
 	 *
 	 * @param array $args Positional arguments.
 	 * @param array $assoc_args Associative arguments.
@@ -115,7 +122,7 @@ class Command {
 			\WP_CLI::error( 'Use --yes to confirm full-library sync.' );
 		}
 
-		$this->run_bulk_job( BulkJob::TYPE_SYNC, $assoc_args );
+		$this->run_bulk_job( BulkJob::TYPE_SYNC );
 	}
 
 	/**
@@ -133,7 +140,9 @@ class Command {
 			return;
 		}
 
-		\WP_CLI\Utils\format_items( 'table', array( $job->to_array() ), array_keys( $job->to_array() ) );
+		$data = $this->progress->describe( $job );
+
+		\WP_CLI\Utils\format_items( 'table', array( $data ), array_keys( $data ) );
 	}
 
 	/**
@@ -168,9 +177,6 @@ class Command {
 	 * [--yes]
 	 * : Confirm destructive cleanup.
 	 *
-	 * [--batch-size=<number>]
-	 * : Attachments to process per tick.
-	 *
 	 * @param array $args Positional arguments.
 	 * @param array $assoc_args Associative arguments.
 	 */
@@ -179,7 +185,7 @@ class Command {
 			\WP_CLI::error( 'Use --all --yes to confirm full-library generated file removal.' );
 		}
 
-		$this->run_bulk_job( BulkJob::TYPE_REMOVE, $assoc_args );
+		$this->run_bulk_job( BulkJob::TYPE_REMOVE );
 	}
 
 	/**
@@ -282,44 +288,24 @@ class Command {
 	}
 
 	/**
-	 * Create and run a bulk job until it reaches a terminal state.
+	 * Create a bulk job; Action Scheduler carries it out in the background.
 	 *
-	 * @param string $type       Job type.
-	 * @param array  $assoc_args Associative arguments.
+	 * @param string $type Job type.
 	 */
-	private function run_bulk_job( $type, array $assoc_args ) {
-		$total = BulkJob::TYPE_REMOVE === $type ? $this->eligibility->count_plugin_managed_attachments() : $this->eligibility->count_eligible_attachments();
-		$job   = $this->jobs->create( $type, array(), '', $total );
+	private function run_bulk_job( $type ) {
+		$job = $this->producer->launch( $type );
 
 		if ( ! $job ) {
 			\WP_CLI::error( 'Another bulk job is already active.' );
 		}
 
-		$batch_size = isset( $assoc_args['batch-size'] ) ? (int) $assoc_args['batch-size'] : 10;
-		$batch_size = max( 1, min( 100, $batch_size ) );
-
-		add_filter(
-			'trust_optimize_bulk_batch_size',
-			function () use ( $batch_size ) {
-				return $batch_size;
-			}
-		);
-
-		$this->jobs->mark_running( $job->get_id() );
-
-		do {
-			$this->runner->tick( $job->get_id() );
-			$job = $this->jobs->get( $job->get_id() );
-			\WP_CLI::log( sprintf( 'Job #%d: %s, processed %d/%d', $job->get_id(), $job->get_status(), (int) $job->to_array()['processed'], (int) $job->to_array()['total'] ) );
-		} while ( in_array( $job->get_status(), array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING ), true ) );
-
-		\WP_CLI::success( 'Bulk job finished with status: ' . $job->get_status() );
+		\WP_CLI::success( sprintf( 'Bulk job #%d started. Follow it with "wp trust-optimize status".', $job->get_id() ) );
 	}
 
 	/**
 	 * Control active job.
 	 *
-	 * @param string $action Runner action.
+	 * @param string $action Producer action.
 	 */
 	private function control_active_job( $action ) {
 		$job = $this->jobs->get_active_job();
@@ -329,7 +315,7 @@ class Command {
 			return;
 		}
 
-		$this->runner->$action( $job->get_id() );
+		$this->producer->$action( $job->get_id() );
 
 		\WP_CLI::success( sprintf( 'Job #%d %s requested.', $job->get_id(), $action ) );
 	}

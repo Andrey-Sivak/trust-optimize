@@ -8,6 +8,7 @@
 namespace TrustOptimize\Bulk;
 
 use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Domain\JobStatus;
 
 /**
  * Class BulkJobRepository
@@ -29,57 +30,153 @@ class BulkJobRepository {
 	private $db_manager;
 
 	/**
+	 * Option that holds the job that owns the library (the mutex of create()).
+	 *
+	 * The value is the ID of that job or, between taking the mutex and inserting the job,
+	 * the time it was taken. It is read and written with SQL like the core upgrade lock does:
+	 * INSERT IGNORE on the primary key of wp_options is atomic, add_option() is not.
+	 */
+	const ACTIVE_OPTION = 'trust_optimize_bulk_active';
+
+	/**
+	 * Age after which a mutex without a job counts as left behind by a crashed request.
+	 */
+	const MUTEX_STALE_SECONDS = 60;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param DatabaseManager|null $db_manager Database manager.
+	 * @param DatabaseManager $db_manager Database manager.
 	 */
-	public function __construct( ?DatabaseManager $db_manager = null ) {
-		$this->db_manager = $db_manager ? $db_manager : new DatabaseManager();
+	public function __construct( DatabaseManager $db_manager ) {
+		$this->db_manager = $db_manager;
 	}
 
 	/**
-	 * Create a new bulk job if there is no active library job.
+	 * Create a new bulk job unless another one owns the library.
+	 *
+	 * Two concurrent calls cannot both succeed: add_option() is atomic (primary key of wp_options).
 	 *
 	 * @param string $type              Job type.
-	 * @param array  $settings_snapshot Settings snapshot.
-	 * @param string $profile_hash      Profile hash.
+	 * @param array  $settings_snapshot Settings the job was created with.
 	 * @param int    $total             Total candidate attachments.
-	 * @return BulkJob|false
+	 * @return BulkJob|false False when another job is active.
 	 */
-	public function create( $type, array $settings_snapshot = array(), $profile_hash = '', $total = 0 ) {
-		if ( $this->get_active_job() ) {
+	public function create( $type, array $settings_snapshot = array(), $total = 0 ) {
+		if ( $this->get_active_job() || ! $this->acquire_mutex() ) {
 			return false;
 		}
 
 		global $wpdb;
 
-		$table = $this->get_table_name();
-		$now   = current_time( 'mysql' );
-
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
 		$result = $wpdb->insert(
-			$table,
+			$this->get_table_name(),
 			array(
 				'type'              => $type,
-				'status'            => BulkJob::STATUS_PENDING,
+				'status'            => JobStatus::PENDING,
 				'cursor_id'         => 0,
 				'total'             => (int) $total,
-				'processed'         => 0,
-				'skipped'           => 0,
-				'failed_count'      => 0,
-				'created_count'     => 0,
-				'deleted_count'     => 0,
 				'settings_snapshot' => wp_json_encode( $settings_snapshot ),
-				'profile_hash'      => $profile_hash,
-				'updated_at'        => $now,
+				'updated_at'        => current_time( 'mysql' ),
 			)
 		);
 
 		if ( ! $result ) {
+			$this->release_mutex();
+
 			return false;
 		}
 
+		$this->write_mutex( (int) $wpdb->insert_id );
+
 		return $this->get( (int) $wpdb->insert_id );
+	}
+
+	/**
+	 * Take the mutex, first removing one that was left behind.
+	 *
+	 * @return bool True when this call owns the mutex.
+	 */
+	private function acquire_mutex() {
+		if ( $this->insert_mutex() ) {
+			return true;
+		}
+
+		$holder = $this->read_mutex();
+
+		// A job ID is stale when the job is finished; a timestamp when its request died long ago.
+		$stale = $holder > 1000000000 ? $holder < time() - self::MUTEX_STALE_SECONDS : ! $this->is_active( $this->get( $holder ) );
+
+		if ( ! $stale ) {
+			return false;
+		}
+
+		$this->release_mutex();
+
+		return $this->insert_mutex();
+	}
+
+	/**
+	 * Insert the mutex row; false when it exists.
+	 *
+	 * @return bool
+	 */
+	private function insert_mutex() {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return 1 === (int) $wpdb->query(
+			$wpdb->prepare(
+				"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+				self::ACTIVE_OPTION,
+				(string) time()
+			)
+		);
+	}
+
+	/**
+	 * Record the job that owns the mutex.
+	 *
+	 * @param int $job_id Job ID.
+	 */
+	private function write_mutex( $job_id ) {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$wpdb->update( $wpdb->options, array( 'option_value' => (string) $job_id ), array( 'option_name' => self::ACTIVE_OPTION ) );
+	}
+
+	/**
+	 * Job ID (or timestamp) held by the mutex.
+	 *
+	 * @return int 0 when there is none.
+	 */
+	private function read_mutex() {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::ACTIVE_OPTION ) );
+	}
+
+	/**
+	 * Remove the mutex.
+	 */
+	private function release_mutex() {
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		$wpdb->delete( $wpdb->options, array( 'option_name' => self::ACTIVE_OPTION ) );
+	}
+
+	/**
+	 * Whether a job exists and is not finished.
+	 *
+	 * @param BulkJob|null $job Job.
+	 * @return bool
+	 */
+	private function is_active( ?BulkJob $job ) {
+		return null !== $job && in_array( $job->get_status(), JobStatus::active(), true );
 	}
 
 	/**
@@ -114,7 +211,7 @@ class BulkJobRepository {
 		global $wpdb;
 
 		$table    = $this->get_table_name();
-		$statuses = array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING, BulkJob::STATUS_PAUSED );
+		$statuses = JobStatus::active();
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$row = $wpdb->get_row(
@@ -152,39 +249,48 @@ class BulkJobRepository {
 	}
 
 	/**
-	 * Mark a job as running.
+	 * Mark an unfinished job as running; a finished job is never revived.
 	 *
 	 * @param int $job_id Job ID.
-	 * @return bool
+	 * @return bool True when the job is running now.
 	 */
 	public function mark_running( $job_id ) {
-		return $this->update(
-			$job_id,
-			array(
-				'status'     => BulkJob::STATUS_RUNNING,
-				'started_at' => current_time( 'mysql' ),
+		global $wpdb;
+
+		$now = current_time( 'mysql' );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$changed = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->get_table_name()} SET status = %s, started_at = COALESCE(started_at, %s), updated_at = %s WHERE id = %d AND status IN (%s, %s, %s)",
+				JobStatus::RUNNING,
+				$now,
+				$now,
+				(int) $job_id,
+				JobStatus::PENDING,
+				JobStatus::RUNNING,
+				JobStatus::PAUSED
 			)
 		);
+		// phpcs:enable
+
+		if ( $changed ) {
+			return true;
+		}
+
+		$job = $this->get( $job_id );
+
+		return null !== $job && JobStatus::RUNNING === $job->get_status();
 	}
 
 	/**
-	 * Pause a job.
+	 * Pause a job that has not finished.
 	 *
 	 * @param int $job_id Job ID.
-	 * @return bool
+	 * @return bool True when the job was paused.
 	 */
 	public function pause( $job_id ) {
-		return $this->update( $job_id, array( 'status' => BulkJob::STATUS_PAUSED ) );
-	}
-
-	/**
-	 * Resume a job.
-	 *
-	 * @param int $job_id Job ID.
-	 * @return bool
-	 */
-	public function resume( $job_id ) {
-		return $this->update( $job_id, array( 'status' => BulkJob::STATUS_PENDING ) );
+		return $this->transition( $job_id, array( JobStatus::PENDING, JobStatus::RUNNING ), array( 'status' => JobStatus::PAUSED ) );
 	}
 
 	/**
@@ -194,17 +300,18 @@ class BulkJobRepository {
 	 * @return bool
 	 */
 	public function cancel( $job_id ) {
-		return $this->finish( $job_id, BulkJob::STATUS_CANCELLED );
+		return $this->finish( $job_id, JobStatus::CANCELLED );
 	}
 
 	/**
 	 * Complete a job.
 	 *
-	 * @param int $job_id Job ID.
+	 * @param int  $job_id      Job ID.
+	 * @param bool $with_errors Whether some attachments failed.
 	 * @return bool
 	 */
-	public function complete( $job_id ) {
-		return $this->finish( $job_id, BulkJob::STATUS_COMPLETED );
+	public function complete( $job_id, $with_errors = false ) {
+		return $this->finish( $job_id, $with_errors ? JobStatus::COMPLETED_WITH_ERRORS : JobStatus::COMPLETED );
 	}
 
 	/**
@@ -217,54 +324,61 @@ class BulkJobRepository {
 	public function fail( $job_id, $last_error = '' ) {
 		return $this->finish(
 			$job_id,
-			BulkJob::STATUS_FAILED,
+			JobStatus::FAILED,
 			array( 'last_error' => $last_error )
 		);
 	}
 
 	/**
-	 * Persist cursor and counter increments after processing an attachment.
+	 * Move the cursor to the last attachment handed over to the queue.
 	 *
-	 * @param int   $job_id     Job ID.
-	 * @param int   $cursor_id  Last processed attachment ID.
-	 * @param array $increments Counter increments.
+	 * @param int $job_id    Job ID.
+	 * @param int $cursor_id Last handled attachment ID.
 	 * @return bool
 	 */
-	public function advance_cursor( $job_id, $cursor_id, array $increments = array() ) {
+	public function set_cursor( $job_id, $cursor_id ) {
+		return $this->update( $job_id, array( 'cursor_id' => (int) $cursor_id ) );
+	}
+
+	/**
+	 * Record that the job is alive (a producer run that had nothing to hand over).
+	 *
+	 * @param int $job_id Job ID.
+	 * @return bool
+	 */
+	public function touch( $job_id ) {
+		return $this->update( $job_id, array() );
+	}
+
+	/**
+	 * Close the active jobs of schema 1.x: their tick runner no longer exists.
+	 *
+	 * Jobs of 2.0 always store the settings they were created with; those of 1.x stored none.
+	 *
+	 * @return int Number of jobs closed.
+	 */
+	public function supersede_legacy_jobs() {
 		global $wpdb;
 
-		$table   = $this->get_table_name();
-		$allowed = array( 'processed', 'skipped', 'failed_count', 'created_count', 'deleted_count' );
-		$sets    = array( 'cursor_id = %d', 'updated_at = %s' );
-		$values  = array( (int) $cursor_id, current_time( 'mysql' ) );
+		$table = $this->get_table_name();
+		$now   = current_time( 'mysql' );
 
-		foreach ( $allowed as $counter ) {
-			if ( empty( $increments[ $counter ] ) ) {
-				continue;
-			}
-
-			if ( 'processed' === $counter ) {
-				$sets[] = "{$counter} = LEAST(total, {$counter} + %d)";
-			} else {
-				$sets[] = "{$counter} = {$counter} + %d";
-			}
-
-			$values[] = (int) $increments[ $counter ];
-		}
-
-		$values[] = (int) $job_id;
-
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$result = $wpdb->query(
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$closed = (int) $wpdb->query(
 			$wpdb->prepare(
-				// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
-				"UPDATE {$table} SET " . implode( ', ', $sets ) . ' WHERE id = %d',
-				$values
+				"UPDATE {$table} SET status = %s, last_error = %s, finished_at = %s, updated_at = %s WHERE status IN (%s, %s, %s) AND (settings_snapshot IS NULL OR settings_snapshot IN ('', '[]'))",
+				JobStatus::CANCELLED,
+				'superseded by 2.0',
+				$now,
+				$now,
+				JobStatus::PENDING,
+				JobStatus::RUNNING,
+				JobStatus::PAUSED
 			)
 		);
 		// phpcs:enable
 
-		return false !== $result;
+		return $closed;
 	}
 
 	/**
@@ -283,7 +397,7 @@ class BulkJobRepository {
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$table} WHERE status = %s AND updated_at < %s ORDER BY id ASC",
-				BulkJob::STATUS_RUNNING,
+				JobStatus::RUNNING,
 				$threshold
 			),
 			ARRAY_A
@@ -317,10 +431,11 @@ class BulkJobRepository {
 				$message = $data['last_error'] . "\n" . $message;
 			}
 
-			if ( $this->update(
+			if ( $this->transition(
 				$job->get_id(),
+				array( JobStatus::RUNNING ),
 				array(
-					'status'     => BulkJob::STATUS_PAUSED,
+					'status'     => JobStatus::PAUSED,
 					'last_error' => $message,
 				)
 			) ) {
@@ -366,18 +481,56 @@ class BulkJobRepository {
 	}
 
 	/**
-	 * Finish a job with terminal status.
+	 * Finish an unfinished job with a terminal status and release the library.
 	 *
 	 * @param int    $job_id Job ID.
 	 * @param string $status Terminal status.
 	 * @param array  $data   Additional data.
-	 * @return bool
+	 * @return bool True when the job was finished by this call.
 	 */
 	private function finish( $job_id, $status, array $data = array() ) {
 		$data['status']      = $status;
 		$data['finished_at'] = current_time( 'mysql' );
+		$finished            = $this->transition( $job_id, JobStatus::active(), $data );
 
-		return $this->update( $job_id, $data );
+		if ( $finished && $this->read_mutex() === (int) $job_id ) {
+			$this->release_mutex();
+		}
+
+		return $finished;
+	}
+
+	/**
+	 * Change fields of a job that is in one of the given statuses (compare-and-set).
+	 *
+	 * @param int      $job_id Job ID.
+	 * @param string[] $from   Statuses the job may be in.
+	 * @param array    $data   Columns to set.
+	 * @return bool True when a row was changed.
+	 */
+	private function transition( $job_id, array $from, array $data ) {
+		global $wpdb;
+
+		$data['updated_at'] = current_time( 'mysql' );
+		$sets               = array();
+		$values             = array();
+
+		foreach ( $data as $column => $value ) {
+			$sets[]   = "{$column} = %s";
+			$values[] = $value;
+		}
+
+		$values[] = (int) $job_id;
+		$values   = array_merge( $values, $from );
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		return 1 === (int) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->get_table_name()} SET " . implode( ', ', $sets ) . ' WHERE id = %d AND status IN (' . implode( ', ', array_fill( 0, count( $from ), '%s' ) ) . ')',
+				$values
+			)
+		);
+		// phpcs:enable
 	}
 
 	/**

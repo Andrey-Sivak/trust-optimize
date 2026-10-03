@@ -230,6 +230,43 @@ class AttachmentRepository {
 	}
 
 	/**
+	 * Attach an attachment to a bulk job, so the job's progress can be derived from the states.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @param int $job_id        Job ID.
+	 */
+	public function assign_job( $attachment_id, $job_id ) {
+		global $wpdb;
+
+		$this->ensure_row( $attachment_id );
+
+		$wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->table} SET job_id = %d WHERE attachment_id = %d",
+				(int) $job_id,
+				(int) $attachment_id
+			)
+		);
+	}
+
+	/**
+	 * Number of attachments of a job per state.
+	 *
+	 * @param int $job_id Job ID.
+	 * @return int[] Counts keyed by AttachmentState; states without attachments are absent.
+	 */
+	public function count_states_for_job( $job_id ) {
+		global $wpdb;
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT state, COUNT(*) AS total FROM {$this->table} WHERE job_id = %d GROUP BY state", (int) $job_id ),
+			ARRAY_A
+		);
+
+		return array_map( 'intval', array_column( $rows, 'total', 'state' ) );
+	}
+
+	/**
 	 * Delete the row of an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

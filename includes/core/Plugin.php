@@ -11,8 +11,9 @@ use TrustOptimize\Admin\Admin;
 use TrustOptimize\Admin\Settings;
 use TrustOptimize\API\RestController;
 use TrustOptimize\Bulk\BulkJobRepository;
-use TrustOptimize\Bulk\BulkJobRunner;
+use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\CLI\Command;
 use TrustOptimize\CLI\MigrationCommand;
@@ -89,11 +90,11 @@ class Plugin {
 	public $conversion_queue;
 
 	/**
-	 * Bulk job runner.
+	 * Bulk job producer.
 	 *
-	 * @var BulkJobRunner
+	 * @var BulkProducer
 	 */
-	public $bulk_runner;
+	public $bulk_producer;
 
 	/**
 	 * REST controller.
@@ -126,6 +127,7 @@ class Plugin {
 		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
+		$progress     = new JobProgress( $attachments, $eligibility );
 		$conflicts    = new ConflictReport();
 		$guard        = new LegacyPathGuard( $database, $variants );
 
@@ -133,11 +135,11 @@ class Plugin {
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
-		$this->bulk_runner      = new BulkJobRunner( $jobs, $eligibility, $this->planner, $this->processor, $this->cleanup );
+		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $settings, $capabilities );
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
-		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $eligibility, $this->bulk_runner );
+		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
-		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue );
+		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
 		$migration      = new MigrationRunner(
 			$database,
 			array(
@@ -160,7 +162,7 @@ class Plugin {
 			$this->conversion_queue,
 			new SiteHealth( $capabilities ),
 			$legacy_runtime,
-			$this->bulk_runner,
+			$this->bulk_producer,
 			$this->admin,
 			$this->rest_controller,
 		) as $component ) {
@@ -168,7 +170,7 @@ class Plugin {
 		}
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->bulk_runner, $this->processor, $this->cleanup, $migration ) );
+			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $progress, $this->bulk_producer, $this->processor, $this->cleanup, $migration ) );
 			\WP_CLI::add_command( 'trust-optimize migration', new MigrationCommand( $conflicts ) );
 		}
 	}

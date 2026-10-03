@@ -9,6 +9,8 @@
 
 namespace TrustOptimize\Queue;
 
+use Throwable;
+use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
@@ -123,13 +125,24 @@ class ConversionQueue {
 	 * Action Scheduler callback: process one attachment, continuing in a new action when the time budget ran out.
 	 *
 	 * @param int $attachment_id Attachment ID.
+	 * @throws Throwable Whatever the processor threw, after the attachment was marked failed.
 	 */
 	public function process( $attachment_id ) {
-		$result = $this->processor->run( (int) $attachment_id );
-		$data   = $result->get_data();
+		$attachment_id = (int) $attachment_id;
+
+		try {
+			$result = $this->processor->run( $attachment_id );
+		} catch ( Throwable $throwable ) {
+			// Only this attachment fails; Action Scheduler records the failed action.
+			$this->attachments->set_state( $attachment_id, AttachmentState::FAILED, 'exception', $throwable->getMessage() );
+
+			throw $throwable;
+		}
+
+		$data = $result->get_data();
 
 		if ( ! empty( $data['more'] ) ) {
-			$this->schedule( (int) $attachment_id );
+			$this->schedule( $attachment_id );
 		}
 	}
 
@@ -160,6 +173,7 @@ class ConversionQueue {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( self::HOOK_PROCESS, null, self::GROUP );
 			as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_TASK_HOOK, null, self::GROUP );
+			as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_BULK_HOOK, null, self::GROUP );
 		}
 	}
 

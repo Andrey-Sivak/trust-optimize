@@ -12,8 +12,8 @@ use WP_REST_Server;
 use WP_Error;
 use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
-use TrustOptimize\Bulk\BulkJobRunner;
-use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Bulk\BulkProducer;
+use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Processing\AttachmentProcessor;
@@ -76,18 +76,18 @@ class RestController extends WP_REST_Controller {
 	private $jobs;
 
 	/**
-	 * Eligibility query.
+	 * Bulk job progress.
 	 *
-	 * @var EligibilityQuery
+	 * @var JobProgress
 	 */
-	private $eligibility;
+	private $progress;
 
 	/**
-	 * Bulk job runner.
+	 * Bulk job producer.
 	 *
-	 * @var BulkJobRunner
+	 * @var BulkProducer
 	 */
-	private $runner;
+	private $producer;
 
 	/**
 	 * Constructor.
@@ -97,17 +97,17 @@ class RestController extends WP_REST_Controller {
 	 * @param AttachmentProcessor  $processor   Attachment processor.
 	 * @param ImageCleanupService  $cleanup     Cleanup service.
 	 * @param BulkJobRepository    $jobs        Bulk job repository.
-	 * @param EligibilityQuery     $eligibility Eligibility query.
-	 * @param BulkJobRunner        $runner      Bulk job runner.
+	 * @param JobProgress          $progress    Bulk job progress.
+	 * @param BulkProducer         $producer    Bulk job producer.
 	 */
-	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, AttachmentProcessor $processor, ImageCleanupService $cleanup, BulkJobRepository $jobs, EligibilityQuery $eligibility, BulkJobRunner $runner ) {
+	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, AttachmentProcessor $processor, ImageCleanupService $cleanup, BulkJobRepository $jobs, JobProgress $progress, BulkProducer $producer ) {
 		$this->attachments = $attachments;
 		$this->variants    = $variants;
 		$this->processor   = $processor;
 		$this->cleanup     = $cleanup;
 		$this->jobs        = $jobs;
-		$this->eligibility = $eligibility;
-		$this->runner      = $runner;
+		$this->progress    = $progress;
+		$this->producer    = $producer;
 	}
 
 	/**
@@ -360,18 +360,13 @@ class RestController extends WP_REST_Controller {
 	public function get_bulk_status( $request ) {
 		$job = $this->jobs->get_active_job();
 
-		if ( $job && in_array( $job->get_status(), array( BulkJob::STATUS_PENDING, BulkJob::STATUS_RUNNING ), true ) ) {
-			$this->run_status_bounded_tick( $this->runner, $job );
-			$job = $this->jobs->get( $job->get_id() );
-		}
-
 		if ( ! $job ) {
 			$job = $this->jobs->get_latest_job();
 		}
 
 		return rest_ensure_response(
 			array(
-				'job' => $job ? $job->to_array() : null,
+				'job' => $job ? $this->progress->describe( $job ) : null,
 			)
 		);
 	}
@@ -460,8 +455,7 @@ class RestController extends WP_REST_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	private function create_and_start_bulk_job( $type, $request ) {
-		$total = BulkJob::TYPE_REMOVE === $type ? $this->eligibility->count_plugin_managed_attachments() : $this->eligibility->count_eligible_attachments();
-		$job   = $this->jobs->create( $type, array(), '', $total );
+		$job = $this->producer->launch( $type );
 
 		if ( ! $job ) {
 			return new WP_Error(
@@ -471,71 +465,11 @@ class RestController extends WP_REST_Controller {
 			);
 		}
 
-		$this->runner->start( $job->get_id() );
-		$this->run_bounded_tick( $this->runner, $job->get_id(), 1, 3 );
-
 		return rest_ensure_response(
 			array(
-				'job' => $this->jobs->get( $job->get_id() )->to_array(),
+				'job' => $this->progress->describe( $job ),
 			)
 		);
-	}
-
-	/**
-	 * Run one bounded tick from REST status polling.
-	 *
-	 * Action Scheduler/WP-Cron may not dispatch during admin REST requests in
-	 * local Docker or locked-down hosting environments. Polling status can
-	 * safely advance one bounded tick while keeping resumability and avoiding
-	 * duplicate concurrent ticks.
-	 *
-	 * @param BulkJobRunner $runner Runner instance.
-	 * @param BulkJob       $job    Job value object.
-	 */
-	private function run_status_bounded_tick( BulkJobRunner $runner, BulkJob $job ) {
-		$lock_key = 'trust_optimize_bulk_status_tick_' . $job->get_id();
-
-		if ( get_transient( $lock_key ) ) {
-			return;
-		}
-
-		set_transient( $lock_key, 1, 15 );
-		try {
-			if ( BulkJob::STATUS_PENDING === $job->get_status() ) {
-				$runner->start( $job->get_id() );
-			}
-
-			$this->run_bounded_tick( $runner, $job->get_id(), 1, 3 );
-		} finally {
-			delete_transient( $lock_key );
-		}
-	}
-
-	/**
-	 * Run one bounded bulk tick with temporary limits.
-	 *
-	 * @param BulkJobRunner $runner      Runner instance.
-	 * @param int           $job_id      Job ID.
-	 * @param int           $batch_size  Max attachments for this tick.
-	 * @param int           $time_budget Max seconds for this tick.
-	 */
-	private function run_bounded_tick( BulkJobRunner $runner, $job_id, $batch_size, $time_budget ) {
-		$batch_filter = function () use ( $batch_size ) {
-			return $batch_size;
-		};
-		$time_filter  = function () use ( $time_budget ) {
-			return $time_budget;
-		};
-
-		add_filter( 'trust_optimize_bulk_batch_size', $batch_filter, 99 );
-		add_filter( 'trust_optimize_bulk_time_budget', $time_filter, 99 );
-
-		try {
-			$runner->tick( $job_id );
-		} finally {
-			remove_filter( 'trust_optimize_bulk_batch_size', $batch_filter, 99 );
-			remove_filter( 'trust_optimize_bulk_time_budget', $time_filter, 99 );
-		}
 	}
 
 	/**
@@ -556,11 +490,11 @@ class RestController extends WP_REST_Controller {
 			return rest_ensure_response( array( 'job' => null ) );
 		}
 
-		$this->runner->$action( $job->get_id() );
+		$this->producer->$action( $job->get_id() );
 
 		return rest_ensure_response(
 			array(
-				'job' => $this->jobs->get( $job->get_id() )->to_array(),
+				'job' => $this->progress->describe( $this->jobs->get( $job->get_id() ) ),
 			)
 		);
 	}

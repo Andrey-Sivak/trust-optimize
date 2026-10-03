@@ -7,6 +7,7 @@
 
 namespace TrustOptimize\Bulk;
 
+use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Storage\VariantRepository;
 
 /**
@@ -31,7 +32,7 @@ class EligibilityQuery {
 	}
 
 	/**
-	 * Get next eligible image attachment IDs after cursor.
+	 * Get next attachment IDs of convertible images (JPEG and PNG) after the cursor.
 	 *
 	 * @param int $cursor_id Last processed attachment ID.
 	 * @param int $limit     Maximum IDs to return.
@@ -40,19 +41,18 @@ class EligibilityQuery {
 	public function get_next_attachment_ids( $cursor_id, $limit ) {
 		global $wpdb;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$mimes = VariantPlanner::SOURCE_MIMES;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
 		$ids = $wpdb->get_col(
 			$wpdb->prepare(
 				"SELECT ID FROM {$wpdb->posts}
 				WHERE post_type = %s
-				AND post_mime_type LIKE %s
+				AND post_mime_type IN (" . implode( ', ', array_fill( 0, count( $mimes ), '%s' ) ) . ')
 				AND ID > %d
 				ORDER BY ID ASC
-				LIMIT %d",
-				'attachment',
-				'image/%',
-				(int) $cursor_id,
-				(int) $limit
+				LIMIT %d',
+				array_merge( array( 'attachment' ), $mimes, array( (int) $cursor_id, (int) $limit ) )
 			)
 		);
 		// phpcs:enable
@@ -61,36 +61,27 @@ class EligibilityQuery {
 	}
 
 	/**
-	 * Count image attachments in the media library.
+	 * Count convertible image attachments (JPEG and PNG) after the cursor.
 	 *
+	 * @param int $after_id Count only attachments with a greater ID.
 	 * @return int
 	 */
-	public function count_image_attachments() {
+	public function count_eligible_attachments( $after_id = 0 ) {
 		global $wpdb;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$mimes = VariantPlanner::SOURCE_MIMES;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
 				"SELECT COUNT(1) FROM {$wpdb->posts}
 				WHERE post_type = %s
-				AND post_mime_type LIKE %s",
-				'attachment',
-				'image/%'
+				AND post_mime_type IN (" . implode( ', ', array_fill( 0, count( $mimes ), '%s' ) ) . ')
+				AND ID > %d',
+				array_merge( array( 'attachment' ), $mimes, array( (int) $after_id ) )
 			)
 		);
 		// phpcs:enable
-	}
-
-	/**
-	 * Count candidate image attachments.
-	 *
-	 * True optimization eligibility depends on filesystem/editor checks and is
-	 * computed by the inventory preflight per attachment.
-	 *
-	 * @return int
-	 */
-	public function count_eligible_attachments() {
-		return $this->count_image_attachments();
 	}
 
 	/**
@@ -107,9 +98,10 @@ class EligibilityQuery {
 	/**
 	 * Count attachments that have plugin-managed generated variants.
 	 *
+	 * @param int $after_id Count only attachments with a greater ID.
 	 * @return int
 	 */
-	public function count_plugin_managed_attachments() {
-		return $this->variants->count_attachments();
+	public function count_plugin_managed_attachments( $after_id = 0 ) {
+		return $this->variants->count_attachments( $after_id );
 	}
 }

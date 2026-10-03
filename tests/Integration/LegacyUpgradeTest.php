@@ -7,6 +7,7 @@
 
 require_once __DIR__ . '/legacy-schema-fixture.php';
 
+use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Database\DatabaseManager;
@@ -268,6 +269,22 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 		update_option( 'trust_optimize_preflight', array( 'old' => true ) );
 		set_transient( 'trust_optimize_formats_' . $plain[0], array( 'webp' ), HOUR_IN_SECONDS );
 
+		// A bulk job of 1.x that is running: its ticks, lock and status throttle.
+		global $wpdb;
+		$wpdb->insert(
+			( new DatabaseManager() )->get_table_name( 'trust_optimize_jobs' ),
+			array(
+				'type'              => 'sync',
+				'status'            => 'running',
+				'settings_snapshot' => '[]',
+				'updated_at'        => current_time( 'mysql' ),
+			)
+		);
+		$this->site['legacy_job'] = (int) $wpdb->insert_id;
+		as_enqueue_async_action( CleanupLegacyRuntime::LEGACY_BULK_HOOK, array( $this->site['legacy_job'] ), ConversionQueue::GROUP );
+		update_option( CleanupLegacyRuntime::LEGACY_BULK_LOCK_PREFIX . $this->site['legacy_job'], time() );
+		set_transient( CleanupLegacyRuntime::LEGACY_BULK_STATUS_PREFIX . $this->site['legacy_job'], 1, HOUR_IN_SECONDS );
+
 		// Every file of an attachment (originals and sizes) must survive the migration.
 		foreach ( $this->site['ids'] as $id ) {
 			$this->site['protected'][ $id ] = array( wp_upload_dir()['basedir'] . '/' . $this->source_path( $id ) );
@@ -402,6 +419,12 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 		$this->assertSame( array(), as_get_scheduled_actions( array( 'hook' => ConversionQueue::HOOK_PROCESS, 'status' => ActionScheduler_Store::STATUS_PENDING ), 'ids' ) );
 		$this->assertFalse( get_option( 'trust_optimize_preflight' ) );
 		$this->assertFalse( get_transient( 'trust_optimize_formats_' . array_key_first( $this->site['plain'] ) ) );
+		$this->assertSame( array(), as_get_scheduled_actions( array( 'hook' => CleanupLegacyRuntime::LEGACY_BULK_HOOK, 'status' => ActionScheduler_Store::STATUS_PENDING ), 'ids' ) );
+		$this->assertFalse( get_option( CleanupLegacyRuntime::LEGACY_BULK_LOCK_PREFIX . $this->site['legacy_job'] ) );
+		$this->assertFalse( get_transient( CleanupLegacyRuntime::LEGACY_BULK_STATUS_PREFIX . $this->site['legacy_job'] ) );
+		$closed = ( new BulkJobRepository( new DatabaseManager() ) )->get( $this->site['legacy_job'] );
+		$this->assertSame( 'cancelled', $closed->get_status() );
+		$this->assertSame( 'superseded by 2.0', $closed->to_array()['last_error'] );
 		foreach ( array_keys( $this->site['plain'] ) as $id ) {
 			$metadata = wp_get_attachment_metadata( $id );
 			$this->assertArrayNotHasKey( 'trust_optimize_converted', $metadata );
@@ -443,7 +466,7 @@ class LegacyUpgradeTest extends WP_UnitTestCase {
 			new ScheduleRegeneration( $this->variants, $plugin->conversion_queue, new ConflictReport() ),
 			new RetireLegacyFiles( $this->variants, $plugin->cleanup ),
 			new StripAttachmentMetadata( $database ),
-			new CleanupLegacyRuntime( $plugin->conversion_queue ),
+			new CleanupLegacyRuntime( $plugin->conversion_queue, new BulkJobRepository( $database ) ),
 			new Finalize( $database, $this->variants ),
 		);
 		$runner      = new MigrationRunner( $database, array_map( static fn( $step ) => new Replaying_Migration_Step( $step ), $steps ) );

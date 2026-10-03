@@ -5,9 +5,12 @@
  * @package TrustOptimize\Tests
  */
 
+use TrustOptimize\Bulk\BulkJob;
+use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
 use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -31,8 +34,9 @@ class CleanupLegacyRuntimeTest extends WP_UnitTestCase {
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
 		as_unschedule_all_actions( ConversionQueue::HOOK_PROCESS );
 		as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_TASK_HOOK );
+		as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_BULK_HOOK );
 
-		$this->step = new CleanupLegacyRuntime( Plugin::get_instance()->conversion_queue );
+		$this->step = new CleanupLegacyRuntime( Plugin::get_instance()->conversion_queue, new BulkJobRepository( new DatabaseManager() ) );
 	}
 
 	/**
@@ -107,7 +111,7 @@ class CleanupLegacyRuntimeTest extends WP_UnitTestCase {
 		$this->assertFalse( get_transient( 'trust_optimize_formats_5' ) );
 	}
 
-	public function test_options_and_transients_of_1x_are_deleted_but_bulk_runtime_is_kept() {
+	public function test_options_and_transients_of_1x_are_deleted() {
 		update_option( 'trust_optimize_preflight', array( 'x' => 1 ) );
 		set_transient( 'trust_optimize_formats_5', array( 'webp' ), HOUR_IN_SECONDS );
 		set_transient( 'trust_optimize_formats_6', array( 'webp' ), HOUR_IN_SECONDS );
@@ -120,8 +124,40 @@ class CleanupLegacyRuntimeTest extends WP_UnitTestCase {
 		$this->assertFalse( get_option( 'trust_optimize_preflight' ) );
 		$this->assertFalse( get_transient( 'trust_optimize_formats_5' ) );
 		$this->assertFalse( get_transient( 'trust_optimize_formats_6' ) );
-		$this->assertSame( 1, get_transient( 'trust_optimize_bulk_status_tick_1' ) );
-		$this->assertNotFalse( get_option( 'trust_optimize_bulk_tick_lock_1' ) );
-		$this->assertCount( 1, $this->pending( 'trust_optimize_bulk_tick' ) );
+		$this->assertFalse( get_transient( 'trust_optimize_bulk_status_tick_1' ) );
+		$this->assertFalse( get_option( 'trust_optimize_bulk_tick_lock_1' ) );
+		$this->assertSame( array(), $this->pending( 'trust_optimize_bulk_tick' ) );
+	}
+
+	public function test_an_active_bulk_job_of_1x_is_closed_but_a_job_of_2_0_is_kept() {
+		global $wpdb;
+
+		$table = ( new DatabaseManager() )->get_table_name( 'trust_optimize_jobs' );
+		$wpdb->insert(
+			$table,
+			array(
+				'type'              => BulkJob::TYPE_SYNC,
+				'status'            => JobStatus::RUNNING,
+				'settings_snapshot' => '[]',
+				'updated_at'        => current_time( 'mysql' ),
+			)
+		);
+		$legacy_id = (int) $wpdb->insert_id;
+		$jobs      = new BulkJobRepository( new DatabaseManager() );
+		$current   = $jobs->create( BulkJob::TYPE_SYNC, array( 'enabled' => array( 'webp' ) ), 1 );
+
+		// The legacy job is active, so create() refused above only if it were not closed first.
+		$this->assertFalse( $current );
+		$this->step->run_batch( 0, 10 );
+
+		$closed = $jobs->get( $legacy_id );
+		$this->assertSame( JobStatus::CANCELLED, $closed->get_status() );
+		$this->assertSame( 'superseded by 2.0', $closed->to_array()['last_error'] );
+
+		$current = $jobs->create( BulkJob::TYPE_SYNC, array( 'enabled' => array( 'webp' ) ), 1 );
+		$this->assertNotFalse( $current );
+
+		$this->step->run_batch( 0, 10 );
+		$this->assertSame( JobStatus::PENDING, $jobs->get( $current->get_id() )->get_status() );
 	}
 }
