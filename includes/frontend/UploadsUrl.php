@@ -22,7 +22,7 @@ class UploadsUrl {
 	/**
 	 * Path of an image URL relative to uploads.
 	 *
-	 * The scheme is ignored. The host must be the uploads host or one of the hosts from the
+	 * The scheme is ignored and percent-encoding is undone. The host must be the uploads host or one of the hosts from the
 	 * trust_optimize_cdn_hosts filter, and the path after the host must mirror the uploads URL.
 	 *
 	 * @param string $url Image URL.
@@ -36,7 +36,8 @@ class UploadsUrl {
 			return null;
 		}
 
-		return 0 === strpos( $parts['path'], $location['prefix'] ) ? substr( $parts['path'], strlen( $location['prefix'] ) ) : null;
+		// The path of a URL may be percent-encoded (a space is %20), the stored paths are not.
+		return 0 === strpos( $parts['path'], $location['prefix'] ) ? rawurldecode( substr( $parts['path'], strlen( $location['prefix'] ) ) ) : null;
 	}
 
 	/**

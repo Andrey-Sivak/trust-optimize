@@ -97,7 +97,7 @@ class PictureRenderer {
 			foreach ( $candidates as list( $url, $descriptor ) ) {
 				$path = $this->urls->relative_path( $url );
 				if ( null !== $path && isset( $servable[ $format ][ $path ] ) ) {
-					$items[] = trim( self::directory_of( $url ) . $servable[ $format ][ $path ] . ' ' . $descriptor );
+					$items[] = trim( self::directory_of( $url ) . rawurlencode( $servable[ $format ][ $path ] ) . ' ' . $descriptor );
 				}
 			}
 

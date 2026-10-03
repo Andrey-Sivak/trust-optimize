@@ -143,6 +143,42 @@ class ImageDeliveryTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( wp_get_attachment_url( $plain ) . '.webp', $html );
 	}
 
+	/**
+	 * A file that reached uploads without WordPress (FTP, import) keeps a space and non-ASCII characters in its name.
+	 *
+	 * @return int Attachment ID.
+	 */
+	private function upload_with_odd_name() {
+		$file = wp_upload_dir()['path'] . '/my photo é.jpg';
+		wp_mkdir_p( dirname( $file ) );
+		// Files of an earlier run would stop the converter: it never overwrites a file that no row owns.
+		array_map( 'unlink', glob( wp_upload_dir()['path'] . '/my photo é*' ) );
+		copy( DIR_TESTDATA . '/images/canola.jpg', $file );
+		$id = wp_insert_attachment( array( 'post_mime_type' => 'image/jpeg', 'post_title' => 'odd', 'post_status' => 'inherit' ), $file );
+		wp_update_attachment_metadata( $id, wp_generate_attachment_metadata( $id, $file ) );
+		ActionScheduler_QueueRunner::instance()->run();
+
+		return $id;
+	}
+
+	public function test_an_image_with_an_odd_file_name_is_found_by_its_encoded_url() {
+		$id = $this->upload_with_odd_name();
+		$this->assertNotEmpty( ( new TrustOptimize\Storage\VariantRepository( new TrustOptimize\Database\DatabaseManager() ) )->get_servable_for_attachment( $id ) );
+		$url     = wp_get_attachment_url( $id );
+		$encoded = str_replace( basename( $url ), rawurlencode( basename( $url ) ), $url );
+		$this->assertStringContainsString( 'my%20photo%20%C3%A9.jpg', $encoded );
+
+		$html = apply_filters( 'the_content', '<img src="' . $encoded . '" alt="x">' );
+
+		$this->assertStringContainsString( '<picture>', $html, 'The percent-encoded URL of the file is the same image.' );
+		$this->assertStringContainsString( 'srcset="' . $encoded . '.webp"', $html, 'The source URL is encoded as well.' );
+
+		$html = apply_filters( 'the_content', '<img src="' . $url . '" class="wp-image-' . $id . '" alt="x">' );
+
+		$this->assertStringContainsString( 'type="image/webp" srcset="', $html, 'The unencoded URL that core builds works too.' );
+		$this->assertStringContainsString( $encoded . '.webp', $html );
+	}
+
 	public function test_an_unknown_file_is_left_alone() {
 		$html = apply_filters( 'the_content', '<img src="' . wp_upload_dir()['baseurl'] . '/2020/01/not-ours.jpg" alt="x">' );
 
