@@ -39,11 +39,11 @@ class AttachmentRepository {
 	const STALE_QUEUED_SECONDS = DAY_IN_SECONDS;
 
 	/**
-	 * Attachments table name.
+	 * Database manager.
 	 *
-	 * @var string
+	 * @var DatabaseManager
 	 */
-	private $table;
+	private $database;
 
 	/**
 	 * Variant repository (the aggregate is derived from its rows).
@@ -59,9 +59,19 @@ class AttachmentRepository {
 	 * @param VariantRepository $variants Variant repository.
 	 */
 	public function __construct( DatabaseManager $database, VariantRepository $variants ) {
-		$tables         = $database->get_plugin_table_names();
-		$this->table    = $tables['attachments'];
+		$this->database = $database;
 		$this->variants = $variants;
+	}
+
+	/**
+	 * Table of the current site.
+	 *
+	 * Resolved on every call: the repository outlives switch_to_blog(), and the table name carries the site prefix.
+	 *
+	 * @return string
+	 */
+	private function table() {
+		return $this->database->get_plugin_table_names()['attachments'];
 	}
 
 	/**
@@ -104,7 +114,7 @@ class AttachmentRepository {
 		global $wpdb;
 
 		$row = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$this->table} WHERE attachment_id = %d", (int) $attachment_id ),
+			$wpdb->prepare( "SELECT * FROM {$this->table()} WHERE attachment_id = %d", (int) $attachment_id ),
 			ARRAY_A
 		);
 
@@ -135,7 +145,7 @@ class AttachmentRepository {
 		}
 
 		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT attachment_id, state FROM {$this->table} WHERE attachment_id IN (" . implode( ', ', array_fill( 0, count( $ids ), '%d' ) ) . ')', $ids ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			$wpdb->prepare( "SELECT attachment_id, state FROM {$this->table()} WHERE attachment_id IN (" . implode( ', ', array_fill( 0, count( $ids ), '%d' ) ) . ')', $ids ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
 			ARRAY_A
 		);
 
@@ -184,7 +194,7 @@ class AttachmentRepository {
 		$this->ensure_row( $attachment_id );
 
 		$wpdb->update(
-			$this->table,
+			$this->table(),
 			array(
 				'state'      => $state,
 				'reason'     => $reason,
@@ -235,7 +245,7 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, attempts = LEAST(attempts + 1, 255), updated_at = %s WHERE attachment_id = %d AND (state <> %s OR updated_at < %s)",
+				"UPDATE {$this->table()} SET state = %s, attempts = LEAST(attempts + 1, 255), updated_at = %s WHERE attachment_id = %d AND (state <> %s OR updated_at < %s)",
 				AttachmentState::PROCESSING,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
@@ -261,7 +271,7 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state NOT IN (%s, %s) OR (state = %s AND updated_at < %s) OR (state = %s AND updated_at < %s))",
+				"UPDATE {$this->table()} SET state = %s, updated_at = %s WHERE attachment_id = %d AND (state NOT IN (%s, %s) OR (state = %s AND updated_at < %s) OR (state = %s AND updated_at < %s))",
 				AttachmentState::QUEUED,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
@@ -283,7 +293,7 @@ class AttachmentRepository {
 	public function reset_attempts( $attachment_id ) {
 		global $wpdb;
 
-		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table} SET attempts = 0 WHERE attachment_id = %d AND attempts > 0", (int) $attachment_id ) );
+		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table()} SET attempts = 0 WHERE attachment_id = %d AND attempts > 0", (int) $attachment_id ) );
 	}
 
 	/**
@@ -298,7 +308,7 @@ class AttachmentRepository {
 
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT attachment_id, state, attempts FROM {$this->table} WHERE state IN (%s, %s) AND updated_at < %s ORDER BY updated_at ASC LIMIT %d",
+				"SELECT attachment_id, state, attempts FROM {$this->table()} WHERE state IN (%s, %s) AND updated_at < %s ORDER BY updated_at ASC LIMIT %d",
 				AttachmentState::QUEUED,
 				AttachmentState::PROCESSING,
 				gmdate( 'Y-m-d H:i:s', time() - (int) $older_than ),
@@ -330,7 +340,7 @@ class AttachmentRepository {
 
 		return (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, reason = %s, updated_at = %s WHERE state IN (%s, %s)",
+				"UPDATE {$this->table()} SET state = %s, reason = %s, updated_at = %s WHERE state IN (%s, %s)",
 				AttachmentState::NONE,
 				$reason,
 				current_time( 'mysql', true ),
@@ -354,7 +364,7 @@ class AttachmentRepository {
 			'intval',
 			$wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT attachment_id FROM {$this->table} WHERE state = %s AND reason = %s ORDER BY attachment_id ASC LIMIT %d",
+					"SELECT attachment_id FROM {$this->table()} WHERE state = %s AND reason = %s ORDER BY attachment_id ASC LIMIT %d",
 					AttachmentState::NONE,
 					$reason,
 					(int) $limit
@@ -375,7 +385,7 @@ class AttachmentRepository {
 
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, updated_at = %s WHERE attachment_id = %d AND state IN (%s, %s) AND updated_at < %s",
+				"UPDATE {$this->table()} SET state = %s, updated_at = %s WHERE attachment_id = %d AND state IN (%s, %s) AND updated_at < %s",
 				AttachmentState::QUEUED,
 				current_time( 'mysql', true ),
 				(int) $attachment_id,
@@ -399,7 +409,7 @@ class AttachmentRepository {
 
 		$wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET job_id = %d WHERE attachment_id = %d",
+				"UPDATE {$this->table()} SET job_id = %d WHERE attachment_id = %d",
 				(int) $job_id,
 				(int) $attachment_id
 			)
@@ -414,7 +424,7 @@ class AttachmentRepository {
 	public function count_states() {
 		global $wpdb;
 
-		$rows = $wpdb->get_results( "SELECT state, COUNT(*) AS total FROM {$this->table} GROUP BY state", ARRAY_A );
+		$rows = $wpdb->get_results( "SELECT state, COUNT(*) AS total FROM {$this->table()} GROUP BY state", ARRAY_A );
 
 		return array_map( 'intval', array_column( $rows, 'total', 'state' ) );
 	}
@@ -429,7 +439,7 @@ class AttachmentRepository {
 		global $wpdb;
 
 		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT state, COUNT(*) AS total FROM {$this->table} WHERE job_id = %d GROUP BY state", (int) $job_id ),
+			$wpdb->prepare( "SELECT state, COUNT(*) AS total FROM {$this->table()} WHERE job_id = %d GROUP BY state", (int) $job_id ),
 			ARRAY_A
 		);
 
@@ -444,7 +454,7 @@ class AttachmentRepository {
 	public function delete( $attachment_id ) {
 		global $wpdb;
 
-		$wpdb->delete( $this->table, array( 'attachment_id' => (int) $attachment_id ), array( '%d' ) );
+		$wpdb->delete( $this->table(), array( 'attachment_id' => (int) $attachment_id ), array( '%d' ) );
 	}
 
 	/**
@@ -457,7 +467,7 @@ class AttachmentRepository {
 
 		$wpdb->query(
 			$wpdb->prepare(
-				"INSERT IGNORE INTO {$this->table} (attachment_id, state, updated_at) VALUES (%d, %s, %s)",
+				"INSERT IGNORE INTO {$this->table()} (attachment_id, state, updated_at) VALUES (%d, %s, %s)",
 				(int) $attachment_id,
 				AttachmentState::NONE,
 				current_time( 'mysql', true )
@@ -476,7 +486,7 @@ class AttachmentRepository {
 
 		$wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->table} SET state = %s, reason = NULL, last_error = NULL, updated_at = %s WHERE attachment_id = %d",
+				"UPDATE {$this->table()} SET state = %s, reason = NULL, last_error = NULL, updated_at = %s WHERE attachment_id = %d",
 				$state,
 				current_time( 'mysql', true ),
 				(int) $attachment_id

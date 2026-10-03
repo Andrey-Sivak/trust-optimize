@@ -73,11 +73,11 @@ class VariantRepository {
 	);
 
 	/**
-	 * Variants table name.
+	 * Database manager.
 	 *
-	 * @var string
+	 * @var DatabaseManager
 	 */
-	private $table;
+	private $database;
 
 	/**
 	 * Constructor.
@@ -85,8 +85,18 @@ class VariantRepository {
 	 * @param DatabaseManager $database Database manager.
 	 */
 	public function __construct( DatabaseManager $database ) {
-		$tables      = $database->get_plugin_table_names();
-		$this->table = $tables['variants'];
+		$this->database = $database;
+	}
+
+	/**
+	 * Table of the current site.
+	 *
+	 * Resolved on every call: the repository outlives switch_to_blog(), and the table name carries the site prefix.
+	 *
+	 * @return string
+	 */
+	private function table() {
+		return $this->database->get_plugin_table_names()['variants'];
 	}
 
 	/**
@@ -134,7 +144,7 @@ class VariantRepository {
 
 		$wpdb->query(
 			$wpdb->prepare(
-				"INSERT INTO {$this->table} (" . implode( ', ', $columns ) . ') VALUES (' . implode( ', ', $values ) . ') ON DUPLICATE KEY UPDATE ' . implode( ', ', $assignments ),
+				"INSERT INTO {$this->table()} (" . implode( ', ', $columns ) . ') VALUES (' . implode( ', ', $values ) . ') ON DUPLICATE KEY UPDATE ' . implode( ', ', $assignments ),
 				$args
 			)
 		);
@@ -143,7 +153,7 @@ class VariantRepository {
 
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT id FROM {$this->table} WHERE attachment_id = %d AND size_name = %s AND format = %s",
+				"SELECT id FROM {$this->table()} WHERE attachment_id = %d AND size_name = %s AND format = %s",
 				$attachment_id,
 				(string) $data['size_name'],
 				(string) $data['format']
@@ -179,7 +189,7 @@ class VariantRepository {
 		$args[] = $from;
 
 		$changed = 1 === (int) $wpdb->query(
-			$wpdb->prepare( "UPDATE {$this->table} SET " . implode( ', ', $sets ) . ' WHERE id = %d AND status = %s', $args )
+			$wpdb->prepare( "UPDATE {$this->table()} SET " . implode( ', ', $sets ) . ' WHERE id = %d AND status = %s', $args )
 		);
 
 		if ( $changed ) {
@@ -275,7 +285,7 @@ class VariantRepository {
 		global $wpdb;
 
 		$rows = $wpdb->get_results(
-			$wpdb->prepare( "SELECT * FROM {$this->table} WHERE source_relative_path = %s ORDER BY id", $source_relative_path ),
+			$wpdb->prepare( "SELECT * FROM {$this->table()} WHERE source_relative_path = %s ORDER BY id", $source_relative_path ),
 			ARRAY_A
 		);
 
@@ -292,7 +302,7 @@ class VariantRepository {
 		global $wpdb;
 
 		return (bool) $wpdb->get_var(
-			$wpdb->prepare( "SELECT 1 FROM {$this->table} WHERE relative_path = %s OR legacy_relative_path = %s LIMIT 1", $relative_path, $relative_path )
+			$wpdb->prepare( "SELECT 1 FROM {$this->table()} WHERE relative_path = %s OR legacy_relative_path = %s LIMIT 1", $relative_path, $relative_path )
 		);
 	}
 
@@ -313,7 +323,7 @@ class VariantRepository {
 		$in    = implode( ', ', array_fill( 0, count( $paths ), '%s' ) );
 		$rows  = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT attachment_id, relative_path, legacy_relative_path FROM {$this->table} WHERE attachment_id <> %d AND (relative_path IN ({$in}) OR legacy_relative_path IN ({$in}))",
+				"SELECT attachment_id, relative_path, legacy_relative_path FROM {$this->table()} WHERE attachment_id <> %d AND (relative_path IN ({$in}) OR legacy_relative_path IN ({$in}))",
 				array_merge( array( (int) $attachment_id ), $paths, $paths )
 			),
 			ARRAY_A
@@ -341,7 +351,7 @@ class VariantRepository {
 		global $wpdb;
 
 		$attachment_id = $this->attachment_id_of( $id );
-		$deleted       = 1 === (int) $wpdb->delete( $this->table, array( 'id' => (int) $id ), array( '%d' ) );
+		$deleted       = 1 === (int) $wpdb->delete( $this->table(), array( 'id' => (int) $id ), array( '%d' ) );
 
 		if ( null !== $attachment_id ) {
 			$this->invalidate( $attachment_id );
@@ -358,7 +368,7 @@ class VariantRepository {
 	public function delete_for_attachment( $attachment_id ) {
 		global $wpdb;
 
-		$wpdb->delete( $this->table, array( 'attachment_id' => (int) $attachment_id ), array( '%d' ) );
+		$wpdb->delete( $this->table(), array( 'attachment_id' => (int) $attachment_id ), array( '%d' ) );
 		$this->invalidate( (int) $attachment_id );
 	}
 
@@ -376,7 +386,7 @@ class VariantRepository {
 			'intval',
 			$wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					"SELECT DISTINCT attachment_id FROM {$this->table()} WHERE attachment_id > %d ORDER BY attachment_id LIMIT %d",
 					(int) $after_id,
 					(int) $limit
 				)
@@ -398,7 +408,7 @@ class VariantRepository {
 			'intval',
 			$wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE naming = 'legacy' AND status = %s AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					"SELECT DISTINCT attachment_id FROM {$this->table()} WHERE naming = 'legacy' AND status = %s AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
 					VariantStatus::DONE,
 					(int) $after_id,
 					(int) $limit
@@ -421,7 +431,7 @@ class VariantRepository {
 			'intval',
 			$wpdb->get_col(
 				$wpdb->prepare(
-					"SELECT DISTINCT attachment_id FROM {$this->table} WHERE legacy_relative_path IS NOT NULL AND legacy_relative_path <> '' AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
+					"SELECT DISTINCT attachment_id FROM {$this->table()} WHERE legacy_relative_path IS NOT NULL AND legacy_relative_path <> '' AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
 					(int) $after_id,
 					(int) $limit
 				)
@@ -438,7 +448,7 @@ class VariantRepository {
 		global $wpdb;
 
 		return (int) $wpdb->get_var(
-			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE naming = 'legacy' AND status <> %s", VariantStatus::FAILED )
+			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE naming = 'legacy' AND status <> %s", VariantStatus::FAILED )
 		);
 	}
 
@@ -450,7 +460,7 @@ class VariantRepository {
 	public function count_removable() {
 		global $wpdb;
 
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$this->table} WHERE NOT (" . self::PARKED_SQL . ')' );
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$this->table()} WHERE NOT (" . self::PARKED_SQL . ')' );
 	}
 
 	/**
@@ -463,7 +473,7 @@ class VariantRepository {
 	public function get_parked() {
 		global $wpdb;
 
-		return (array) $wpdb->get_results( "SELECT attachment_id, relative_path, legacy_relative_path, reason FROM {$this->table} WHERE " . self::PARKED_SQL . ' ORDER BY id', ARRAY_A );
+		return (array) $wpdb->get_results( "SELECT attachment_id, relative_path, legacy_relative_path, reason FROM {$this->table()} WHERE " . self::PARKED_SQL . ' ORDER BY id', ARRAY_A );
 	}
 
 	/**
@@ -474,7 +484,7 @@ class VariantRepository {
 	public function clear_legacy_path( $id ) {
 		global $wpdb;
 
-		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table} SET legacy_relative_path = NULL, updated_at = %s WHERE id = %d", current_time( 'mysql', true ), (int) $id ) );
+		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table()} SET legacy_relative_path = NULL, updated_at = %s WHERE id = %d", current_time( 'mysql', true ), (int) $id ) );
 		$this->invalidate_by_id( $id );
 	}
 
@@ -488,7 +498,7 @@ class VariantRepository {
 		global $wpdb;
 
 		return (int) $wpdb->get_var(
-			$wpdb->prepare( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table} WHERE attachment_id > %d", (int) $after_id )
+			$wpdb->prepare( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table()} WHERE attachment_id > %d", (int) $after_id )
 		);
 	}
 
@@ -500,7 +510,7 @@ class VariantRepository {
 	public function count_all_by_status() {
 		global $wpdb;
 
-		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$this->table} WHERE naming <> 'legacy' GROUP BY status", ARRAY_A );
+		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$this->table()} WHERE naming <> 'legacy' GROUP BY status", ARRAY_A );
 
 		return array_map( 'intval', array_column( $rows, 'total', 'status' ) );
 	}
@@ -536,7 +546,7 @@ class VariantRepository {
 		}
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE status = %s AND naming <> 'legacy' AND (" . implode( ' OR ', $where ) . ')', $args ) );
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE status = %s AND naming <> 'legacy' AND (" . implode( ' OR ', $where ) . ')', $args ) );
 	}
 
 	/**
@@ -553,7 +563,7 @@ class VariantRepository {
 
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT COALESCE( SUM( CASE WHEN source_file_size > file_size THEN source_file_size - file_size ELSE 0 END ), 0 ) FROM {$this->table} WHERE status = %s AND naming <> 'legacy' AND format = %s",
+				"SELECT COALESCE( SUM( CASE WHEN source_file_size > file_size THEN source_file_size - file_size ELSE 0 END ), 0 ) FROM {$this->table()} WHERE status = %s AND naming <> 'legacy' AND format = %s",
 				VariantStatus::DONE,
 				$format
 			)
@@ -601,7 +611,7 @@ class VariantRepository {
 		if ( $missing ) {
 			$in   = implode( ', ', array_fill( 0, count( $missing ), '%d' ) );
 			$rows = $wpdb->get_results(
-				$wpdb->prepare( "SELECT * FROM {$this->table} WHERE attachment_id IN ({$in}) ORDER BY id", $missing ),
+				$wpdb->prepare( "SELECT * FROM {$this->table()} WHERE attachment_id IN ({$in}) ORDER BY id", $missing ),
 				ARRAY_A
 			);
 
@@ -662,7 +672,7 @@ class VariantRepository {
 	private function attachment_id_of( $id ) {
 		global $wpdb;
 
-		$attachment_id = $wpdb->get_var( $wpdb->prepare( "SELECT attachment_id FROM {$this->table} WHERE id = %d", (int) $id ) );
+		$attachment_id = $wpdb->get_var( $wpdb->prepare( "SELECT attachment_id FROM {$this->table()} WHERE id = %d", (int) $id ) );
 
 		return null === $attachment_id ? null : (int) $attachment_id;
 	}
