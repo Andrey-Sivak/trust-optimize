@@ -1,0 +1,14 @@
+# Files that are not part of the release archive (git archive).
+/.editorconfig   export-ignore
+/.gitattributes  export-ignore
+/.github         export-ignore
+/.gitignore      export-ignore
+/.husky          export-ignore
+/docs            export-ignore
+/package.json    export-ignore
+/package-lock.json export-ignore
+/phpcs.xml       export-ignore
+/phpunit.xml.dist export-ignore
+/scripts         export-ignore
+/tests           export-ignore
+/tools           export-ignore
