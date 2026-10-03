@@ -7,6 +7,7 @@
 
 namespace TrustOptimize\Admin;
 
+use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Planning\ImageLimits;
 
 /**
@@ -121,12 +122,18 @@ class Settings {
 	}
 
 	/**
-	 * Add default settings.
+	 * Store the defaults of a new install.
+	 *
+	 * AVIF starts on only where the server can write it. Saved settings of an existing site are
+	 * never replaced: add_option() does nothing when the option exists.
+	 *
+	 * @param CapabilityService $capabilities Capability service.
 	 */
-	public function add_default_settings() {
-		if ( ! get_option( 'trust_optimize_options' ) ) {
-			update_option( 'trust_optimize_options', $this->defaults );
-		}
+	public function add_default_settings( CapabilityService $capabilities ) {
+		$defaults                    = $this->defaults;
+		$defaults['convert_to_avif'] = (int) $capabilities->supports( 'avif' );
+
+		add_option( 'trust_optimize_options', $defaults );
 	}
 
 	/**

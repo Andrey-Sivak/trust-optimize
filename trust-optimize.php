@@ -87,10 +87,10 @@ function trust_optimize_activate() {
 	$database_manager->create_tables();
 	update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
 
-	$settings = new Settings();
-	$settings->add_default_settings();
+	$capabilities = new CapabilityService();
+	$capabilities->recheck();
 
-	( new CapabilityService() )->recheck();
+	( new Settings() )->add_default_settings( $capabilities );
 	Lifecycle::activate();
 }
 
