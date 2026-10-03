@@ -163,30 +163,6 @@ class Settings {
 	}
 
 	/**
-	 * Update a setting value.
-	 *
-	 * @param string $key The setting key.
-	 * @param mixed  $value The setting value.
-	 *
-	 * @return bool
-	 */
-	public function update( $key, $value ) {
-		$options         = get_option( 'trust_optimize_options', array() );
-		$options[ $key ] = $value;
-
-		return update_option( 'trust_optimize_options', $options );
-	}
-
-	/**
-	 * Get all settings.
-	 *
-	 * @return array
-	 */
-	public function get_all() {
-		return get_option( 'trust_optimize_options', $this->defaults );
-	}
-
-	/**
 	 * Get default settings.
 	 *
 	 * @return array
