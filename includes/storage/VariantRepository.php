@@ -242,6 +242,15 @@ class VariantRepository {
 	}
 
 	/**
+	 * Load the rows of several attachments with one query at most and keep them in the object cache.
+	 *
+	 * @param int[] $attachment_ids Attachment IDs.
+	 */
+	public function prime( array $attachment_ids ) {
+		$this->load( array_values( array_unique( array_map( 'intval', $attachment_ids ) ) ) );
+	}
+
+	/**
 	 * Variants generated from a given source file.
 	 *
 	 * @param string $source_relative_path Source path relative to uploads.
