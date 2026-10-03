@@ -70,6 +70,13 @@ class Admin {
 	private $statistics;
 
 	/**
+	 * States of the attachments on the current media library page, keyed by ID (empty elsewhere).
+	 *
+	 * @var string[]
+	 */
+	private $states = array();
+
+	/**
 	 * Admin constructor.
 	 *
 	 * @param Settings             $settings     Plugin settings.
@@ -108,6 +115,7 @@ class Admin {
 		// Add optimization status column to Media Library
 		add_filter( 'manage_media_columns', array( $this, 'add_media_columns' ) );
 		add_action( 'manage_media_custom_column', array( $this, 'render_media_column' ), 10, 2 );
+		add_filter( 'the_posts', array( $this, 'prime_media_states' ), 10, 2 );
 	}
 
 	/**
@@ -390,19 +398,12 @@ class Admin {
 			wp_enqueue_script(
 				'trust-optimize-media-status',
 				TRUST_OPTIMIZE_PLUGIN_URL . 'assets/js/media-status.js',
-				array( 'jquery', 'wp-api-fetch' ),
+				array( 'wp-api-fetch' ),
 				TRUST_OPTIMIZE_VERSION,
 				true
 			);
 
-			wp_localize_script(
-				'trust-optimize-media-status',
-				'trustOptimizeMedia',
-				array(
-					'restUrl' => rest_url( 'trust-optimize/v1/' ),
-					'nonce'   => wp_create_nonce( 'wp_rest' ),
-				)
-			);
+			wp_localize_script( 'trust-optimize-media-status', 'trustOptimizeMedia', array( 'states' => $this->get_state_presentation() ) );
 		}
 	}
 
@@ -469,6 +470,76 @@ class Admin {
 	}
 
 	/**
+	 * Load the states of the attachments on the media library page in one query.
+	 *
+	 * @param \WP_Post[] $posts Posts of the query.
+	 * @param \WP_Query  $query The query.
+	 * @return \WP_Post[]
+	 */
+	public function prime_media_states( $posts, $query ) {
+		if ( ! $query->is_main_query() || ! is_admin() || 'upload.php' !== ( $GLOBALS['pagenow'] ?? '' ) ) {
+			return $posts;
+		}
+
+		$this->states = $this->attachments->get_states( wp_list_pluck( (array) $posts, 'ID' ) );
+
+		return $posts;
+	}
+
+	/**
+	 * How each attachment state is shown, for the media column and for its polling script.
+	 *
+	 * @return array[] Label, dashicon classes (empty for none) and colour per AttachmentState.
+	 */
+	private function get_state_presentation() {
+		$waiting = array(
+			'label' => __( 'In progress', 'trust-optimize' ),
+			'icon'  => 'dashicons-update spin',
+			'color' => '#f0b849',
+		);
+
+		return array(
+			AttachmentState::NONE       => array(
+				'label' => __( 'Not processed', 'trust-optimize' ),
+				'icon'  => '',
+				'color' => '',
+			),
+			AttachmentState::SKIPPED    => array(
+				'label' => __( 'Not processed', 'trust-optimize' ),
+				'icon'  => '',
+				'color' => '',
+			),
+			AttachmentState::QUEUED     => $waiting,
+			AttachmentState::PROCESSING => $waiting,
+			AttachmentState::OPTIMIZED  => array(
+				'label' => __( 'Optimized', 'trust-optimize' ),
+				'icon'  => 'dashicons-yes-alt',
+				'color' => '#46b450',
+			),
+			AttachmentState::PARTIAL    => array(
+				'label' => __( 'Partially optimized', 'trust-optimize' ),
+				'icon'  => 'dashicons-warning',
+				'color' => '#dba617',
+			),
+			AttachmentState::FAILED     => array(
+				'label' => __( 'Failed', 'trust-optimize' ),
+				'icon'  => 'dashicons-warning',
+				'color' => '#dc3232',
+			),
+		);
+	}
+
+	/**
+	 * State of an attachment: from the preloaded page when there is one.
+	 *
+	 * @param int $attachment_id Attachment ID.
+	 * @return string AttachmentState.
+	 */
+	private function state_of( $attachment_id ) {
+		return $this->states[ $attachment_id ] ?? $this->attachments->get_state( $attachment_id );
+	}
+
+	/**
 	 * Render the content of the custom media column.
 	 *
 	 * @param string $column_name The column name.
@@ -485,42 +556,24 @@ class Admin {
 			return;
 		}
 
-		$row = $this->attachments->get( $attachment_id );
+		$state        = $this->state_of( $attachment_id );
+		$presentation = $this->get_state_presentation()[ $state ] ?? $this->get_state_presentation()[ AttachmentState::NONE ];
+		$polling      = in_array( $state, array( AttachmentState::QUEUED, AttachmentState::PROCESSING ), true );
 
-		if ( ! $row || in_array( $row['state'], array( AttachmentState::NONE, AttachmentState::SKIPPED ), true ) ) {
-			echo '<span class="trust-optimize-status" data-status="none">' . esc_html__( 'Not processed', 'trust-optimize' ) . '</span>';
-			return;
-		}
+		$class = $polling ? 'trust-optimize-status trust-optimize-polling' : 'trust-optimize-status';
+		$style = '' === $presentation['color'] ? '' : ' style="color:' . esc_attr( $presentation['color'] ) . ';"';
+		$icon  = '' === $presentation['icon'] ? '' : '<span class="dashicons ' . esc_attr( $presentation['icon'] ) . '"></span> ';
 
-		switch ( $row['state'] ) {
-			case AttachmentState::OPTIMIZED:
-				echo '<span class="trust-optimize-status" data-status="completed" style="color:#46b450;">'
-					. '<span class="dashicons dashicons-yes-alt"></span> '
-					. esc_html__( 'Optimized', 'trust-optimize' )
-					. '</span>';
-				break;
-
-			case AttachmentState::QUEUED:
-			case AttachmentState::PROCESSING:
-				$status = AttachmentState::QUEUED === $row['state'] ? 'pending' : 'processing';
-				echo '<span class="trust-optimize-status trust-optimize-polling" data-status="' . esc_attr( $status ) . '" data-attachment-id="' . esc_attr( $attachment_id ) . '" style="color:#f0b849;">'
-					. '<span class="dashicons dashicons-update spin"></span> '
-					. esc_html__( 'In progress', 'trust-optimize' )
-					. '</span>';
-				break;
-
-			case AttachmentState::PARTIAL:
-				echo '<span class="trust-optimize-status" data-status="partial" style="color:#dba617;">'
-					. '<span class="dashicons dashicons-warning"></span> '
-					. esc_html__( 'Partially optimized', 'trust-optimize' )
-					. '</span>';
-				break;
-
-			default:
-				echo '<span class="trust-optimize-status" data-status="failed" style="color:#dc3232;">'
-					. '<span class="dashicons dashicons-warning"></span> '
-					. esc_html__( 'Failed', 'trust-optimize' )
-					. '</span>';
-		}
+		// phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- $style and $icon are escaped above.
+		printf(
+			'<span class="%1$s" data-status="%2$s" data-attachment-id="%3$d"%4$s>%5$s%6$s</span>',
+			esc_attr( $class ),
+			esc_attr( $state ),
+			(int) $attachment_id,
+			$style,
+			$icon,
+			esc_html( $presentation['label'] )
+		);
+		// phpcs:enable
 	}
 }

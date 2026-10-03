@@ -1,119 +1,103 @@
 /**
- * TrustOptimize - Media Library Status Polling
+ * TrustOptimize - Media Library status polling.
  *
- * Polls the REST API for optimization status of images that are
- * currently being processed in the background.
+ * One request per round asks for the state of every attachment that is still queued or
+ * processing. Polling stops when nothing is waiting any more, after 30 minutes, or when a
+ * request fails (for example because the session expired).
  *
  * @package TrustOptimize
  */
-( function( $ ) {
+( function() {
 	'use strict';
 
-	var POLL_INTERVAL = 5000; // 5 seconds
-	var pollingTimer = null;
+	var POLL_INTERVAL = 5000;
+	var MAX_DURATION = 30 * 60 * 1000;
+	var MAX_IDS = 100;
+	var WAITING_SELECTOR = '.trust-optimize-polling';
+	var states = ( window.trustOptimizeMedia && window.trustOptimizeMedia.states ) || {};
+	var timer = null;
+	var startedAt = 0;
 
 	/**
-	 * Find all elements that need status polling.
+	 * Show a state in a status element; a state that is not waiting ends its polling.
 	 *
-	 * @return {jQuery} Collection of polling elements.
+	 * @param {Element} element Status element.
+	 * @param {string}  state   AttachmentState value.
 	 */
-	function getPollingElements() {
-		return $( '.trust-optimize-polling' );
-	}
+	function show( element, state ) {
+		var presentation = states[ state ];
+		var waiting = 'queued' === state || 'processing' === state;
 
-	/**
-	 * Update the status display for a single attachment.
-	 *
-	 * @param {jQuery}  $element     The status element.
-	 * @param {Object}  data         Response data from the REST API.
-	 */
-	function updateStatusDisplay( $element, data ) {
-		if ( data.status === 'completed' ) {
-			$element
-				.removeClass( 'trust-optimize-polling' )
-				.attr( 'data-status', 'completed' )
-				.css( 'color', '#46b450' )
-				.html(
-					'<span class="dashicons dashicons-yes-alt"></span> Optimized'
-				);
-		} else if ( data.status === 'pending' || data.status === 'processing' ) {
-			$element
-				.attr( 'data-status', data.status )
-				.html(
-					'<span class="dashicons dashicons-update spin"></span> ' +
-					data.progress + '%'
-				);
-		} else if ( data.status === 'failed' ) {
-			$element
-				.removeClass( 'trust-optimize-polling' )
-				.attr( 'data-status', 'failed' )
-				.css( 'color', '#dc3232' )
-				.html(
-					'<span class="dashicons dashicons-warning"></span> Failed'
-				);
+		element.setAttribute( 'data-status', state );
+
+		if ( ! waiting ) {
+			element.classList.remove( 'trust-optimize-polling' );
 		}
-	}
 
-	/**
-	 * Poll status for all in-progress items.
-	 */
-	function pollStatuses() {
-		var $items = getPollingElements();
-
-		if ( $items.length === 0 ) {
-			stopPolling();
+		if ( ! presentation ) {
 			return;
 		}
 
-		$items.each( function() {
-			var $el = $( this );
-			var attachmentId = $el.data( 'attachment-id' );
+		element.style.color = presentation.color;
+		element.textContent = '';
 
-			if ( ! attachmentId ) {
-				return;
-			}
+		if ( presentation.icon ) {
+			var icon = document.createElement( 'span' );
+			icon.className = 'dashicons ' + presentation.icon;
+			element.appendChild( icon );
+			element.appendChild( document.createTextNode( ' ' ) );
+		}
 
-			$.ajax( {
-				url: trustOptimizeMedia.restUrl + 'image/' + attachmentId + '/status',
-				method: 'GET',
-				beforeSend: function( xhr ) {
-					xhr.setRequestHeader( 'X-WP-Nonce', trustOptimizeMedia.nonce );
-				},
-				success: function( data ) {
-					updateStatusDisplay( $el, data );
-				}
-			} );
+		element.appendChild( document.createTextNode( presentation.label ) );
+	}
+
+	/**
+	 * Ask for the states of the waiting elements and update them.
+	 */
+	function poll() {
+		var elements = Array.prototype.slice.call( document.querySelectorAll( WAITING_SELECTOR ) );
+
+		if ( 0 === elements.length || Date.now() - startedAt > MAX_DURATION ) {
+			stop();
+			return;
+		}
+
+		var byId = {};
+		elements.forEach( function( element ) {
+			byId[ element.getAttribute( 'data-attachment-id' ) ] = element;
 		} );
-	}
 
-	/**
-	 * Start the polling interval.
-	 */
-	function startPolling() {
-		if ( pollingTimer ) {
-			return;
+		var requests = [];
+		var ids = Object.keys( byId );
+		for ( var i = 0; i < ids.length; i += MAX_IDS ) {
+			requests.push(
+				wp.apiFetch( { path: '/trust-optimize/v1/images/status?ids=' + ids.slice( i, i + MAX_IDS ).join( ',' ) } )
+			);
 		}
 
-		// Run immediately once, then set interval
-		pollStatuses();
-		pollingTimer = setInterval( pollStatuses, POLL_INTERVAL );
+		Promise.all( requests ).then( function( responses ) {
+			responses.forEach( function( response ) {
+				Object.keys( response.states ).forEach( function( id ) {
+					if ( byId[ id ] ) {
+						show( byId[ id ], response.states[ id ] );
+					}
+				} );
+			} );
+		}, stop );
 	}
 
-	/**
-	 * Stop the polling interval.
-	 */
-	function stopPolling() {
-		if ( pollingTimer ) {
-			clearInterval( pollingTimer );
-			pollingTimer = null;
+	function stop() {
+		if ( timer ) {
+			clearInterval( timer );
+			timer = null;
 		}
 	}
 
-	// Initialize when DOM is ready
-	$( function() {
-		if ( getPollingElements().length > 0 ) {
-			startPolling();
+	document.addEventListener( 'DOMContentLoaded', function() {
+		if ( document.querySelector( WAITING_SELECTOR ) ) {
+			startedAt = Date.now();
+			poll();
+			timer = setInterval( poll, POLL_INTERVAL );
 		}
 	} );
-
-} )( jQuery );
+} )();

@@ -14,17 +14,19 @@ use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Bulk\JobProgress;
-use TrustOptimize\Domain\AttachmentState;
-use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Storage\AttachmentRepository;
-use TrustOptimize\Storage\VariantRepository;
 
 /**
  * Class RestController
  */
 class RestController extends WP_REST_Controller {
+
+	/**
+	 * Most attachments one status request may ask about.
+	 */
+	const MAX_STATUS_IDS = 100;
 
 	/**
 	 * Plugin namespace
@@ -46,13 +48,6 @@ class RestController extends WP_REST_Controller {
 	 * @var AttachmentRepository
 	 */
 	private $attachments;
-
-	/**
-	 * Variant repository.
-	 *
-	 * @var VariantRepository
-	 */
-	private $variants;
 
 	/**
 	 * Attachment processor.
@@ -93,16 +88,14 @@ class RestController extends WP_REST_Controller {
 	 * Constructor.
 	 *
 	 * @param AttachmentRepository $attachments Attachment repository.
-	 * @param VariantRepository    $variants    Variant repository.
 	 * @param AttachmentProcessor  $processor   Attachment processor.
 	 * @param ImageCleanupService  $cleanup     Cleanup service.
 	 * @param BulkJobRepository    $jobs        Bulk job repository.
 	 * @param JobProgress          $progress    Bulk job progress.
 	 * @param BulkProducer         $producer    Bulk job producer.
 	 */
-	public function __construct( AttachmentRepository $attachments, VariantRepository $variants, AttachmentProcessor $processor, ImageCleanupService $cleanup, BulkJobRepository $jobs, JobProgress $progress, BulkProducer $producer ) {
+	public function __construct( AttachmentRepository $attachments, AttachmentProcessor $processor, ImageCleanupService $cleanup, BulkJobRepository $jobs, JobProgress $progress, BulkProducer $producer ) {
 		$this->attachments = $attachments;
-		$this->variants    = $variants;
 		$this->processor   = $processor;
 		$this->cleanup     = $cleanup;
 		$this->jobs        = $jobs;
@@ -135,18 +128,20 @@ class RestController extends WP_REST_Controller {
 
 		register_rest_route(
 			$this->namespace,
-			'/image/(?P<id>[\d]+)/status',
+			'/images/status',
 			array(
 				array(
 					'methods'             => WP_REST_Server::READABLE,
-					'callback'            => array( $this, 'get_image_status' ),
-					'permission_callback' => array( $this, 'get_status_permissions_check' ),
+					'callback'            => array( $this, 'get_images_status' ),
+					'permission_callback' => array( $this, 'media_permissions_check' ),
 					'args'                => array(
-						'id' => array(
+						'ids' => array(
 							'required'          => true,
-							'validate_callback' => function ( $param ) {
-								return is_numeric( $param );
-							},
+							'type'              => 'array',
+							'items'             => array( 'type' => 'integer' ),
+							'maxItems'          => self::MAX_STATUS_IDS,
+							'validate_callback' => 'rest_validate_request_arg',
+							'sanitize_callback' => 'wp_parse_id_list',
 						),
 					),
 				),
@@ -239,6 +234,16 @@ class RestController extends WP_REST_Controller {
 	}
 
 	/**
+	 * Check permissions for the media library status endpoint: whoever sees the library may poll it.
+	 *
+	 * @param \WP_REST_Request $request The request object.
+	 * @return bool
+	 */
+	public function media_permissions_check( $request ) {
+		return current_user_can( 'upload_files' );
+	}
+
+	/**
 	 * Check permissions for management endpoints.
 	 *
 	 * @param \WP_REST_Request $request The request object.
@@ -265,56 +270,13 @@ class RestController extends WP_REST_Controller {
 	}
 
 	/**
-	 * Get optimization status for a specific image attachment.
+	 * Optimization state of several attachments; reads only.
 	 *
 	 * @param \WP_REST_Request $request The request object.
-	 * @return \WP_REST_Response|\WP_Error
+	 * @return \WP_REST_Response
 	 */
-	public function get_image_status( $request ) {
-		$attachment_id = (int) $request->get_param( 'id' );
-
-		if ( ! get_post( $attachment_id ) || 'attachment' !== get_post_type( $attachment_id ) ) {
-			return new WP_Error(
-				'trust_optimize_invalid_attachment',
-				__( 'Invalid attachment ID.', 'trust-optimize' ),
-				array( 'status' => 404 )
-			);
-		}
-
-		$row    = $this->attachments->get( $attachment_id );
-		$state  = $row ? $row['state'] : AttachmentState::NONE;
-		$counts = $this->variants->count_by_status( $attachment_id );
-		$total  = array_sum( $counts );
-		$ended  = $total - (int) ( $counts[ VariantStatus::PENDING ] ?? 0 ) - (int) ( $counts[ VariantStatus::PROCESSING ] ?? 0 );
-
-		return rest_ensure_response(
-			array(
-				'attachment_id'   => $attachment_id,
-				'state'           => $state,
-				'status'          => $this->legacy_status( $state ),
-				'total_tasks'     => $total,
-				'completed_tasks' => $ended,
-				'progress'        => $total > 0 ? (int) round( ( $ended / $total ) * 100 ) : ( AttachmentState::NONE === $state ? 0 : 100 ),
-			)
-		);
-	}
-
-	/**
-	 * Status vocabulary of the media-library polling script.
-	 *
-	 * @param string $state AttachmentState constant.
-	 * @return string
-	 */
-	private function legacy_status( $state ) {
-		$map = array(
-			AttachmentState::OPTIMIZED  => 'completed',
-			AttachmentState::QUEUED     => 'pending',
-			AttachmentState::PROCESSING => 'processing',
-			AttachmentState::PARTIAL    => 'failed',
-			AttachmentState::FAILED     => 'failed',
-		);
-
-		return $map[ $state ] ?? $state;
+	public function get_images_status( $request ) {
+		return rest_ensure_response( array( 'states' => $this->attachments->get_states( $request->get_param( 'ids' ) ) ) );
 	}
 
 	/**

@@ -119,6 +119,34 @@ class AttachmentRepository {
 	}
 
 	/**
+	 * States of several attachments in one query.
+	 *
+	 * @param int[] $attachment_ids Attachment IDs.
+	 * @return string[] AttachmentState keyed by attachment ID; attachments without a row are NONE.
+	 */
+	public function get_states( array $attachment_ids ) {
+		global $wpdb;
+
+		$ids    = array_values( array_unique( array_filter( array_map( 'intval', $attachment_ids ) ) ) );
+		$states = array_fill_keys( $ids, AttachmentState::NONE );
+
+		if ( empty( $ids ) ) {
+			return $states;
+		}
+
+		$rows = $wpdb->get_results(
+			$wpdb->prepare( "SELECT attachment_id, state FROM {$this->table} WHERE attachment_id IN (" . implode( ', ', array_fill( 0, count( $ids ), '%d' ) ) . ')', $ids ), // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+			ARRAY_A
+		);
+
+		foreach ( $rows as $row ) {
+			$states[ (int) $row['attachment_id'] ] = $row['state'];
+		}
+
+		return $states;
+	}
+
+	/**
 	 * Failed attempts of an attachment.
 	 *
 	 * @param int $attachment_id Attachment ID.

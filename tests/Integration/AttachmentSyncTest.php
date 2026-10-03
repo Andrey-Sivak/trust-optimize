@@ -105,20 +105,6 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 		$this->assertSame( 'unsupported_mime', $result->get_message() );
 	}
 
-	public function test_rest_image_status_reports_state_and_progress() {
-		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
-		$id = $this->upload();
-		$this->processor()->sync( $id );
-
-		$response = rest_do_request( new WP_REST_Request( 'GET', "/trust-optimize/v1/image/{$id}/status" ) );
-		$data     = $response->get_data();
-
-		$this->assertSame( 200, $response->get_status() );
-		$this->assertSame( AttachmentState::OPTIMIZED, $data['state'] );
-		$this->assertSame( 'completed', $data['status'] );
-		$this->assertSame( 100, $data['progress'] );
-	}
-
 	public function test_media_column_renders_the_state() {
 		$id = $this->upload();
 		$this->processor()->sync( $id );
@@ -127,6 +113,6 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 		Plugin::get_instance()->admin->render_media_column( 'trust_optimize_status', $id );
 		$html = ob_get_clean();
 
-		$this->assertStringContainsString( 'data-status="completed"', $html );
+		$this->assertStringContainsString( 'data-status="optimized"', $html );
 	}
 }

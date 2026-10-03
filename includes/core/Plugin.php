@@ -156,7 +156,7 @@ class Plugin {
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
 		$statistics             = new Statistics( $this->inventory, $variants );
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics );
-		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
+		$this->rest_controller  = new RestController( $attachments, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
 		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
 		$migration      = new MigrationRunner(
