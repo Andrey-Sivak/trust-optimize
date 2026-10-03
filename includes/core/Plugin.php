@@ -35,6 +35,7 @@ use TrustOptimize\Migration\StripAttachmentMetadata;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
+use TrustOptimize\Queue\Lifecycle;
 use TrustOptimize\Queue\Maintenance;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Service\LegacyPathGuard;
@@ -171,6 +172,7 @@ class Plugin {
 			$this->cleanup,
 			$this->conversion_queue,
 			new Maintenance( $attachments, $this->conversion_queue ),
+			new Lifecycle( $attachments, $this->conversion_queue ),
 			new SiteHealth( $capabilities ),
 			$legacy_runtime,
 			$this->bulk_producer,

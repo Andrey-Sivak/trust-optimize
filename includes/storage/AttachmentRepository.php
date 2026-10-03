@@ -292,6 +292,50 @@ class AttachmentRepository {
 	}
 
 	/**
+	 * Give up the claim on queued and processing attachments, remembering why (the queue was emptied).
+	 *
+	 * @param string $reason Reason stored with the state "none".
+	 * @return int Number of attachments suspended.
+	 */
+	public function suspend_unfinished( $reason ) {
+		global $wpdb;
+
+		return (int) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->table} SET state = %s, reason = %s, updated_at = %s WHERE state IN (%s, %s)",
+				AttachmentState::NONE,
+				$reason,
+				current_time( 'mysql', true ),
+				AttachmentState::QUEUED,
+				AttachmentState::PROCESSING
+			)
+		);
+	}
+
+	/**
+	 * Attachments suspended for a reason.
+	 *
+	 * @param string $reason Reason given to suspend_unfinished().
+	 * @param int    $limit  Maximum number of IDs.
+	 * @return int[]
+	 */
+	public function find_suspended( $reason, $limit ) {
+		global $wpdb;
+
+		return array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT attachment_id FROM {$this->table} WHERE state = %s AND reason = %s ORDER BY attachment_id ASC LIMIT %d",
+					AttachmentState::NONE,
+					$reason,
+					(int) $limit
+				)
+			)
+		);
+	}
+
+	/**
 	 * Mark a stuck attachment as queued again (compare-and-set on its state and age).
 	 *
 	 * @param int $attachment_id Attachment ID.

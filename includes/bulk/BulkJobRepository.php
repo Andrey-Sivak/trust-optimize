@@ -299,6 +299,29 @@ class BulkJobRepository {
 	}
 
 	/**
+	 * Pause every job that is not paused or finished (the plugin is being deactivated).
+	 *
+	 * @param string $reason Stored as the last error.
+	 * @return int Number of jobs paused.
+	 */
+	public function pause_unfinished( $reason ) {
+		global $wpdb;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		return (int) $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$this->get_table_name()} SET status = %s, last_error = %s, updated_at = %s WHERE status IN (%s, %s)",
+				JobStatus::PAUSED,
+				$reason,
+				current_time( 'mysql' ),
+				JobStatus::PENDING,
+				JobStatus::RUNNING
+			)
+		);
+		// phpcs:enable
+	}
+
+	/**
 	 * Cancel a job.
 	 *
 	 * @param int $job_id Job ID.
