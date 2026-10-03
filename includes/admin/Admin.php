@@ -79,6 +79,7 @@ class Admin {
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_post_trust_optimize_recheck_capabilities', array( $this, 'handle_recheck_capabilities' ) );
+		add_action( 'admin_post_trust_optimize_reset', array( $this, 'handle_reset' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_scripts' ) );
 
 		// Add plugin action links
@@ -284,15 +285,44 @@ class Admin {
 	 * Re-detect the supported formats and return to the settings page.
 	 */
 	public function handle_recheck_capabilities() {
-		check_admin_referer( 'trust_optimize_recheck_capabilities' );
+		$this->authorize( 'trust_optimize_recheck_capabilities' );
+
+		$this->capabilities->recheck();
+
+		$this->redirect_to_settings( 'rechecked' );
+	}
+
+	/**
+	 * Restore the default settings and return to the settings page.
+	 */
+	public function handle_reset() {
+		$this->authorize( 'trust_optimize_reset' );
+
+		$this->settings->reset();
+
+		$this->redirect_to_settings( 'reset' );
+	}
+
+	/**
+	 * Check the nonce and the capability of an admin-post request.
+	 *
+	 * @param string $action Nonce action.
+	 */
+	private function authorize( $action ) {
+		check_admin_referer( $action );
 
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You are not allowed to do this.', 'trust-optimize' ), '', array( 'response' => 403 ) );
 		}
+	}
 
-		$this->capabilities->recheck();
-
-		wp_safe_redirect( admin_url( 'admin.php?page=trust-optimize-settings&trust_optimize_notice=rechecked' ) );
+	/**
+	 * Go back to the settings page with a notice.
+	 *
+	 * @param string $notice Notice key, see templates/admin/settings-page.php.
+	 */
+	private function redirect_to_settings( $notice ) {
+		wp_safe_redirect( admin_url( 'admin.php?page=trust-optimize-settings&trust_optimize_notice=' . $notice ) );
 		exit;
 	}
 
@@ -326,6 +356,7 @@ class Admin {
 					'restUrl' => rest_url( 'trust-optimize/v1/' ),
 					'nonce'   => wp_create_nonce( 'wp_rest' ),
 					'i18n'    => array(
+						'confirmReset'  => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
 						'confirmRemove' => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
 						'confirmCancel' => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
 					),

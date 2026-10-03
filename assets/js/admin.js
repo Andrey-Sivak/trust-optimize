@@ -29,7 +29,7 @@
 
 			$('#trust-optimize-reset-settings').on('click', function(e) {
 				e.preventDefault();
-				if (window.confirm('Are you sure you want to reset all settings to defaults?')) {
+				if (window.confirm(window.trustOptimizeAdmin.i18n.confirmReset)) {
 					$('#trust-optimize-reset-form').submit();
 				}
 			});

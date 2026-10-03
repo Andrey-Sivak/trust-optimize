@@ -16,8 +16,15 @@ if ( ! defined( 'WPINC' ) ) {
 
 	<?php settings_errors(); ?>
 
-	<?php if ( isset( $_GET['trust_optimize_notice'] ) && 'rechecked' === $_GET['trust_optimize_notice'] ) : // phpcs:ignore WordPress.Security.NonceVerification.Recommended ?>
-		<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Format support was checked again.', 'trust-optimize' ); ?></p></div>
+	<?php
+	$trust_optimize_notices = array(
+		'rechecked' => __( 'Format support was checked again.', 'trust-optimize' ),
+		'reset'     => __( 'Settings were reset to defaults.', 'trust-optimize' ),
+	);
+	$trust_optimize_notice  = isset( $_GET['trust_optimize_notice'] ) ? sanitize_key( wp_unslash( $_GET['trust_optimize_notice'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	if ( isset( $trust_optimize_notices[ $trust_optimize_notice ] ) ) :
+		?>
+		<div class="notice notice-success is-dismissible"><p><?php echo esc_html( $trust_optimize_notices[ $trust_optimize_notice ] ); ?></p></div>
 	<?php endif; ?>
 
 	<div class="trust-optimize-settings-container">
@@ -50,9 +57,9 @@ if ( ! defined( 'WPINC' ) ) {
 		</form>
 
 		<!-- Reset Settings Form -->
-		<form method="post" action="options.php" id="trust-optimize-reset-form" style="display:none;">
-			<input type="hidden" name="trust_optimize_reset_settings" value="1">
-			<?php wp_nonce_field( 'trust_optimize_reset_nonce', 'trust_optimize_reset_nonce' ); ?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" id="trust-optimize-reset-form" style="display:none;">
+			<input type="hidden" name="action" value="trust_optimize_reset">
+			<?php wp_nonce_field( 'trust_optimize_reset' ); ?>
 		</form>
 
 		<p>
