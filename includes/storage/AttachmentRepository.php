@@ -335,6 +335,19 @@ class AttachmentRepository {
 	}
 
 	/**
+	 * Number of attachments per state, over the whole library.
+	 *
+	 * @return int[] Counts keyed by AttachmentState; states without attachments are absent.
+	 */
+	public function count_states() {
+		global $wpdb;
+
+		$rows = $wpdb->get_results( "SELECT state, COUNT(*) AS total FROM {$this->table} GROUP BY state", ARRAY_A );
+
+		return array_map( 'intval', array_column( $rows, 'total', 'state' ) );
+	}
+
+	/**
 	 * Number of attachments of a job per state.
 	 *
 	 * @param int $job_id Job ID.

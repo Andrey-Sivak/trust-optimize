@@ -283,11 +283,10 @@ $trust_optimize_smoke = new class() {
 	 * @param int $attachment_id Attachment ID.
 	 */
 	private function check_missing_source_file( $attachment_id ) {
-		$result  = Plugin::get_instance()->processor->sync( $attachment_id );
-		$reasons = array_unique( array_column( $this->variants()->get_for_attachment( $attachment_id ), 'reason' ) );
+		$result = Plugin::get_instance()->processor->sync( $attachment_id );
 
-		if ( ! $result->is_failed() || array( 'missing_file' ) !== $reasons ) {
-			throw new Exception( 'Missing source file was not reported as failed missing_file: ' . wp_json_encode( $result->to_array() ) );
+		if ( ! $result->is_skipped() || 'missing_file' !== $result->get_message() || array() !== $this->variants()->get_for_attachment( $attachment_id ) ) {
+			throw new Exception( 'Missing source file was not skipped as missing_file: ' . wp_json_encode( $result->to_array() ) );
 		}
 
 		$this->pass( 'Missing source file is reported explicitly.' );
@@ -349,7 +348,7 @@ $trust_optimize_smoke = new class() {
 		);
 
 		try {
-			$inventory = Plugin::get_instance()->planner->inventory( $attachment_id );
+			$inventory = Plugin::get_instance()->inventory->summary();
 			$plan      = Plugin::get_instance()->planner->plan( $attachment_id );
 		} finally {
 			false === $stored ? delete_option( CapabilityService::OPTION ) : update_option( CapabilityService::OPTION, $stored );

@@ -48,10 +48,6 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 		return Plugin::get_instance()->processor;
 	}
 
-	private function planner() {
-		return Plugin::get_instance()->planner;
-	}
-
 	private function upload() {
 		$id = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
 		// Start from a clean slate: the upload hook has already planned and queued it.
@@ -107,45 +103,6 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 
 		$this->assertTrue( $result->is_skipped() );
 		$this->assertSame( 'unsupported_mime', $result->get_message() );
-	}
-
-	public function test_inventory_estimates_without_changing_anything() {
-		$id = $this->upload();
-
-		$before = $this->planner()->inventory( $id );
-
-		$this->assertTrue( $before['eligible'] );
-		$this->assertGreaterThan( 0, $before['estimated_variants_to_create'] );
-		$this->assertFalse( $before['already_optimized'] );
-		$this->assertSame( array(), $this->variants->get_for_attachment( $id ), 'Inventory must not write rows.' );
-
-		$this->processor()->sync( $id );
-		$after = $this->planner()->inventory( $id );
-
-		$this->assertTrue( $after['already_optimized'] );
-		$this->assertSame( 0, $after['estimated_variants_to_create'] );
-	}
-
-	public function test_inventory_reports_unsupported_mime_and_missing_files() {
-		$webp = self::factory()->attachment->create(
-			array(
-				'post_mime_type' => 'image/webp',
-				'file'           => '2026/05/source.webp',
-			)
-		);
-		$this->assertSame( 'image/webp', $this->planner()->inventory( $webp )['unsupported_mime_type'] );
-
-		$id = $this->upload();
-		unlink( get_attached_file( $id ) );
-		$this->assertTrue( $this->planner()->inventory( $id )['missing_source_file'] );
-	}
-
-	public function test_inventory_lists_enabled_but_unsupported_formats() {
-		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 1 ) );
-		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
-		$id = $this->upload();
-
-		$this->assertSame( array( 'avif' ), $this->planner()->inventory( $id )['unsupported_output_formats'] );
 	}
 
 	public function test_rest_image_status_reports_state_and_progress() {

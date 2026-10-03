@@ -106,6 +106,13 @@ class BulkProducer {
 	private $cleanup;
 
 	/**
+	 * Inventory.
+	 *
+	 * @var Inventory
+	 */
+	private $inventory;
+
+	/**
 	 * Plugin settings.
 	 *
 	 * @var Settings
@@ -125,19 +132,21 @@ class BulkProducer {
 	 * @param BulkJobRepository    $jobs         Job repository.
 	 * @param EligibilityQuery     $eligibility  Eligibility query.
 	 * @param JobProgress          $progress     Job progress.
-	 * @param AttachmentRepository $attachments Attachment repository.
+	 * @param AttachmentRepository $attachments  Attachment repository.
 	 * @param ConversionQueue      $queue        Conversion queue.
 	 * @param ImageCleanupService  $cleanup      Cleanup service.
+	 * @param Inventory            $inventory    Inventory.
 	 * @param Settings             $settings     Plugin settings.
 	 * @param CapabilityService    $capabilities Capability service.
 	 */
-	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, JobProgress $progress, AttachmentRepository $attachments, ConversionQueue $queue, ImageCleanupService $cleanup, Settings $settings, CapabilityService $capabilities ) {
+	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, JobProgress $progress, AttachmentRepository $attachments, ConversionQueue $queue, ImageCleanupService $cleanup, Inventory $inventory, Settings $settings, CapabilityService $capabilities ) {
 		$this->jobs         = $jobs;
 		$this->eligibility  = $eligibility;
 		$this->progress     = $progress;
 		$this->attachments  = $attachments;
 		$this->queue        = $queue;
 		$this->cleanup      = $cleanup;
+		$this->inventory    = $inventory;
 		$this->settings     = $settings;
 		$this->capabilities = $capabilities;
 	}
@@ -265,6 +274,10 @@ class BulkProducer {
 			}
 		}
 
+		if ( BulkJob::TYPE_INVENTORY === $job->get_type() ) {
+			$this->record_inspection( $job, array_slice( $ids, 0, $handled ) );
+		}
+
 		$job = $this->jobs->get( $job->get_id() );
 
 		// The job may have been paused or cancelled meanwhile.
@@ -349,7 +362,27 @@ class BulkProducer {
 			return;
 		}
 
+		if ( BulkJob::TYPE_INVENTORY === $job->get_type() ) {
+			$this->jobs->merge_snapshot( $job->get_id(), 'inventory', $this->inventory->summary() );
+		}
+
 		$this->jobs->complete( $job->get_id(), $this->progress->has_errors( $job ) );
+	}
+
+	/**
+	 * Add what the inventory found in a batch to the totals stored with the job.
+	 *
+	 * @param BulkJob $job Inventory job.
+	 * @param int[]   $ids Attachment IDs of the batch.
+	 */
+	private function record_inspection( BulkJob $job, array $ids ) {
+		$totals = $job->get_settings_snapshot()['inventory'] ?? array();
+
+		foreach ( $this->inventory->inspect( $ids ) as $key => $count ) {
+			$totals[ $key ] = (int) ( $totals[ $key ] ?? 0 ) + $count;
+		}
+
+		$this->jobs->merge_snapshot( $job->get_id(), 'inventory', $totals );
 	}
 
 	/**

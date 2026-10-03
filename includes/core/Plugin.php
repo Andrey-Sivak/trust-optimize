@@ -13,6 +13,7 @@ use TrustOptimize\API\RestController;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Bulk\EligibilityQuery;
+use TrustOptimize\Bulk\Inventory;
 use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\CLI\Command;
@@ -91,6 +92,13 @@ class Plugin {
 	public $conversion_queue;
 
 	/**
+	 * Library inventory.
+	 *
+	 * @var Inventory
+	 */
+	public $inventory;
+
+	/**
 	 * Bulk job producer.
 	 *
 	 * @var BulkProducer
@@ -136,7 +144,8 @@ class Plugin {
 		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
-		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $settings, $capabilities );
+		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
+		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 

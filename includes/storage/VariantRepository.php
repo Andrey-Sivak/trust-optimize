@@ -9,6 +9,7 @@ namespace TrustOptimize\Storage;
 
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Settings\OptimizationSettings;
 
 // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL, WordPress.DB.PreparedSQLPlaceholders -- Repository over plugin tables: table names come from DatabaseManager, column lists are internal constants and every value is bound through $wpdb->prepare().
 
@@ -441,6 +442,53 @@ class VariantRepository {
 		return (int) $wpdb->get_var(
 			$wpdb->prepare( "SELECT COUNT(DISTINCT attachment_id) FROM {$this->table} WHERE attachment_id > %d", (int) $after_id )
 		);
+	}
+
+	/**
+	 * Number of variants of schema 2.0 per status, over the whole library.
+	 *
+	 * @return int[] Counts keyed by VariantStatus.
+	 */
+	public function count_all_by_status() {
+		global $wpdb;
+
+		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$this->table} WHERE naming <> 'legacy' GROUP BY status", ARRAY_A );
+
+		return array_map( 'intval', array_column( $rows, 'total', 'status' ) );
+	}
+
+	/**
+	 * Number of finished variants that no longer match the settings.
+	 *
+	 * A variant is outdated when its format is switched off or, for a format that can be
+	 * created here, when it was encoded with another quality (the rule of
+	 * OptimizationSettings::is_stale(), evaluated by the database).
+	 *
+	 * @param OptimizationSettings $settings Current settings.
+	 * @return int
+	 */
+	public function count_outdated( OptimizationSettings $settings ) {
+		global $wpdb;
+
+		$enabled = $settings->enabled_formats();
+		$where   = array();
+		$args    = array( VariantStatus::DONE );
+
+		if ( $enabled ) {
+			$where[] = 'format NOT IN (' . implode( ', ', array_fill( 0, count( $enabled ), '%s' ) ) . ')';
+			$args    = array_merge( $args, $enabled );
+		} else {
+			$where[] = '1 = 1';
+		}
+
+		foreach ( $settings->plannable_formats() as $format ) {
+			$where[] = '(format = %s AND quality <> %d)';
+			$args[]  = $format;
+			$args[]  = $settings->quality_for( $format );
+		}
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE status = %s AND naming <> 'legacy' AND (" . implode( ' OR ', $where ) . ')', $args ) );
 	}
 
 	/**

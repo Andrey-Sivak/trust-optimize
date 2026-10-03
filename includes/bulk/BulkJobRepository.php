@@ -358,6 +358,27 @@ class BulkJobRepository {
 	}
 
 	/**
+	 * Merge values into one section of the stored snapshot (the inventory result).
+	 *
+	 * @param int    $job_id Job ID.
+	 * @param string $key    Snapshot section.
+	 * @param array  $values Values to set in it.
+	 * @return bool
+	 */
+	public function merge_snapshot( $job_id, $key, array $values ) {
+		$job = $this->get( $job_id );
+
+		if ( ! $job ) {
+			return false;
+		}
+
+		$snapshot         = $job->get_settings_snapshot();
+		$snapshot[ $key ] = array_merge( (array) ( $snapshot[ $key ] ?? array() ), $values );
+
+		return $this->update( $job_id, array( 'settings_snapshot' => wp_json_encode( $snapshot ) ) );
+	}
+
+	/**
 	 * Close the active jobs of schema 1.x: their tick runner no longer exists.
 	 *
 	 * Jobs of 2.0 always store the settings they were created with; those of 1.x stored none.

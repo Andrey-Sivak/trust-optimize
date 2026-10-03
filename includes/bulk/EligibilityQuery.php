@@ -61,6 +61,30 @@ class EligibilityQuery {
 	}
 
 	/**
+	 * Number of image attachments per MIME type.
+	 *
+	 * @return int[] Counts keyed by MIME type.
+	 */
+	public function count_images_by_mime() {
+		global $wpdb;
+
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT post_mime_type, COUNT(1) AS total FROM {$wpdb->posts}
+				WHERE post_type = %s AND post_mime_type LIKE %s
+				GROUP BY post_mime_type",
+				'attachment',
+				'image/%'
+			),
+			ARRAY_A
+		);
+		// phpcs:enable
+
+		return array_map( 'intval', array_column( $rows, 'total', 'post_mime_type' ) );
+	}
+
+	/**
 	 * Count convertible image attachments (JPEG and PNG) after the cursor.
 	 *
 	 * @param int $after_id Count only attachments with a greater ID.
