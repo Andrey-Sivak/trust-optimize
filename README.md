@@ -35,6 +35,8 @@ Run the Action Scheduler queue from the system cron on production sites. On a mu
 
 Make a backup of `uploads/` and the database before updating from 1.x.
 
+Uninstall on a large multisite network: the web request cleans every site with a limited amount of work per site. When it is interrupted, the sites that were not reached keep all their data (nothing is deleted half-way), so delete the plugin again. For large networks run `wp plugin uninstall trust-optimize --deactivate` from the command line and repeat it if interrupted. The options `trust_optimize_pending_cleanup` and `trust_optimize_uninstall_conflicts` that may remain are explained in [readme.txt](readme.txt).
+
 ## Structure
 
 - `includes/` – plugin classes, one folder per concern (`core` is the composition root)

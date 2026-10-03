@@ -104,6 +104,16 @@ If the removal of the files could not be finished in one request, the tables and
 
 The option `trust_optimize_uninstall_conflicts` is written when files were left untouched on purpose (they belong to another attachment or lie outside the uploads directory); it lists them. Delete the option after you have looked at the files: `wp option delete trust_optimize_uninstall_conflicts`.
 
+= Uninstall on a large multisite network =
+
+Deleting the plugin from the network admin cleans up every site in one web request, with a limited amount of work per site. If the request is interrupted (for example by a time limit), the sites that were not reached keep all their data, and nothing is deleted half-way: a site's tables and options are dropped only after its generated files are gone. Delete the plugin again to continue.
+
+On a large network run the removal from the command line, where a web request's time limit does not apply, and repeat the command if it was interrupted:
+
+`wp plugin uninstall trust-optimize --deactivate`
+
+Sites without the setting "Remove data on uninstall" are left untouched. If `trust_optimize_pending_cleanup` or `trust_optimize_uninstall_conflicts` remain on a site afterwards, see "What happens on uninstall?" above.
+
 = Settings =
 
 * Serve optimized images (on by default): the `<picture>` delivery.
