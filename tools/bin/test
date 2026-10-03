@@ -9,7 +9,7 @@ usage() { echo "Usage: $0 <unit|integration> <8.0|8.4> [wp-version|latest]" >&2;
 case "$suite" in unit|integration) ;; *) usage ;; esac
 case "$php" in 8.0) service=tools-php80 ;; 8.4) service=tools-php84 ;; *) usage ;; esac
 
-exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSION=$wp_version" "$service" sh -c '
+exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSION=$wp_version" -e COMPOSER_PROCESS_TIMEOUT=0 "$service" sh -c '
   set -eu
   if [ ! -x vendor/bin/phpunit ]; then echo "phpunit is not installed: run tools/bin/composer install" >&2; exit 1; fi
   if [ "$TO_SUITE" = unit ]; then exec composer test:unit; fi
