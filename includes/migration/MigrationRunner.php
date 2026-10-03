@@ -90,7 +90,6 @@ class MigrationRunner {
 	public function register() {
 		add_action( self::ACTION_SCHEMA_UPGRADED, array( $this, 'maybe_start' ), 10, 2 );
 		add_action( self::HOOK_MIGRATE, array( $this, 'run_scheduled' ) );
-		add_action( 'admin_notices', array( $this, 'render_notice' ) );
 	}
 
 	/**
@@ -254,29 +253,6 @@ class MigrationRunner {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( self::HOOK_MIGRATE, array(), self::GROUP );
 		}
-	}
-
-	/**
-	 * Show the migration progress to administrators.
-	 */
-	public function render_notice() {
-		if ( ! current_user_can( 'manage_options' ) || ! $this->is_running() ) {
-			return;
-		}
-
-		list( $position, $total ) = $this->get_progress();
-
-		printf(
-			'<div class="notice notice-info"><p>%s</p></div>',
-			esc_html(
-				sprintf(
-					/* translators: 1: current migration step, 2: number of steps. */
-					__( 'TrustOptimize is migrating data from the previous version in the background (step %1$d of %2$d). Optimized images keep being served meanwhile.', 'trust-optimize' ),
-					$position,
-					$total
-				)
-			)
-		);
 	}
 
 	/**

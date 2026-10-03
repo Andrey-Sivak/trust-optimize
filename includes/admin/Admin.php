@@ -9,7 +9,9 @@ namespace TrustOptimize\Admin;
 
 use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
+use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -77,6 +79,13 @@ class Admin {
 	private $states = array();
 
 	/**
+	 * Site Health tests.
+	 *
+	 * @var SiteHealth
+	 */
+	private $health;
+
+	/**
 	 * Admin constructor.
 	 *
 	 * @param Settings             $settings     Plugin settings.
@@ -86,8 +95,9 @@ class Admin {
 	 * @param ConflictReport       $conflicts    Conflict report.
 	 * @param VariantRepository    $variants     Variant repository.
 	 * @param Statistics           $statistics   Statistics.
+	 * @param SiteHealth           $health       Site Health tests.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants, Statistics $statistics ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants, Statistics $statistics, SiteHealth $health ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
@@ -95,6 +105,7 @@ class Admin {
 		$this->conflicts    = $conflicts;
 		$this->variants     = $variants;
 		$this->statistics   = $statistics;
+		$this->health       = $health;
 	}
 
 	/**
@@ -151,6 +162,8 @@ class Admin {
 		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
 		$trust_optimize_conflicts      = array_values( $this->conflicts->all() );
 		$trust_optimize_stats          = $this->statistics->get();
+		$trust_optimize_overdue        = $this->health->test_overdue_tasks();
+		$trust_optimize_max_pending    = BulkProducer::max_pending();
 
 		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}
@@ -385,6 +398,7 @@ class Admin {
 					'restUrl' => rest_url( 'trust-optimize/v1/' ),
 					'nonce'   => wp_create_nonce( 'wp_rest' ),
 					'i18n'    => array(
+						'finishing'     => __( 'Finishing…', 'trust-optimize' ),
 						'confirmReset'  => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
 						'confirmRemove' => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
 						'confirmCancel' => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),

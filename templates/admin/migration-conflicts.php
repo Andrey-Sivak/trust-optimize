@@ -50,7 +50,7 @@ if ( empty( $trust_optimize_conflicts ) ) {
 								array( 'a' => array( 'href' => array() ) )
 							);
 						} else {
-							esc_html_e( 'another variant', 'trust-optimize' );
+							echo esc_html( 'hash_mismatch' === $trust_optimize_conflict['source'] ? __( 'the 1.x file was changed after the upgrade; it was not deleted and is not served', 'trust-optimize' ) : __( 'another variant', 'trust-optimize' ) );
 						}
 						?>
 					</td>

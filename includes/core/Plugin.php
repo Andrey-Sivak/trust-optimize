@@ -9,6 +9,7 @@ namespace TrustOptimize\Core;
 
 use TrustOptimize\Admin\Admin;
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Admin\Notices;
 use TrustOptimize\Admin\Statistics;
 use TrustOptimize\API\RestController;
 use TrustOptimize\Bulk\BulkJobRepository;
@@ -155,7 +156,8 @@ class Plugin {
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
 		$statistics             = new Statistics( $this->inventory, $variants );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics );
+		$health                 = new SiteHealth( $capabilities );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics, $health );
 		$this->rest_controller  = new RestController( $attachments, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
 		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
@@ -183,11 +185,12 @@ class Plugin {
 			$this->conversion_queue,
 			new Maintenance( $attachments, $this->conversion_queue ),
 			new Lifecycle( $attachments, $this->conversion_queue ),
-			new SiteHealth( $capabilities ),
+			$health,
 			$legacy_runtime,
 			$this->bulk_producer,
 			$statistics,
 			$this->admin,
+			new Notices( $migration, $conflicts, $jobs, $this->bulk_producer, $capabilities ),
 			$this->rest_controller,
 		) as $component ) {
 			$component->register();

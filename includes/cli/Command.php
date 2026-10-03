@@ -453,7 +453,13 @@ class Command {
 
 		$this->producer->$action( $job->get_id() );
 
-		\WP_CLI::success( sprintf( 'Job #%d %s requested.', $job->get_id(), $action ) );
+		$message = sprintf( 'Job #%d %s requested.', $job->get_id(), $action );
+
+		if ( in_array( $action, array( 'pause', 'cancel' ), true ) ) {
+			$message .= sprintf( ' Attachments already queued (up to %d) will still be processed.', BulkProducer::max_pending() );
+		}
+
+		\WP_CLI::success( $message );
 	}
 
 	/**

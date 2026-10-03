@@ -60,6 +60,24 @@ class CapabilityService {
 	}
 
 	/**
+	 * Formats that a failed conversion switched off in this environment.
+	 *
+	 * @return array[] Note keyed by format: reason, env and at (UTC).
+	 */
+	public function downgrades() {
+		$stored = get_option( self::OPTION );
+		$notes  = is_array( $stored ) ? (array) ( $stored['downgraded'] ?? array() ) : array();
+
+		if ( empty( $notes ) ) {
+			return array();
+		}
+
+		$env = $this->fingerprint();
+
+		return array_filter( $notes, static fn( $note ) => $note['env'] === $env );
+	}
+
+	/**
 	 * Recompute and store support for every format.
 	 *
 	 * @return array Stored value.

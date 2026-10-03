@@ -51,7 +51,7 @@ class JobProgress {
 	 * @return array
 	 */
 	public function describe( BulkJob $job ) {
-		return array_merge( $job->to_array(), $this->counters( $job ) );
+		return array_merge( $job->to_array(), $this->counters( $job ), array( 'in_flight' => $this->in_flight( $job ) ) );
 	}
 
 	/**

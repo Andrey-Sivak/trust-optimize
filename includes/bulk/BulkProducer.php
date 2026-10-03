@@ -295,6 +295,15 @@ class BulkProducer {
 	}
 
 	/**
+	 * Most conversion tasks the producer leaves waiting on the queue.
+	 *
+	 * @return int
+	 */
+	public static function max_pending() {
+		return max( 1, (int) apply_filters( 'trust_optimize_bulk_max_pending', self::DEFAULT_MAX_PENDING ) );
+	}
+
+	/**
 	 * Number of attachments per run.
 	 *
 	 * @return int
@@ -395,7 +404,7 @@ class BulkProducer {
 			return false;
 		}
 
-		$max = max( 1, (int) apply_filters( 'trust_optimize_bulk_max_pending', self::DEFAULT_MAX_PENDING ) );
+		$max = self::max_pending();
 
 		return count(
 			as_get_scheduled_actions(

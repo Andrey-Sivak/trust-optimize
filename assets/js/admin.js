@@ -139,7 +139,10 @@
 			var processed = parseInt(job.processed, 10) || 0;
 			var progress = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
 
-			this.setStatusText('Job #' + job.id + ' — ' + job.status + ' — ' + progress + '%');
+			var finishing = 'running' === job.status && 0 === parseInt(job.in_flight, 10) && processed > 0 && processed >= total;
+			var i18n = (window.trustOptimizeAdmin && window.trustOptimizeAdmin.i18n) || {};
+
+			this.setStatusText('Job #' + job.id + ' — ' + job.status + ' — ' + (finishing ? i18n.finishing : progress + '%'));
 			this.updateProgress(progress);
 			this.updateCounters(job);
 			this.schedulePolling('pending' === job.status || 'running' === job.status);

@@ -10,7 +10,7 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, conflicts and stats, all prefixed with trust_optimize_.
+// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, conflicts, stats, overdue (Site Health result) and max_pending, all prefixed with trust_optimize_.
 $trust_optimize_upload_dir       = wp_upload_dir();
 $trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
 $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
@@ -100,6 +100,13 @@ $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'
 					<p><?php esc_html_e( 'Run resumable bulk jobs for existing image attachments. Opening this page does not start processing.', 'trust-optimize' ); ?></p>
 
 					<div class="trust-optimize-bulk-panel">
+						<?php if ( 'good' !== $trust_optimize_overdue['status'] ) : ?>
+							<div class="notice notice-warning inline">
+								<p><strong><?php echo esc_html( $trust_optimize_overdue['label'] ); ?></strong></p>
+								<?php echo wp_kses_post( $trust_optimize_overdue['description'] ); ?>
+							</div>
+						<?php endif; ?>
+
 						<h3><?php esc_html_e( 'Preflight diagnostics', 'trust-optimize' ); ?></h3>
 						<ul class="trust-optimize-preflight">
 							<li><?php esc_html_e( 'Eligible image attachments:', 'trust-optimize' ); ?> <strong><?php echo esc_html( number_format_i18n( $trust_optimize_total_eligible ) ); ?></strong></li>
@@ -112,6 +119,12 @@ $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'
 							<li><?php esc_html_e( 'Approx. free disk:', 'trust-optimize' ); ?> <strong><?php echo false !== $trust_optimize_disk_free ? esc_html( size_format( $trust_optimize_disk_free, 1 ) ) : esc_html__( 'unknown', 'trust-optimize' ); ?></strong></li>
 						</ul>
 
+						<p class="description">
+							<?php
+							/* translators: %d: most attachments waiting on the queue. */
+							echo esc_html( sprintf( __( 'Pause and Cancel stop adding new attachments to the queue; attachments already queued (up to %d) are still processed.', 'trust-optimize' ), $trust_optimize_max_pending ) );
+							?>
+						</p>
 						<p class="description"><?php esc_html_e( 'Before deleting the plugin with "Remove data on uninstall" enabled, use "Remove Generated Files" and wait until the job finishes. Originals and WordPress thumbnails are never removed.', 'trust-optimize' ); ?></p>
 
 						<div class="trust-optimize-bulk-actions">
