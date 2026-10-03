@@ -105,6 +105,31 @@ class MigrationRunnerTest extends WP_UnitTestCase {
 		);
 	}
 
+	/**
+	 * Regression: the schema check starts the migration on plugins_loaded, before Action Scheduler is ready.
+	 */
+	public function test_start_before_action_scheduler_is_ready_waits_for_it_and_then_queues_the_batch() {
+		$flag = new ReflectionProperty( ActionScheduler::class, 'data_store_initialized' );
+		$flag->setAccessible( true );
+		$runner = $this->runner( array( new Recording_Migration_Step( 'one', 1 ) ) );
+
+		$flag->setValue( null, false );
+		try {
+			$runner->start( '1.3.0', '2.0.0' );
+		} finally {
+			$flag->setValue( null, true );
+		}
+
+		$this->assertSame( array(), $this->pending(), 'Nothing can be queued yet, and no _doing_it_wrong().' );
+		$this->assertNotFalse( has_action( 'action_scheduler_init', array( $runner, 'schedule' ) ) );
+		$this->assertTrue( $runner->is_running() );
+
+		$runner->schedule();
+
+		$this->assertCount( 1, $this->pending() );
+		remove_action( 'action_scheduler_init', array( $runner, 'schedule' ) );
+	}
+
 	public function test_runner_without_steps_finishes_in_one_batch() {
 		$runner = $this->runner( array() );
 		$runner->start( '1.3.0', '2.0.0' );

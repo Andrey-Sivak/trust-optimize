@@ -304,8 +304,19 @@ class MigrationRunner {
 	 * @param int $delay Delay in seconds.
 	 */
 	public function schedule( $delay = 0 ) {
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			return;
+		}
+
+		// The schema check that starts the migration runs on plugins_loaded, before Action Scheduler has
+		// its data store (init): as_*() would schedule nothing, so the batch is queued as soon as it can be.
+		if ( ! \ActionScheduler::is_initialized() ) {
+			add_action( 'action_scheduler_init', array( $this, 'schedule' ) );
+			return;
+		}
+
 		// Not as_has_scheduled_action(): it counts the running action, which is the one asking for the next batch.
-		if ( ! function_exists( 'as_enqueue_async_action' ) || as_get_scheduled_actions(
+		if ( as_get_scheduled_actions(
 			array(
 				'hook'     => self::HOOK_MIGRATE,
 				'args'     => array(),
