@@ -62,7 +62,19 @@ class ContentPrimer {
 	}
 
 	/**
-	 * Whether an image with this src was found inside a <picture> of the content processed so far.
+	 * Remember an image that sits in a <picture> now, for the passes that follow.
+	 *
+	 * Block themes filter the whole template with wp_filter_content_tags() again, after the content and
+	 * the featured image were wrapped, and that second pass must not wrap them once more.
+	 *
+	 * @param string $src Value of the src attribute.
+	 */
+	public function remember_picture( $src ) {
+		$this->in_picture[ $src ] = true;
+	}
+
+	/**
+	 * Whether an image with this src was found inside a <picture>, or wrapped by the plugin, so far.
 	 *
 	 * The same src outside a <picture> is skipped as well; the image only loses the optimization.
 	 *
@@ -88,21 +100,26 @@ class ContentPrimer {
 			$this->variants->prime( array_map( 'intval', $matches[1] ) );
 		}
 
-		if ( false !== stripos( $content, '<picture' ) ) {
-			$this->collect_images_inside_picture( $content );
+		if ( $this->in_picture || false !== stripos( $content, '<picture' ) ) {
+			$this->scan_pictures( $content );
 		}
 
 		return $content;
 	}
 
 	/**
-	 * Remember the src of every <img> that is inside a <picture>.
+	 * Sort the images of the content into those inside a <picture> and those outside of it.
+	 *
+	 * An image that is bare in this content is forgotten, even if an earlier content had the same
+	 * src wrapped: the same image in several posts of an archive must be wrapped each time.
 	 *
 	 * @param string $content Post content.
 	 */
-	private function collect_images_inside_picture( $content ) {
+	private function scan_pictures( $content ) {
 		$processor = new WP_HTML_Tag_Processor( $content );
 		$depth     = 0;
+		$inside    = array();
+		$outside   = array();
 
 		while ( $processor->next_tag( array( 'tag_closers' => 'visit' ) ) ) {
 			$tag = $processor->get_tag();
@@ -110,12 +127,15 @@ class ContentPrimer {
 			if ( 'PICTURE' === $tag ) {
 				$depth += $processor->is_tag_closer() ? -1 : 1;
 				$depth  = max( 0, $depth );
-			} elseif ( 'IMG' === $tag && $depth > 0 ) {
-				$src = $processor->get_attribute( 'src' );
-				if ( is_string( $src ) ) {
-					$this->in_picture[ $src ] = true;
+			} elseif ( 'IMG' === $tag && is_string( $processor->get_attribute( 'src' ) ) ) {
+				if ( $depth > 0 ) {
+					$inside[ $processor->get_attribute( 'src' ) ] = true;
+				} else {
+					$outside[ $processor->get_attribute( 'src' ) ] = true;
 				}
 			}
 		}
+
+		$this->in_picture = array_diff_key( $this->in_picture, $outside ) + $inside;
 	}
 }

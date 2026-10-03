@@ -241,4 +241,30 @@ class ImageDeliveryTest extends WP_UnitTestCase {
 		$this->assertSame( 2, substr_count( $with, '<picture>' ) );
 		$this->assertSame( $without, preg_replace( '#<picture>(?:<source [^>]*>)+|</picture>#', '', $with ) );
 	}
+
+	public function test_a_second_pass_over_the_whole_template_does_not_wrap_again() {
+		$id      = $this->upload();
+		$post_id = self::factory()->post->create();
+		set_post_thumbnail( $post_id, $id );
+		ActionScheduler_QueueRunner::instance()->run();
+		$img = '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="x">';
+
+		$page = apply_filters( 'the_content', $img ) . get_the_post_thumbnail( $post_id, 'medium' );
+		$this->assertSame( 2, substr_count( $page, '<picture>' ) );
+
+		// Block themes run wp_filter_content_tags() over the rendered template as well.
+		$this->assertSame( 2, substr_count( wp_filter_content_tags( $page, 'template' ), '<picture>' ) );
+	}
+
+	public function test_the_same_image_in_several_contents_is_wrapped_each_time() {
+		$id  = $this->upload();
+		$img = '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="x">';
+		ActionScheduler_QueueRunner::instance()->run();
+
+		$first  = apply_filters( 'the_content', $img );
+		$second = apply_filters( 'the_content', $img );
+
+		$this->assertStringContainsString( '<picture>', $first );
+		$this->assertStringContainsString( '<picture>', $second );
+	}
 }

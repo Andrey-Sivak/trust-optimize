@@ -173,7 +173,14 @@ class ImageDelivery {
 			}
 		}
 
-		return $this->renderer->render( $processor->get_updated_html(), $attachment_id );
+		$tag      = $processor->get_updated_html();
+		$rendered = $this->renderer->render( $tag, $attachment_id );
+
+		if ( $rendered !== $tag ) {
+			$this->primer->remember_picture( (string) $processor->get_attribute( 'src' ) );
+		}
+
+		return $rendered;
 	}
 
 	/**
