@@ -16,36 +16,100 @@ if ( ! file_exists( __DIR__ . '/vendor/autoload.php' ) ) {
 
 require_once __DIR__ . '/vendor/autoload.php';
 
-\TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();
-\TrustOptimize\Bulk\BulkProducer::cancel_all_tasks();
-\TrustOptimize\Queue\Maintenance::unschedule();
-trust_optimize_delete_runtime_transients();
+trust_optimize_uninstall();
 
-$trust_optimize_remove_data = (bool) ( new \TrustOptimize\Admin\Settings() )->get( 'remove_data_on_uninstall' );
+/**
+ * Uninstall every site of a network, or the single site.
+ */
+function trust_optimize_uninstall() {
+	if ( ! is_multisite() ) {
+		trust_optimize_uninstall_site();
+		return;
+	}
 
-if ( ! $trust_optimize_remove_data ) {
-	return;
+	$per_page = 100;
+	$offset   = 0;
+
+	do {
+		$site_ids = get_sites(
+			array(
+				'fields' => 'ids',
+				'number' => $per_page,
+				'offset' => $offset,
+			)
+		);
+
+		foreach ( $site_ids as $site_id ) {
+			switch_to_blog( $site_id );
+			trust_optimize_uninstall_site();
+			restore_current_blog();
+		}
+
+		$page_size = count( $site_ids );
+		$offset   += $per_page;
+	} while ( $page_size === $per_page );
 }
 
-$trust_optimize_cleanup_summary = trust_optimize_uninstall_cleanup_generated_files();
+/**
+ * Uninstall the current site.
+ *
+ * Without the "remove data" flag only runtime data goes. With it the generated files are cleaned
+ * up first, and the registry of those files is dropped only when nothing is left to clean: a
+ * partial cleanup keeps the tables and options so that it can be finished later (M-3).
+ */
+function trust_optimize_uninstall_site() {
+	\TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();
+	\TrustOptimize\Bulk\BulkProducer::cancel_all_tasks();
+	\TrustOptimize\Queue\Maintenance::unschedule();
+	trust_optimize_delete_runtime_transients();
 
-if ( empty( $trust_optimize_cleanup_summary['done'] ) ) {
-	trust_optimize_uninstall_log(
-		'TrustOptimize uninstall cleanup stopped before all plugin-managed files were processed.',
-		$trust_optimize_cleanup_summary
-	);
+	if ( ! (bool) ( new \TrustOptimize\Admin\Settings() )->get( 'remove_data_on_uninstall' ) ) {
+		return;
+	}
+
+	$summary = trust_optimize_uninstall_cleanup_generated_files();
+
+	if ( empty( $summary['done'] ) ) {
+		trust_optimize_uninstall_log(
+			'TrustOptimize uninstall cleanup stopped before all plugin-managed files were processed.',
+			$summary
+		);
+	}
+
+	if ( ! $summary['complete'] ) {
+		update_option(
+			'trust_optimize_pending_cleanup',
+			array(
+				'remaining' => (int) $summary['remaining'],
+				'at'        => current_time( 'mysql', true ),
+			),
+			false
+		);
+		trust_optimize_uninstall_log(
+			sprintf( 'TrustOptimize uninstall left %d generated files registered; the tables and options were kept.', (int) $summary['remaining'] ),
+			array( 'legacy_registry_done' => $summary['legacy_registry_done'] )
+		);
+		return;
+	}
+
+	// Files that were not deleted because they belong to something else stay on disk: list them first.
+	$conflicts = ( new \TrustOptimize\Migration\ConflictReport() )->all();
+
+	trust_optimize_drop_plugin_tables();
+	trust_optimize_delete_plugin_options();
+
+	if ( ! empty( $conflicts ) ) {
+		trust_optimize_uninstall_log( 'TrustOptimize uninstall left these files untouched because they belong to other attachments.', array_column( $conflicts, 'path' ) );
+		update_option( 'trust_optimize_uninstall_conflicts', $conflicts, false );
+	}
 }
-
-// A registry of schema 1.x that could not be imported keeps its table: it is the only record of those files.
-trust_optimize_drop_plugin_tables( ! empty( $trust_optimize_cleanup_summary['legacy_registry_done'] ) );
-trust_optimize_delete_plugin_options();
 
 /**
  * Clean generated files recorded in the variants table.
  *
  * The 1.x registry, if the migration did not finish, is imported first, so its files are cleaned up under the same rules.
  *
- * @return array Summary; 'legacy_registry_done' tells whether no 1.x registry is left unprocessed.
+ * @return array Summary; 'legacy_registry_done' tells whether no 1.x registry is left unprocessed, 'remaining' how many rows still await file removal and 'complete' that nothing is left to clean.
  */
 function trust_optimize_uninstall_cleanup_generated_files() {
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
@@ -61,6 +125,8 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 			'errors'               => array(),
 			'reason'               => 'variants_table_missing',
 			'legacy_registry_done' => ! $database_manager->table_exists( $tables['images'] ),
+			'remaining'            => 0,
+			'complete'             => ! $database_manager->table_exists( $tables['images'] ),
 		);
 	}
 
@@ -122,6 +188,9 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 		$summary['reason'] = 'record_limit_reached';
 	}
 
+	$summary['remaining'] = $variants->count_removable();
+	$summary['complete']  = $summary['legacy_registry_done'] && 0 === $summary['remaining'];
+
 	return $summary;
 }
 
@@ -154,21 +223,14 @@ function trust_optimize_uninstall_import_legacy_registry( $step, $database_manag
 }
 
 /**
- * Drop TrustOptimize custom tables.
- *
- * @param bool $drop_legacy Whether the 1.x registry table is dropped too.
+ * Drop TrustOptimize custom tables, the 1.x registry included.
  */
-function trust_optimize_drop_plugin_tables( $drop_legacy ) {
+function trust_optimize_drop_plugin_tables() {
 	global $wpdb;
 
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
-	$tables           = $database_manager->get_plugin_table_names();
 
-	if ( ! $drop_legacy ) {
-		unset( $tables['images'] );
-	}
-
-	foreach ( $tables as $table ) {
+	foreach ( $database_manager->get_plugin_table_names() as $table ) {
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 		$wpdb->query( "DROP TABLE IF EXISTS {$table}" );
 		// phpcs:enable
@@ -176,17 +238,17 @@ function trust_optimize_drop_plugin_tables( $drop_legacy ) {
 }
 
 /**
- * Delete plugin options.
+ * Delete every option of the plugin (trust_optimize_*), including the migration reports and the pending-cleanup note.
  */
 function trust_optimize_delete_plugin_options() {
-	delete_option( 'trust_optimize_options' );
-	delete_option( 'trust_optimize_db_version' );
-	delete_option( 'trust_optimize_preflight' );
-	delete_option( 'trust_optimize_migration' );
-	delete_option( 'trust_optimize_migration_conflicts' );
-	delete_option( 'trust_optimize_capabilities' );
-	delete_option( \TrustOptimize\Admin\Settings::LEGACY_REMOVE_DATA_OPTION );
-	delete_option( 'trust_optimize_bulk_active' );
+	global $wpdb;
+
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	$names = $wpdb->get_col( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE %s", $wpdb->esc_like( 'trust_optimize_' ) . '%' ) );
+
+	foreach ( $names as $name ) {
+		delete_option( $name );
+	}
 }
 
 /**
@@ -210,16 +272,12 @@ function trust_optimize_delete_runtime_transients() {
 }
 
 /**
- * Log uninstall cleanup diagnostics when a bounded cleanup cannot finish.
+ * Log what uninstall left behind. Unconditional: it happens once and the site owner needs to know.
  *
  * @param string $message Log message.
  * @param array  $context Structured context.
  */
 function trust_optimize_uninstall_log( $message, array $context = array() ) {
-	if ( ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) {
-		return;
-	}
-
 	// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 	error_log( $message . ' ' . wp_json_encode( $context ) );
 }

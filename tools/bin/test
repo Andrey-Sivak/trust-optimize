@@ -1,18 +1,20 @@
 #!/usr/bin/env sh
-# Usage: tools/bin/test <unit|integration> <8.0|8.4> [wp-version|latest]
+# Usage: tools/bin/test <unit|integration> <8.0|8.4> [wp-version|latest] [phpunit-args]
+# Multisite run: WP_MULTISITE=1 tools/bin/test integration 8.0 6.5 "--group ms-required"
 # Integration tests run against a separate WordPress core copy cached in /wp-core (not the stand's html/).
 set -eu
 suite="${1:-}"
 php="${2:-}"
 wp_version="${3:-latest}"
+extra_args="${4:-}"
 usage() { echo "Usage: $0 <unit|integration> <8.0|8.4> [wp-version|latest]" >&2; exit 2; }
 case "$suite" in unit|integration) ;; *) usage ;; esac
 case "$php" in 8.0) service=tools-php80 ;; 8.4) service=tools-php84 ;; *) usage ;; esac
 
-exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSION=$wp_version" -e COMPOSER_PROCESS_TIMEOUT=0 "$service" sh -c '
+exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSION=$wp_version" -e "TO_EXTRA_ARGS=$extra_args" -e "WP_MULTISITE=${WP_MULTISITE:-}" -e COMPOSER_PROCESS_TIMEOUT=0 "$service" sh -c '
   set -eu
   if [ ! -x vendor/bin/phpunit ]; then echo "phpunit is not installed: run tools/bin/composer install" >&2; exit 1; fi
-  if [ "$TO_SUITE" = unit ]; then exec composer test:unit; fi
+  if [ "$TO_SUITE" = unit ]; then exec composer test:unit -- $TO_EXTRA_ARGS; fi
 
   mariadb --skip-ssl -h "$WP_TESTS_DB_HOST" -uroot -p"$WP_TESTS_DB_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $WP_TESTS_DB_NAME"
 
@@ -38,5 +40,5 @@ exec "$(dirname "$0")/compose" run --rm -T -e "TO_SUITE=$suite" -e "TO_WP_VERSIO
   fi
   tests_lib="$lib_root/vendor/wp-phpunit/wp-phpunit"
   echo "WordPress core $core_version, wp-phpunit $(composer show --working-dir="$lib_root" wp-phpunit/wp-phpunit 2>/dev/null | sed -n "s/^versions : \* //p")"
-  WP_CORE_DIR="$core" WP_TESTS_LIB_DIR="$tests_lib" exec composer test:integration
+  WP_CORE_DIR="$core" WP_TESTS_LIB_DIR="$tests_lib" exec composer test:integration -- $TO_EXTRA_ARGS
 '

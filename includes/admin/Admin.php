@@ -13,6 +13,7 @@ use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
+use TrustOptimize\Storage\VariantRepository;
 
 /**
  * Class Admin
@@ -55,6 +56,13 @@ class Admin {
 	private $conflicts;
 
 	/**
+	 * Variant repository.
+	 *
+	 * @var VariantRepository
+	 */
+	private $variants;
+
+	/**
 	 * Admin constructor.
 	 *
 	 * @param Settings             $settings     Plugin settings.
@@ -62,13 +70,15 @@ class Admin {
 	 * @param EligibilityQuery     $eligibility  Eligibility query.
 	 * @param CapabilityService    $capabilities Capability service.
 	 * @param ConflictReport       $conflicts    Conflict report.
+	 * @param VariantRepository    $variants     Variant repository.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
 		$this->conflicts    = $conflicts;
+		$this->variants     = $variants;
 	}
 
 	/**
@@ -84,6 +94,7 @@ class Admin {
 
 		// Add plugin action links
 		add_filter( 'plugin_action_links_' . TRUST_OPTIMIZE_PLUGIN_BASENAME, array( $this, 'add_action_links' ) );
+		add_action( 'after_plugin_row_' . TRUST_OPTIMIZE_PLUGIN_BASENAME, array( $this, 'render_uninstall_warning' ) );
 
 		// Add optimization status column to Media Library
 		add_filter( 'manage_media_columns', array( $this, 'add_media_columns' ) );
@@ -397,6 +408,43 @@ class Admin {
 		);
 
 		return array_merge( $plugin_links, $links );
+	}
+
+	/**
+	 * Warn in the plugin list that deleting the plugin would keep its data.
+	 *
+	 * Shown when the plugin is set to remove its data on uninstall but generated files are still registered:
+	 * uninstall removes files only within its time limit and otherwise keeps the registry (M-3).
+	 */
+	public function render_uninstall_warning() {
+		if ( ! current_user_can( 'manage_options' ) || ! $this->settings->get( 'remove_data_on_uninstall' ) ) {
+			return;
+		}
+
+		$remaining = $this->variants->count_removable();
+
+		if ( 0 === $remaining ) {
+			return;
+		}
+
+		printf(
+			'<tr class="plugin-update-tr active"><td colspan="%1$d" class="plugin-update colspanchange"><div class="update-message notice inline notice-warning notice-alt"><p>%2$s</p></div></td></tr>',
+			(int) _get_list_table( 'WP_Plugins_List_Table' )->get_column_count(),
+			wp_kses(
+				sprintf(
+					/* translators: 1: number of generated files, 2: link to the plugin page. */
+					_n(
+						'%1$s generated file is still registered. Before deleting the plugin, remove it on the %2$s page; otherwise deleting the plugin may leave it and the plugin data in place.',
+						'%1$s generated files are still registered. Before deleting the plugin, remove them on the %2$s page; otherwise deleting the plugin may leave them and the plugin data in place.',
+						$remaining,
+						'trust-optimize'
+					),
+					number_format_i18n( $remaining ),
+					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize#media-library' ) ) . '">' . esc_html__( 'TrustOptimize', 'trust-optimize' ) . '</a>'
+				),
+				array( 'a' => array( 'href' => array() ) )
+			)
+		);
 	}
 
 	/**

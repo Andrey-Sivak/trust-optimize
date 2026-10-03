@@ -428,6 +428,21 @@ class VariantRepository {
 	}
 
 	/**
+	 * Number of rows whose file is still to be removed: all but the 1.x rows parked as conflicts.
+	 *
+	 * A parked row points at a file that belongs to another attachment and is never deleted (D-15).
+	 *
+	 * @return int
+	 */
+	public function count_removable() {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table} WHERE status <> %s OR reason IS NULL OR reason <> 'legacy_conflict'", VariantStatus::FAILED )
+		);
+	}
+
+	/**
 	 * Forget the 1.x file of a row (it was deleted, or it must not be served).
 	 *
 	 * @param int $id Row id.

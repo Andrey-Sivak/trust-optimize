@@ -91,3 +91,5 @@ jobs:
       - name: Create test database
         run: mysql --protocol=tcp -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS wordpress_test"
       - run: composer test:integration
+      - name: Multisite uninstall
+        run: WP_MULTISITE=1 composer test:integration -- --group ms-required

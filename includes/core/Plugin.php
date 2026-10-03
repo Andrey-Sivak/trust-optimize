@@ -153,7 +153,7 @@ class Plugin {
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants );
 		$this->rest_controller  = new RestController( $attachments, $variants, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
 		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );

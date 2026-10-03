@@ -117,6 +117,8 @@ $trust_optimize_disk_free               = ! empty( $trust_optimize_upload_dir['b
 							<li><?php esc_html_e( 'Approx. free disk:', 'trust-optimize' ); ?> <strong><?php echo false !== $trust_optimize_disk_free ? esc_html( size_format( $trust_optimize_disk_free, 1 ) ) : esc_html__( 'unknown', 'trust-optimize' ); ?></strong></li>
 						</ul>
 
+						<p class="description"><?php esc_html_e( 'Before deleting the plugin with "Remove data on uninstall" enabled, use "Remove Generated Files" and wait until the job finishes. Originals and WordPress thumbnails are never removed.', 'trust-optimize' ); ?></p>
+
 						<div class="trust-optimize-bulk-actions">
 							<button type="button" class="button trust-optimize-bulk-action" data-action="inventory"><?php esc_html_e( 'Analyze', 'trust-optimize' ); ?></button>
 							<button type="button" class="button button-primary trust-optimize-bulk-action" data-action="sync"><?php esc_html_e( 'Start Sync', 'trust-optimize' ); ?></button>
