@@ -225,4 +225,20 @@ class ImageDeliveryTest extends WP_UnitTestCase {
 		$this->assertStringContainsString( 'loading="eager"', $html );
 		$this->assertStringContainsString( 'fetchpriority="high"', $html );
 	}
+
+	public function test_markup_outside_the_images_is_identical_with_and_without_the_plugin() {
+		$id  = $this->upload();
+		$img = '<img src="' . wp_get_attachment_url( $id ) . '" class="wp-image-' . $id . '" alt="Caf&eacute; &amp; \'bar\'">';
+		ActionScheduler_QueueRunner::instance()->run();
+		$content = "<section class=\"a\"><h2>Заголовок &amp; <em>текст</em></h2>\n<p>one<br/>two {$img}</p>\n"
+			. "<!-- comment --><script>var a = '<b>' + \"</b>\";</script><table><tr><td>1</td></tr></table>\n"
+			. "<figure class=\"wp-block-image\">{$img}<figcaption>c</figcaption></figure><p>&nbsp;<custom-tag data-x='1'>x</custom-tag></p></section>";
+
+		$with = apply_filters( 'the_content', $content );
+		add_filter( 'trust_optimize_should_render', '__return_false' );
+		$without = apply_filters( 'the_content', $content );
+
+		$this->assertSame( 2, substr_count( $with, '<picture>' ) );
+		$this->assertSame( $without, preg_replace( '#<picture>(?:<source [^>]*>)+|</picture>#', '', $with ) );
+	}
 }

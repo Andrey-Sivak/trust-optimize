@@ -69,7 +69,6 @@ require_once __DIR__ . '/../includes/core/Requirements.php';
 require_once __DIR__ . '/../includes/value/OperationResult.php';
 require_once __DIR__ . '/../includes/value/OptimizeResult.php';
 require_once __DIR__ . '/../includes/value/DeleteResult.php';
-require_once __DIR__ . '/../includes/utils/HtmlFragment.php';
 require_once __DIR__ . '/../includes/utils/UploadsPath.php';
 require_once __DIR__ . '/../includes/domain/VariantStatus.php';
 require_once __DIR__ . '/../includes/domain/AttachmentState.php';
