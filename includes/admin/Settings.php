@@ -47,11 +47,6 @@ class Settings {
 	);
 
 	/**
-	 * Option that held the uninstall flag before it moved into trust_optimize_options.
-	 */
-	const LEGACY_REMOVE_DATA_OPTION = 'trust_optimize_remove_data_on_uninstall';
-
-	/**
 	 * Feed the stored limits into the filters that the limit classes already apply.
 	 *
 	 * Priority 5 lets site code that filters at the default priority override the setting.
@@ -59,14 +54,6 @@ class Settings {
 	public function register() {
 		add_filter( 'trust_optimize_max_pixels', array( $this, 'filter_max_pixels' ), 5 );
 		add_filter( 'trust_optimize_min_free_disk_bytes', array( $this, 'filter_min_free_disk' ), 5 );
-		add_action( 'update_option_trust_optimize_options', array( $this, 'drop_legacy_remove_data_option' ) );
-	}
-
-	/**
-	 * The uninstall flag lives in the options array now; the separate option is obsolete once settings are saved.
-	 */
-	public function drop_legacy_remove_data_option() {
-		delete_option( self::LEGACY_REMOVE_DATA_OPTION );
 	}
 
 	/**
@@ -149,10 +136,6 @@ class Settings {
 
 		if ( isset( $options[ $key ] ) ) {
 			return $options[ $key ];
-		}
-
-		if ( 'remove_data_on_uninstall' === $key && false !== get_option( self::LEGACY_REMOVE_DATA_OPTION, false ) ) {
-			return (int) get_option( self::LEGACY_REMOVE_DATA_OPTION );
 		}
 
 		if ( null !== $default ) {
