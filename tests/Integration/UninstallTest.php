@@ -133,30 +133,23 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->assertFalse( get_transient( 'trust_optimize_demo' ) );
 	}
 
-	public function test_the_original_of_another_attachment_is_not_deleted_and_the_conflict_is_reported() {
-		$this->install_legacy_table();
+	public function test_the_recorded_conflicts_are_reported_and_the_original_is_kept() {
 		update_option( 'trust_optimize_options', array( 'remove_data_on_uninstall' => 1 ) );
 		update_option( ConflictReport::OPTION, array( '1:2024/01/old.png' => array( 'attachment_id' => 1, 'path' => '2024/01/old.png', 'conflicts_with' => 0, 'source' => 'hash_mismatch', 'found_at' => '2026-01-01 00:00:00' ) ) );
 
 		$a = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
-		$b = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/test-image.jpg' );
-		$this->attachment_ids = array( $a, $b );
+		$this->attachment_ids = array( $a );
 		Plugin::get_instance()->cleanup->cleanup_attachment( $a );
-		Plugin::get_instance()->cleanup->cleanup_attachment( $b );
-
-		$a_original = get_post_meta( $a, '_wp_attached_file', true );
-		$this->add_legacy_manifest( $b, array( array( 'size_name' => 'original', 'format' => 'png', 'file' => $a_original ) ), false );
 
 		trust_optimize_uninstall_site();
 
-		$this->assertFileExists( get_attached_file( $a ), 'The original of another attachment survives.' );
+		$this->assertFileExists( get_attached_file( $a ), 'The original of an attachment survives.' );
 		$this->assertFalse( $this->table_exists( 'variants' ) );
 		$this->assertFalse( get_option( ConflictReport::OPTION, false ), 'The migration report moved into the uninstall report.' );
 
 		$paths = array_column( get_option( 'trust_optimize_uninstall_conflicts' ), 'path' );
-		$this->assertContains( $a_original, $paths );
 		$this->assertContains( '2024/01/old.png', $paths );
-		$this->assertStringContainsString( basename( $a_original ), $this->logged() );
+		$this->assertStringContainsString( 'old.png', $this->logged() );
 	}
 
 	public function test_a_row_outside_uploads_does_not_block_the_final_cleanup() {

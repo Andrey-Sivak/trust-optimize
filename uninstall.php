@@ -86,8 +86,7 @@ function trust_optimize_uninstall_site() {
 			false
 		);
 		trust_optimize_uninstall_log(
-			sprintf( 'TrustOptimize uninstall left %d generated files registered; the tables and options were kept.', (int) $summary['remaining'] ),
-			array( 'legacy_registry_done' => $summary['legacy_registry_done'] )
+			sprintf( 'TrustOptimize uninstall left %d generated files registered; the tables and options were kept.', (int) $summary['remaining'] )
 		);
 		return;
 	}
@@ -144,26 +143,22 @@ function trust_optimize_uninstall_outside_uploads_files() {
 /**
  * Clean generated files recorded in the variants table.
  *
- * The 1.x registry, if the migration did not finish, is imported first, so its files are cleaned up under the same rules.
- *
- * @return array Summary; 'legacy_registry_done' tells whether no 1.x registry is left unprocessed, 'remaining' how many rows still await file removal and 'complete' that nothing is left to clean.
+ * @return array Summary; 'remaining' tells how many rows still await file removal and 'complete' that nothing is left to clean.
  */
 function trust_optimize_uninstall_cleanup_generated_files() {
 	$database_manager = new \TrustOptimize\Database\DatabaseManager();
-	$tables           = $database_manager->get_plugin_table_names();
 
-	if ( ! $database_manager->table_exists( $tables['variants'] ) ) {
+	if ( ! $database_manager->table_exists( $database_manager->get_plugin_table_names()['variants'] ) ) {
 		return array(
-			'done'                 => true,
-			'processed'            => 0,
-			'deleted'              => 0,
-			'skipped'              => 0,
-			'failed'               => 0,
-			'errors'               => array(),
-			'reason'               => 'variants_table_missing',
-			'legacy_registry_done' => ! $database_manager->table_exists( $tables['images'] ),
-			'remaining'            => 0,
-			'complete'             => ! $database_manager->table_exists( $tables['images'] ),
+			'done'      => true,
+			'processed' => 0,
+			'deleted'   => 0,
+			'skipped'   => 0,
+			'failed'    => 0,
+			'errors'    => array(),
+			'reason'    => 'variants_table_missing',
+			'remaining' => 0,
+			'complete'  => true,
 		);
 	}
 
@@ -187,8 +182,6 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 		'max_records' => max( 1, $max_records ),
 		'max_seconds' => max( 1, $max_seconds ),
 	);
-
-	$summary['legacy_registry_done'] = trust_optimize_uninstall_import_legacy_registry( new \TrustOptimize\Migration\ImportLegacyManifest( $database_manager, $variants, $attachments ), $database_manager, $summary['max_seconds'] );
 
 	while ( $summary['processed'] < $summary['max_records'] ) {
 		if ( ( microtime( true ) - $started_at ) >= $summary['max_seconds'] ) {
@@ -226,37 +219,9 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 	}
 
 	$summary['remaining'] = $variants->count_removable();
-	$summary['complete']  = $summary['legacy_registry_done'] && 0 === $summary['remaining'];
+	$summary['complete']  = 0 === $summary['remaining'];
 
 	return $summary;
-}
-
-/**
- * Import what is left of the 1.x registry into the variants table.
- *
- * @param \TrustOptimize\Migration\ImportLegacyManifest $step             Import step.
- * @param \TrustOptimize\Database\DatabaseManager       $database_manager Database manager.
- * @param float                                         $max_seconds      Time budget.
- * @return bool True when nothing is left to import (or there is no registry).
- */
-function trust_optimize_uninstall_import_legacy_registry( $step, $database_manager, $max_seconds ) {
-	if ( ! $database_manager->table_exists( $database_manager->get_plugin_table_names()['images'] ) ) {
-		return true;
-	}
-
-	$started_at = microtime( true );
-	$cursor     = 0;
-
-	do {
-		if ( ( microtime( true ) - $started_at ) >= max( 1, $max_seconds ) ) {
-			return false;
-		}
-
-		$result = $step->run_batch( $cursor, 50 );
-		$cursor = $result->get_cursor();
-	} while ( ! $result->is_done() );
-
-	return true;
 }
 
 /**

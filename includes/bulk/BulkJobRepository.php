@@ -400,37 +400,6 @@ class BulkJobRepository {
 	}
 
 	/**
-	 * Close the active jobs of schema 1.x: their tick runner no longer exists.
-	 *
-	 * Jobs of 2.0 always store the settings they were created with; those of 1.x stored none.
-	 *
-	 * @return int Number of jobs closed.
-	 */
-	public function supersede_legacy_jobs() {
-		global $wpdb;
-
-		$table = $this->get_table_name();
-		$now   = current_time( 'mysql' );
-
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$closed = (int) $wpdb->query(
-			$wpdb->prepare(
-				"UPDATE {$table} SET status = %s, last_error = %s, finished_at = %s, updated_at = %s WHERE status IN (%s, %s, %s) AND (settings_snapshot IS NULL OR settings_snapshot IN ('', '[]'))",
-				JobStatus::CANCELLED,
-				'superseded by 2.0',
-				$now,
-				$now,
-				JobStatus::PENDING,
-				JobStatus::RUNNING,
-				JobStatus::PAUSED
-			)
-		);
-		// phpcs:enable
-
-		return $closed;
-	}
-
-	/**
 	 * Find stale running jobs.
 	 *
 	 * @param int $stale_after_seconds Stale threshold in seconds.

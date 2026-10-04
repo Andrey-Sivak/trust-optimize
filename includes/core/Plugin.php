@@ -28,15 +28,7 @@ use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Frontend\SourceResolver;
 use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Health\SiteHealth;
-use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Migration\ConflictReport;
-use TrustOptimize\Migration\DetectCollisions;
-use TrustOptimize\Migration\Finalize;
-use TrustOptimize\Migration\ImportLegacyManifest;
-use TrustOptimize\Migration\MigrationRunner;
-use TrustOptimize\Migration\RetireLegacyFiles;
-use TrustOptimize\Migration\ScheduleRegeneration;
-use TrustOptimize\Migration\StripAttachmentMetadata;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
@@ -159,24 +151,9 @@ class Plugin {
 		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $variants, $statistics, $health );
 		$this->rest_controller  = new RestController( $attachments, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
-		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
-		$migration      = new MigrationRunner(
-			$database,
-			array(
-				new ImportLegacyManifest( $database, $variants, $attachments ),
-				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
-				new ScheduleRegeneration( $variants, $this->conversion_queue, $conflicts ),
-				new RetireLegacyFiles( $variants, $this->cleanup ),
-				new StripAttachmentMetadata( $database ),
-				$legacy_runtime,
-				new Finalize( $database, $variants ),
-			)
-		);
-
 		foreach ( array(
 			$database,
 			$settings,
-			$migration,
 			$capabilities,
 			$primer,
 			new ImageDelivery( new PictureRenderer( $variants, $urls ), $primer, new SourceResolver( $variants, $urls ), $settings ),
@@ -185,7 +162,6 @@ class Plugin {
 			new Maintenance( $attachments, $this->conversion_queue ),
 			new Lifecycle( $attachments, $this->conversion_queue ),
 			$health,
-			$legacy_runtime,
 			$this->bulk_producer,
 			$statistics,
 			$this->admin,
