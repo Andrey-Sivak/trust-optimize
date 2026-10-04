@@ -148,8 +148,7 @@ $trust_optimize_smoke = new class() {
 	private function ensure_tables_exist() {
 		$manager = new DatabaseManager();
 
-		// The 1.x registry ("images") is dropped by the migration, so it is not required.
-		foreach ( array_diff_key( $manager->get_plugin_table_names(), array( 'images' => true ) ) as $key => $table ) {
+		foreach ( $manager->get_plugin_table_names() as $key => $table ) {
 			if ( ! $manager->table_exists( $table ) ) {
 				throw new Exception( sprintf( 'Expected TrustOptimize %s table to exist: %s', $key, $table ) );
 			}

@@ -16,7 +16,7 @@ class DatabaseManager {
 	/**
 	 * Current database version
 	 */
-	const DB_VERSION = '2.0.1';
+	const DB_VERSION = '1.0.0';
 
 	/**
 	 * Register the schema version check.
@@ -92,10 +92,8 @@ class DatabaseManager {
 			size_name varchar(100) NOT NULL,
 			format varchar(10) NOT NULL,
 			status varchar(32) NOT NULL DEFAULT 'pending',
-			naming varchar(16) NOT NULL DEFAULT 'v2',
 			source_relative_path varchar(255) NOT NULL DEFAULT '',
 			relative_path varchar(255) NULL,
-			legacy_relative_path varchar(255) NULL,
 			width int unsigned NOT NULL DEFAULT 0,
 			height int unsigned NOT NULL DEFAULT 0,
 			quality tinyint unsigned NOT NULL DEFAULT 0,
@@ -109,8 +107,7 @@ class DatabaseManager {
 			UNIQUE KEY attachment_size_format (attachment_id,size_name,format),
 			KEY status (status),
 			KEY source_path (source_relative_path(191)),
-			KEY relative_path (relative_path(191)),
-			KEY legacy_relative_path (legacy_relative_path(191))
+			KEY relative_path (relative_path(191))
 		) $charset_collate;";
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -140,8 +137,6 @@ class DatabaseManager {
 			'attachments' => $this->get_table_name( 'trust_optimize_attachments' ),
 			'variants'    => $this->get_table_name( 'trust_optimize_variants' ),
 			'jobs'        => $this->get_table_name( 'trust_optimize_jobs' ),
-			// Legacy 1.x storage: no longer created, read by the migration to 2.0 and dropped on uninstall.
-			'images'      => $this->get_table_name( 'trust_optimize_images' ),
 		);
 	}
 

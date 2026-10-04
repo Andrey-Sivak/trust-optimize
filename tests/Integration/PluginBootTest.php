@@ -21,7 +21,6 @@ class PluginBootTest extends WP_UnitTestCase {
 	public function test_database_tables_exist() {
 		$database = new DatabaseManager();
 
-		// The legacy 1.x registry table ("images") is no longer created by 2.0.
 		foreach ( array( 'attachments', 'variants', 'jobs' ) as $key ) {
 			$table = $database->get_plugin_table_names()[ $key ];
 			$this->assertTrue( $database->table_exists( $table ), "Table {$table} is missing." );

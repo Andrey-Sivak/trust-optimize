@@ -74,7 +74,6 @@ class StatisticsTest extends WP_UnitTestCase {
 		$repository->set_state( $failed, AttachmentState::FAILED, 'x' );
 		$repository->set_state( $queued, AttachmentState::QUEUED );
 
-		$this->variants->upsert( array( 'attachment_id' => $optimized, 'size_name' => 'legacy', 'format' => 'webp', 'naming' => 'legacy', 'status' => VariantStatus::DONE, 'source_file_size' => 9000, 'file_size' => 1, 'relative_path' => 'stats/legacy.webp' ) );
 		$this->variant( $optimized, 'full', 'webp', 1000, 400 );
 		$this->variant( $optimized, 'large', 'webp', 2000, 500 );
 		$this->variant( $optimized, 'full', 'avif', 1000, 300 );

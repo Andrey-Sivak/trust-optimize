@@ -40,7 +40,7 @@ class PictureRendererTest extends WP_UnitTestCase {
 		$this->base     = wp_upload_dir()['baseurl'] . '/2026/05';
 	}
 
-	private function add( $source, $format = 'webp', $status = VariantStatus::DONE, $legacy = null ) {
+	private function add( $source, $format = 'webp', $status = VariantStatus::DONE ) {
 		$this->variants->upsert(
 			array(
 				'attachment_id'        => self::ID,
@@ -49,7 +49,6 @@ class PictureRendererTest extends WP_UnitTestCase {
 				'status'               => $status,
 				'source_relative_path' => '2026/05/' . $source,
 				'relative_path'        => VariantStatus::DONE === $status ? '2026/05/' . $source . '.' . $format : null,
-				'legacy_relative_path' => $legacy,
 			)
 		);
 	}
@@ -155,22 +154,11 @@ class PictureRendererTest extends WP_UnitTestCase {
 		);
 	}
 
-	public function test_a_pending_row_serves_its_legacy_file_until_it_is_done() {
-		$this->add( 'a.jpg', 'webp', VariantStatus::PENDING, '2026/05/a.webp' );
-		$img = $this->img( "{$this->base}/a.jpg" );
-
-		$this->assertStringContainsString( 'srcset="' . $this->base . '/a.webp"', $this->renderer->render( $img, self::ID ) );
-
-		$this->add( 'a.jpg', 'webp', VariantStatus::DONE, '2026/05/a.webp' );
-
-		$this->assertStringContainsString( 'srcset="' . $this->base . '/a.jpg.webp"', $this->renderer->render( $img, self::ID ) );
-	}
-
-	public function test_a_failed_row_serves_its_legacy_file_only() {
-		$this->add( 'a.jpg', 'webp', VariantStatus::FAILED, '2026/05/a.webp' );
+	public function test_a_row_that_is_not_done_is_not_served() {
+		$this->add( 'a.jpg', 'webp', VariantStatus::PENDING );
 		$this->add( 'b.jpg', 'webp', VariantStatus::FAILED );
 
-		$this->assertStringContainsString( $this->base . '/a.webp', $this->renderer->render( $this->img( "{$this->base}/a.jpg" ), self::ID ) );
+		$this->assertSame( $this->img( "{$this->base}/a.jpg" ), $this->renderer->render( $this->img( "{$this->base}/a.jpg" ), self::ID ) );
 		$this->assertSame( $this->img( "{$this->base}/b.jpg" ), $this->renderer->render( $this->img( "{$this->base}/b.jpg" ), self::ID ) );
 	}
 

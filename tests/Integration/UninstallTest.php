@@ -5,7 +5,6 @@
  * @package TrustOptimize\Tests
  */
 
-require_once __DIR__ . '/legacy-schema-fixture.php';
 require_once __DIR__ . '/uninstall-fixture.php';
 
 use TrustOptimize\Capabilities\CapabilityService;
@@ -17,7 +16,6 @@ use TrustOptimize\Core\Plugin;
  */
 class UninstallTest extends WP_UnitTestCase {
 
-	use Legacy_Schema_Fixture;
 	use Uninstall_Fixture;
 
 	/**
@@ -54,7 +52,10 @@ class UninstallTest extends WP_UnitTestCase {
 
 	public function tear_down() {
 		$this->release_error_log();
-		$this->remove_legacy_schema();
+		global $wpdb;
+
+		// Drop the data of the test before the table statements commit the transaction.
+		$wpdb->query( 'ROLLBACK' );
 		$this->restore_plugin_tables();
 
 		foreach ( $this->attachment_ids as $id ) {
@@ -120,7 +121,7 @@ class UninstallTest extends WP_UnitTestCase {
 		trust_optimize_uninstall_site();
 
 		$this->assertFileDoesNotExist( $file );
-		foreach ( array( 'attachments', 'variants', 'jobs', 'images' ) as $table ) {
+		foreach ( array( 'attachments', 'variants', 'jobs' ) as $table ) {
 			$this->assertFalse( $this->table_exists( $table ), $table );
 		}
 		foreach ( array( 'trust_optimize_options', 'trust_optimize_bulk_active', 'trust_optimize_pending_cleanup' ) as $option ) {

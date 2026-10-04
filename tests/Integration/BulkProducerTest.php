@@ -5,8 +5,6 @@
  * @package TrustOptimize\Tests
  */
 
-require_once __DIR__ . '/legacy-schema-fixture.php';
-
 use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
@@ -27,8 +25,6 @@ use TrustOptimize\Storage\VariantRepository;
  * @covers \TrustOptimize\Bulk\JobProgress
  */
 class BulkProducerTest extends WP_UnitTestCase {
-
-	use Legacy_Schema_Fixture;
 
 	/**
 	 * Producer.
@@ -67,7 +63,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
-		$this->install_legacy_table();
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
 		as_unschedule_all_actions( ConversionQueue::HOOK_PROCESS );
@@ -84,7 +79,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down() {
-		$this->remove_legacy_schema();
 		add_filter( 'wp_generate_attachment_metadata', array( Plugin::get_instance()->conversion_queue, 'handle_new_metadata' ), 20, 2 );
 
 		foreach ( $this->temp_files as $file ) {

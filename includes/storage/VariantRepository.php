@@ -35,22 +35,7 @@ class VariantRepository {
 	 *
 	 * @var string[]
 	 */
-	/**
-	 * Reason of a row whose 1.x file belongs to another attachment.
-	 */
-	const REASON_LEGACY_CONFLICT = 'legacy_conflict';
-
-	/**
-	 * Reason of a row whose file lies outside the uploads directory.
-	 */
-	const REASON_OUTSIDE_UPLOADS = 'outside_uploads';
-
-	/**
-	 * SQL condition for a parked row (see get_parked()); the reasons are internal constants.
-	 */
-	const PARKED_SQL = "status = 'failed' AND reason IN ('legacy_conflict', 'outside_uploads')";
-
-	const NULLABLE_COLUMNS = array( 'relative_path', 'legacy_relative_path', 'file_hash', 'reason' );
+	const NULLABLE_COLUMNS = array( 'relative_path', 'file_hash', 'reason' );
 
 	/**
 	 * Columns written by upsert(), with defaults for a new row.
@@ -59,10 +44,8 @@ class VariantRepository {
 	 */
 	const DEFAULTS = array(
 		'status'               => VariantStatus::PENDING,
-		'naming'               => 'v2',
 		'source_relative_path' => '',
 		'relative_path'        => null,
-		'legacy_relative_path' => null,
 		'width'                => 0,
 		'height'               => 0,
 		'quality'              => 0,
@@ -214,8 +197,7 @@ class VariantRepository {
 	/**
 	 * Path of the file that is served for a variant, relative to uploads.
 	 *
-	 * A finished variant is served from its own file. Until it is (re)generated, a file
-	 * of schema 1.x that is still on disk keeps being served. Delivery must use this
+	 * Only a finished variant is served, from its own file. Delivery must use this
 	 * method and never look at statuses or paths itself.
 	 *
 	 * @param array $row Variant row.
@@ -226,7 +208,7 @@ class VariantRepository {
 			return $row['relative_path'];
 		}
 
-		return ! empty( $row['legacy_relative_path'] ) ? $row['legacy_relative_path'] : null;
+		return null;
 	}
 
 	/**
@@ -293,7 +275,7 @@ class VariantRepository {
 	}
 
 	/**
-	 * Whether a variant row owns the file at a relative path (as its file or its 1.x file).
+	 * Whether a variant row owns the file at a relative path.
 	 *
 	 * @param string $relative_path Path relative to uploads.
 	 * @return bool
@@ -302,12 +284,12 @@ class VariantRepository {
 		global $wpdb;
 
 		return (bool) $wpdb->get_var(
-			$wpdb->prepare( "SELECT 1 FROM {$this->table()} WHERE relative_path = %s OR legacy_relative_path = %s LIMIT 1", $relative_path, $relative_path )
+			$wpdb->prepare( "SELECT 1 FROM {$this->table()} WHERE relative_path = %s LIMIT 1", $relative_path )
 		);
 	}
 
 	/**
-	 * Which other attachments have a variant row with one of the paths (as its file or its 1.x file).
+	 * Which other attachments have a variant row with one of the paths.
 	 *
 	 * @param int      $attachment_id Attachment to ignore.
 	 * @param string[] $paths         Paths relative to uploads.
@@ -323,19 +305,15 @@ class VariantRepository {
 		$in    = implode( ', ', array_fill( 0, count( $paths ), '%s' ) );
 		$rows  = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT attachment_id, relative_path, legacy_relative_path FROM {$this->table()} WHERE attachment_id <> %d AND (relative_path IN ({$in}) OR legacy_relative_path IN ({$in}))",
-				array_merge( array( (int) $attachment_id ), $paths, $paths )
+				"SELECT attachment_id, relative_path FROM {$this->table()} WHERE attachment_id <> %d AND relative_path IN ({$in})",
+				array_merge( array( (int) $attachment_id ), $paths )
 			),
 			ARRAY_A
 		);
 		$found = array();
 
 		foreach ( (array) $rows as $row ) {
-			foreach ( array( $row['relative_path'], $row['legacy_relative_path'] ) as $path ) {
-				if ( in_array( $path, $paths, true ) ) {
-					$found += array( $path => (int) $row['attachment_id'] );
-				}
-			}
+			$found += array( $row['relative_path'] => (int) $row['attachment_id'] );
 		}
 
 		return $found;
@@ -395,97 +373,14 @@ class VariantRepository {
 	}
 
 	/**
-	 * IDs of attachments that have finished 1.x variants, in ascending order.
-	 *
-	 * @param int $after_id Return IDs greater than this one.
-	 * @param int $limit    Maximum number of IDs.
-	 * @return int[]
-	 */
-	public function get_legacy_attachment_ids_after( $after_id, $limit ) {
-		global $wpdb;
-
-		return array_map(
-			'intval',
-			$wpdb->get_col(
-				$wpdb->prepare(
-					"SELECT DISTINCT attachment_id FROM {$this->table()} WHERE naming = 'legacy' AND status = %s AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
-					VariantStatus::DONE,
-					(int) $after_id,
-					(int) $limit
-				)
-			)
-		);
-	}
-
-	/**
-	 * IDs of attachments that have a row with a 1.x file to retire, in ascending order.
-	 *
-	 * @param int $after_id Return IDs greater than this one.
-	 * @param int $limit    Maximum number of IDs.
-	 * @return int[]
-	 */
-	public function get_attachment_ids_with_legacy_file_after( $after_id, $limit ) {
-		global $wpdb;
-
-		return array_map(
-			'intval',
-			$wpdb->get_col(
-				$wpdb->prepare(
-					"SELECT DISTINCT attachment_id FROM {$this->table()} WHERE legacy_relative_path IS NOT NULL AND legacy_relative_path <> '' AND attachment_id > %d ORDER BY attachment_id LIMIT %d",
-					(int) $after_id,
-					(int) $limit
-				)
-			)
-		);
-	}
-
-	/**
-	 * Number of 1.x rows that are neither regenerated nor parked as conflicts.
-	 *
-	 * @return int
-	 */
-	public function count_unresolved_legacy_rows() {
-		global $wpdb;
-
-		return (int) $wpdb->get_var(
-			$wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE naming = 'legacy' AND status <> %s", VariantStatus::FAILED )
-		);
-	}
-
-	/**
-	 * Number of rows whose file is still to be removed: all but the parked ones.
+	 * Number of rows whose file is still to be removed.
 	 *
 	 * @return int
 	 */
 	public function count_removable() {
 		global $wpdb;
 
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$this->table()} WHERE NOT (" . self::PARKED_SQL . ')' );
-	}
-
-	/**
-	 * Rows whose file the plugin must leave alone and never will delete: a 1.x file that belongs to
-	 * another attachment (D-15) and a file outside the uploads directory. They are failed rows with
-	 * one of two reasons and do not count as work left to do.
-	 *
-	 * @return array[] Rows with attachment_id, relative_path, legacy_relative_path and reason.
-	 */
-	public function get_parked() {
-		global $wpdb;
-
-		return (array) $wpdb->get_results( "SELECT attachment_id, relative_path, legacy_relative_path, reason FROM {$this->table()} WHERE " . self::PARKED_SQL . ' ORDER BY id', ARRAY_A );
-	}
-
-	/**
-	 * Forget the 1.x file of a row (it was deleted, or it must not be served).
-	 *
-	 * @param int $id Row id.
-	 */
-	public function clear_legacy_path( $id ) {
-		global $wpdb;
-
-		$wpdb->query( $wpdb->prepare( "UPDATE {$this->table()} SET legacy_relative_path = NULL, updated_at = %s WHERE id = %d", current_time( 'mysql', true ), (int) $id ) );
-		$this->invalidate_by_id( $id );
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$this->table()}" );
 	}
 
 	/**
@@ -510,7 +405,7 @@ class VariantRepository {
 	public function count_all_by_status() {
 		global $wpdb;
 
-		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$this->table()} WHERE naming <> 'legacy' GROUP BY status", ARRAY_A );
+		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$this->table()} GROUP BY status", ARRAY_A );
 
 		return array_map( 'intval', array_column( $rows, 'total', 'status' ) );
 	}
@@ -546,7 +441,7 @@ class VariantRepository {
 		}
 
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
-		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE status = %s AND naming <> 'legacy' AND (" . implode( ' OR ', $where ) . ')', $args ) );
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE status = %s AND (" . implode( ' OR ', $where ) . ')', $args ) );
 	}
 
 	/**
@@ -563,7 +458,7 @@ class VariantRepository {
 
 		return (int) $wpdb->get_var(
 			$wpdb->prepare(
-				"SELECT COALESCE( SUM( CASE WHEN source_file_size > file_size THEN source_file_size - file_size ELSE 0 END ), 0 ) FROM {$this->table()} WHERE status = %s AND naming <> 'legacy' AND format = %s",
+				"SELECT COALESCE( SUM( CASE WHEN source_file_size > file_size THEN source_file_size - file_size ELSE 0 END ), 0 ) FROM {$this->table()} WHERE status = %s AND format = %s",
 				VariantStatus::DONE,
 				$format
 			)
