@@ -83,9 +83,7 @@ function trust_optimize_activate() {
 		);
 	}
 
-	$database_manager = new DatabaseManager();
-	$database_manager->create_tables();
-	update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
+	( new DatabaseManager() )->check_version();
 
 	$capabilities = new CapabilityService();
 	$capabilities->recheck();
