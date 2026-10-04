@@ -11,8 +11,6 @@ use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Domain\JobStatus;
-use TrustOptimize\Migration\ConflictReport;
-use TrustOptimize\Migration\MigrationRunner;
 
 /**
  * Class Notices
@@ -40,20 +38,6 @@ class Notices {
 	const ACTION_RESUME = 'trust_optimize_resume_bulk';
 
 	/**
-	 * Migration runner.
-	 *
-	 * @var MigrationRunner
-	 */
-	private $migration;
-
-	/**
-	 * Conflict report.
-	 *
-	 * @var ConflictReport
-	 */
-	private $conflicts;
-
-	/**
 	 * Bulk job repository.
 	 *
 	 * @var BulkJobRepository
@@ -77,15 +61,11 @@ class Notices {
 	/**
 	 * Constructor.
 	 *
-	 * @param MigrationRunner   $migration    Migration runner.
-	 * @param ConflictReport    $conflicts    Conflict report.
 	 * @param BulkJobRepository $jobs         Bulk job repository.
 	 * @param BulkProducer      $producer     Bulk producer.
 	 * @param CapabilityService $capabilities Capability service.
 	 */
-	public function __construct( MigrationRunner $migration, ConflictReport $conflicts, BulkJobRepository $jobs, BulkProducer $producer, CapabilityService $capabilities ) {
-		$this->migration    = $migration;
-		$this->conflicts    = $conflicts;
+	public function __construct( BulkJobRepository $jobs, BulkProducer $producer, CapabilityService $capabilities ) {
 		$this->jobs         = $jobs;
 		$this->producer     = $producer;
 		$this->capabilities = $capabilities;
@@ -202,40 +182,6 @@ class Notices {
 	private function collect() {
 		$notices = array();
 
-		if ( $this->migration->is_running() ) {
-			list( $position, $total ) = $this->migration->get_progress();
-
-			$notices[] = array(
-				'key'         => 'migration',
-				'type'        => 'info',
-				'dismissible' => true,
-				'message'     => esc_html(
-					sprintf(
-						/* translators: 1: current migration step, 2: number of steps. */
-						__( 'Migrating data from the previous version in the background (step %1$d of %2$d). Optimized images keep being served meanwhile.', 'trust-optimize' ),
-						$position,
-						$total
-					)
-				),
-			);
-		}
-
-		$conflicts = count( $this->conflicts->all() );
-
-		if ( $conflicts > 0 && ! $this->is_dashboard() ) {
-			$notices[] = array(
-				'key'         => 'conflicts:' . $conflicts,
-				'type'        => 'warning',
-				'dismissible' => true,
-				'message'     => sprintf(
-					/* translators: 1: number of files, 2: link to the plugin page. */
-					esc_html( _n( '%1$s file of the previous version is shared with another attachment and was not touched. Restore the original from a backup if it was overwritten. See %2$s.', '%1$s files of the previous version are shared with other attachments and were not touched. Restore the originals from a backup if they were overwritten. See %2$s.', $conflicts, 'trust-optimize' ) ),
-					esc_html( number_format_i18n( $conflicts ) ),
-					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize' ) ) . '">' . esc_html__( 'the list', 'trust-optimize' ) . '</a>'
-				),
-			);
-		}
-
 		$paused = $this->paused_for_disk();
 
 		if ( $paused ) {
@@ -280,16 +226,5 @@ class Notices {
 		}
 
 		return null;
-	}
-
-	/**
-	 * Whether the current screen is the plugin page that lists the conflicts in full.
-	 *
-	 * @return bool
-	 */
-	private function is_dashboard() {
-		$screen = get_current_screen();
-
-		return $screen && 'toplevel_page_trust-optimize' === $screen->id;
 	}
 }

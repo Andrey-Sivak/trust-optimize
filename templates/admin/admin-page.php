@@ -10,7 +10,7 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, conflicts, stats, overdue (Site Health result) and max_pending, all prefixed with trust_optimize_.
+// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, stats, overdue (Site Health result) and max_pending, all prefixed with trust_optimize_.
 $trust_optimize_upload_dir       = wp_upload_dir();
 $trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
 $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
@@ -31,8 +31,6 @@ $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'
 				?>
 			</div>
 		</div>
-
-		<?php require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/migration-conflicts.php'; ?>
 
 		<div class="trust-optimize-dashboard">
 			<div class="trust-optimize-stats-row">

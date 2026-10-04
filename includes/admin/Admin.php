@@ -12,7 +12,6 @@ use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Health\SiteHealth;
-use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -51,13 +50,6 @@ class Admin {
 	private $capabilities;
 
 	/**
-	 * Report of 1.x files that collide with files of other attachments.
-	 *
-	 * @var ConflictReport
-	 */
-	private $conflicts;
-
-	/**
 	 * Variant repository.
 	 *
 	 * @var VariantRepository
@@ -92,17 +84,15 @@ class Admin {
 	 * @param AttachmentRepository $attachments  Attachment repository.
 	 * @param EligibilityQuery     $eligibility  Eligibility query.
 	 * @param CapabilityService    $capabilities Capability service.
-	 * @param ConflictReport       $conflicts    Conflict report.
 	 * @param VariantRepository    $variants     Variant repository.
 	 * @param Statistics           $statistics   Statistics.
 	 * @param SiteHealth           $health       Site Health tests.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants, Statistics $statistics, SiteHealth $health ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, VariantRepository $variants, Statistics $statistics, SiteHealth $health ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
-		$this->conflicts    = $conflicts;
 		$this->variants     = $variants;
 		$this->statistics   = $statistics;
 		$this->health       = $health;
@@ -160,7 +150,6 @@ class Admin {
 		$trust_optimize_total_eligible = $this->eligibility->count_eligible_attachments();
 		$trust_optimize_webp_supported = $this->capabilities->supports( 'webp' );
 		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
-		$trust_optimize_conflicts      = array_values( $this->conflicts->all() );
 		$trust_optimize_stats          = $this->statistics->get();
 		$trust_optimize_overdue        = $this->health->test_overdue_tasks();
 		$trust_optimize_max_pending    = BulkProducer::max_pending();

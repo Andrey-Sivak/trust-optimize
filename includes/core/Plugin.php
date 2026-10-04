@@ -156,7 +156,7 @@ class Plugin {
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
 		$statistics             = new Statistics( $this->inventory, $variants );
 		$health                 = new SiteHealth( $capabilities );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics, $health );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $variants, $statistics, $health );
 		$this->rest_controller  = new RestController( $attachments, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
 
 		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
@@ -189,7 +189,7 @@ class Plugin {
 			$this->bulk_producer,
 			$statistics,
 			$this->admin,
-			new Notices( $migration, $conflicts, $jobs, $this->bulk_producer, $capabilities ),
+			new Notices( $jobs, $this->bulk_producer, $capabilities ),
 			$this->rest_controller,
 		) as $component ) {
 			$component->register();

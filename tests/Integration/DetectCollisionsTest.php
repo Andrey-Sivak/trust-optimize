@@ -162,16 +162,4 @@ class DetectCollisionsTest extends WP_UnitTestCase {
 		$this->assertTrue( $this->step->run_batch( $second->get_cursor(), 1 )->is_done() );
 		$this->assertSame( 0, $this->step->run_batch( 0, 10 )->get_counts()['conflicts'] );
 	}
-
-	public function test_the_report_template_lists_the_conflicts() {
-		( new ConflictReport() )->add( 7, '2024/05/logo.png', 5, 'attachment_file' );
-
-		$trust_optimize_conflicts = array_values( ( new ConflictReport() )->all() );
-		ob_start();
-		require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/migration-conflicts.php';
-		$html = ob_get_clean();
-
-		$this->assertStringContainsString( '2024/05/logo.png', $html );
-		$this->assertStringContainsString( 'backup', $html );
-	}
 }
