@@ -22,7 +22,7 @@ use TrustOptimize\Utils\UploadsPath;
 class VariantPlanner {
 
 	/**
-	 * Source MIME types that are converted. WebP/AVIF sources get no variants (M-8).
+	 * Source MIME types that are converted. WebP/AVIF sources get no variants.
 	 *
 	 * @var string[]
 	 */

@@ -398,7 +398,7 @@ class VariantRepository {
 	}
 
 	/**
-	 * Number of variants of schema 2.0 per status, over the whole library.
+	 * Number of variants per status, over the whole library.
 	 *
 	 * @return int[] Counts keyed by VariantStatus.
 	 */
@@ -447,7 +447,7 @@ class VariantRepository {
 	/**
 	 * Bytes saved by the finished variants of one format: source size minus variant size.
 	 *
-	 * Variants that are not smaller than their source are never stored (D-11); the guard only
+	 * Variants that are not smaller than their source are never stored; the guard only
 	 * keeps unsigned arithmetic from failing on a row with unknown sizes.
 	 *
 	 * @param string $format Format extension.

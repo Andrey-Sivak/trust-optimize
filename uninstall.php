@@ -55,7 +55,7 @@ function trust_optimize_uninstall() {
  *
  * Without the "remove data" flag only runtime data goes. With it the generated files are cleaned
  * up first, and the registry of those files is dropped only when nothing is left to clean: a
- * partial cleanup keeps the tables and options so that it can be finished later (M-3).
+ * partial cleanup keeps the tables and options so that it can be finished later.
  */
 function trust_optimize_uninstall_site() {
 	\TrustOptimize\Queue\ConversionQueue::cancel_all_tasks();

@@ -13,8 +13,8 @@ use TrustOptimize\Capabilities\CapabilityService;
 /**
  * Class OptimizationSettings
  *
- * Replaces the profile hash: a variant is stale when its format is no longer
- * enabled or it was encoded with a different quality (D-6).
+ * A variant is stale when its format is no longer enabled or it was encoded with
+ * a different quality.
  */
 final class OptimizationSettings {
 

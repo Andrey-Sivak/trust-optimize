@@ -428,7 +428,7 @@ class Admin {
 	 * Warn in the plugin list that deleting the plugin would keep its data.
 	 *
 	 * Shown when the plugin is set to remove its data on uninstall but generated files are still registered:
-	 * uninstall removes files only within its time limit and otherwise keeps the registry (M-3).
+	 * uninstall removes files only within its time limit and otherwise keeps the registry.
 	 */
 	public function render_uninstall_warning() {
 		if ( ! current_user_can( 'manage_options' ) || ! $this->settings->get( 'remove_data_on_uninstall' ) ) {

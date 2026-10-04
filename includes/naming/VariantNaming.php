@@ -12,7 +12,7 @@ namespace TrustOptimize\Naming;
  *
  * The variant keeps the full name of its source plus the new extension
  * ("photo.jpg" -> "photo.jpg.webp"), so "photo.jpg" and "photo.png" in one
- * directory can never produce the same variant file (H-1).
+ * directory can never produce the same variant file.
  */
 final class VariantNaming {
 

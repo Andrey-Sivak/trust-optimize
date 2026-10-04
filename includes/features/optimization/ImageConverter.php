@@ -61,7 +61,7 @@ class ImageConverter {
 	 * Convert one pending variant.
 	 *
 	 * The row moves pending -> processing -> done | skipped | failed. A variant that is
-	 * not smaller than its source is not kept (D-11). A format that no editor can write
+	 * not smaller than its source is not kept. A format that no editor can write
 	 * is downgraded in the capability service.
 	 *
 	 * @param array                $variant_row Row from the variants table.
