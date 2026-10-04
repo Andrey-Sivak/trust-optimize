@@ -10,7 +10,6 @@ require_once __DIR__ . '/uninstall-fixture.php';
 
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
-use TrustOptimize\Migration\ConflictReport;
 
 /**
  * @covers ::trust_optimize_uninstall_site
@@ -48,8 +47,6 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->load_uninstall_functions();
 		$this->capture_error_log();
 		// An earlier uninstall test commits its leftovers (DROP TABLE ends the transaction).
-		delete_option( ConflictReport::OPTION );
-		delete_option( 'trust_optimize_uninstall_conflicts' );
 		$this->relative_dir = 'uninstall-test-' . wp_generate_uuid4();
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'remove_data_on_uninstall' => 1 ) );
@@ -64,7 +61,7 @@ class UninstallTest extends WP_UnitTestCase {
 			wp_delete_attachment( $id, true );
 		}
 
-		foreach ( array( 'trust_optimize_options', 'trust_optimize_db_version', 'trust_optimize_pending_cleanup', 'trust_optimize_uninstall_conflicts', ConflictReport::OPTION, CapabilityService::OPTION ) as $option ) {
+		foreach ( array( 'trust_optimize_options', 'trust_optimize_db_version', 'trust_optimize_pending_cleanup', CapabilityService::OPTION ) as $option ) {
 			delete_option( $option );
 		}
 
@@ -126,17 +123,14 @@ class UninstallTest extends WP_UnitTestCase {
 		foreach ( array( 'attachments', 'variants', 'jobs', 'images' ) as $table ) {
 			$this->assertFalse( $this->table_exists( $table ), $table );
 		}
-		foreach ( array( 'trust_optimize_options', 'trust_optimize_bulk_active', 'trust_optimize_pending_cleanup', 'trust_optimize_uninstall_conflicts' ) as $option ) {
+		foreach ( array( 'trust_optimize_options', 'trust_optimize_bulk_active', 'trust_optimize_pending_cleanup' ) as $option ) {
 			$this->assertFalse( get_option( $option, false ), $option );
 		}
 		wp_cache_flush();
 		$this->assertFalse( get_transient( 'trust_optimize_demo' ) );
 	}
 
-	public function test_the_recorded_conflicts_are_reported_and_the_original_is_kept() {
-		update_option( 'trust_optimize_options', array( 'remove_data_on_uninstall' => 1 ) );
-		update_option( ConflictReport::OPTION, array( '1:2024/01/old.png' => array( 'attachment_id' => 1, 'path' => '2024/01/old.png', 'conflicts_with' => 0, 'source' => 'hash_mismatch', 'found_at' => '2026-01-01 00:00:00' ) ) );
-
+	public function test_the_original_of_an_attachment_survives_the_uninstall() {
 		$a = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
 		$this->attachment_ids = array( $a );
 		Plugin::get_instance()->cleanup->cleanup_attachment( $a );
@@ -145,11 +139,6 @@ class UninstallTest extends WP_UnitTestCase {
 
 		$this->assertFileExists( get_attached_file( $a ), 'The original of an attachment survives.' );
 		$this->assertFalse( $this->table_exists( 'variants' ) );
-		$this->assertFalse( get_option( ConflictReport::OPTION, false ), 'The migration report moved into the uninstall report.' );
-
-		$paths = array_column( get_option( 'trust_optimize_uninstall_conflicts' ), 'path' );
-		$this->assertContains( '2024/01/old.png', $paths );
-		$this->assertStringContainsString( 'old.png', $this->logged() );
 	}
 
 	public function test_a_row_outside_uploads_does_not_block_the_final_cleanup() {
@@ -176,10 +165,5 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->assertFileExists( $outside . '/b.jpg.webp', 'A file outside uploads is never touched.' );
 		$this->assertFalse( $this->table_exists( 'variants' ), 'The registry is dropped: nothing is left that may be deleted.' );
 		$this->assertFalse( get_option( 'trust_optimize_pending_cleanup', false ) );
-
-		$report = get_option( 'trust_optimize_uninstall_conflicts' );
-		$this->assertSame( array( '../outside-uploads-test/b.jpg.webp' ), array_column( $report, 'path' ) );
-		$this->assertSame( array( 'outside_uploads' ), array_column( $report, 'source' ) );
-		$this->assertStringContainsString( 'outside-uploads-test', $this->logged() );
 	}
 }
