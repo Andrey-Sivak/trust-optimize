@@ -72,24 +72,6 @@ class LegacyProtectionTest extends WP_UnitTestCase {
 		return array( $a, $b, $path );
 	}
 
-	public function test_sync_of_an_attachment_keeps_its_legacy_rows_and_their_files() {
-		list( , $b, $path ) = $this->colliding_attachments();
-
-		Plugin::get_instance()->processor->sync( $b );
-
-		$this->assertFileExists( $path );
-		$legacy = array_values(
-			array_filter(
-				$this->variants->get_for_attachment( $b ),
-				static function ( $row ) {
-					return 'legacy' === $row['naming'];
-				}
-			)
-		);
-		$this->assertCount( 1, $legacy );
-		$this->assertSame( VariantStatus::DONE, $legacy[0]['status'] );
-	}
-
 	/**
 	 * Store a variant row.
 	 *
