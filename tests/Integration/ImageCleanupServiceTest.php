@@ -7,9 +7,7 @@
 
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
-use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -62,7 +60,7 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 		$database          = new DatabaseManager();
 		$this->variants    = new VariantRepository( $database );
 		$this->attachments = new AttachmentRepository( $database, $this->variants );
-		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments, new LegacyPathGuard( $database, $this->variants ), new ConflictReport() );
+		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments );
 	}
 
 	public function tear_down() {
@@ -165,6 +163,32 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'missing_file', $result->get_data()['skipped'][0]['reason'] );
 		$this->assertSame( array(), $this->variants->get_for_attachment( 1004 ) );
+	}
+
+	public function test_a_row_pointing_outside_uploads_is_removed_and_its_file_is_never_touched() {
+		$outside = dirname( wp_upload_dir()['basedir'] ) . '/cleanup-outside-' . wp_generate_uuid4();
+		wp_mkdir_p( $outside );
+		file_put_contents( $outside . '/g.jpg.webp', 'not ours to delete' );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 1007,
+				'size_name'            => 'g.jpg.webp',
+				'format'               => 'webp',
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => '../' . basename( $outside ) . '/g.jpg',
+				'relative_path'        => '../' . basename( $outside ) . '/g.jpg.webp',
+				'file_hash'            => hash( 'sha256', 'not ours to delete' ),
+			)
+		);
+
+		$result = $this->cleanup->cleanup_attachment( 1007 );
+
+		$this->assertSame( 'outside_uploads', $result->get_data()['skipped'][0]['reason'] );
+		$this->assertSame( 'not ours to delete', file_get_contents( $outside . '/g.jpg.webp' ) );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1007 ), 'The row is not parked: nothing reports it.' );
+
+		unlink( $outside . '/g.jpg.webp' );
+		rmdir( $outside );
 	}
 
 	public function test_cleanup_variants_removes_only_the_given_rows() {

@@ -17,7 +17,6 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Domain\VariantStatus;
-use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -69,7 +68,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 	public function set_up() {
 		parent::set_up();
 		$this->install_legacy_table();
-		delete_option( ConflictReport::OPTION );
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
 		as_unschedule_all_actions( ConversionQueue::HOOK_PROCESS );
@@ -87,7 +85,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 
 	public function tear_down() {
 		$this->remove_legacy_schema();
-		delete_option( ConflictReport::OPTION );
 		add_filter( 'wp_generate_attachment_metadata', array( Plugin::get_instance()->conversion_queue, 'handle_new_metadata' ), 20, 2 );
 
 		foreach ( $this->temp_files as $file ) {
@@ -327,31 +324,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
 		$this->assertSame( array(), $this->variants->get_for_attachment( $a ) );
 		$this->assertSame( array(), $this->variants->get_for_attachment( $b ) );
-	}
-
-	public function test_remove_job_does_not_touch_the_original_of_another_attachment() {
-		$a    = $this->upload();
-		$b    = $this->upload();
-		$path = get_attached_file( $a );
-
-		$this->variants->upsert(
-			array(
-				'attachment_id'        => $b,
-				'size_name'            => 'original',
-				'format'               => 'png',
-				'status'               => VariantStatus::DONE,
-				'naming'               => 'legacy',
-				'source_relative_path' => get_post_meta( $b, '_wp_attached_file', true ),
-				'relative_path'        => get_post_meta( $a, '_wp_attached_file', true ),
-			)
-		);
-
-		$job = $this->drive( $this->producer->launch( BulkJob::TYPE_REMOVE )->get_id() );
-
-		$this->assertFileExists( $path );
-		$rows = $this->variants->get_for_attachment( $b );
-		$this->assertSame( 'legacy_conflict', $rows[0]['reason'] );
-		$this->assertSame( JobStatus::COMPLETED_WITH_ERRORS, $job->get_status() );
 	}
 
 	public function test_inventory_job_walks_the_library_and_completes() {

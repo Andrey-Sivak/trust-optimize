@@ -28,14 +28,12 @@ use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Frontend\SourceResolver;
 use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Health\SiteHealth;
-use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Queue\Lifecycle;
 use TrustOptimize\Queue\Maintenance;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -135,13 +133,11 @@ class Plugin {
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
 		$progress     = new JobProgress( $attachments, $eligibility );
-		$conflicts    = new ConflictReport();
-		$guard        = new LegacyPathGuard( $database, $variants );
 		$primer       = new ContentPrimer( $variants, $settings );
 		$urls         = new UploadsUrl();
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
-		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
+		$this->cleanup          = new ImageCleanupService( $variants, $attachments );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
