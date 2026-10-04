@@ -14,7 +14,6 @@ use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Bulk\Inventory;
 use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Domain\JobStatus;
-use TrustOptimize\Migration\MigrationRunner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Service\ImageCleanupService;
 
@@ -73,13 +72,6 @@ class Command {
 	private $cleanup;
 
 	/**
-	 * Migration runner.
-	 *
-	 * @var MigrationRunner
-	 */
-	private $migration;
-
-	/**
 	 * Constructor.
 	 *
 	 * @param BulkJobRepository   $jobs        Bulk job repository.
@@ -89,9 +81,8 @@ class Command {
 	 * @param BulkProducer        $producer    Bulk job producer.
 	 * @param AttachmentProcessor $processor   Attachment processor.
 	 * @param ImageCleanupService $cleanup     Cleanup service.
-	 * @param MigrationRunner     $migration   Migration runner.
 	 */
-	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, Inventory $inventory, JobProgress $progress, BulkProducer $producer, AttachmentProcessor $processor, ImageCleanupService $cleanup, MigrationRunner $migration ) {
+	public function __construct( BulkJobRepository $jobs, EligibilityQuery $eligibility, Inventory $inventory, JobProgress $progress, BulkProducer $producer, AttachmentProcessor $processor, ImageCleanupService $cleanup ) {
 		$this->jobs        = $jobs;
 		$this->eligibility = $eligibility;
 		$this->inventory   = $inventory;
@@ -99,7 +90,6 @@ class Command {
 		$this->producer    = $producer;
 		$this->processor   = $processor;
 		$this->cleanup     = $cleanup;
-		$this->migration   = $migration;
 	}
 
 	/**
@@ -264,67 +254,6 @@ class Command {
 		$result = $this->cleanup->cleanup_attachment( $attachment_id );
 
 		\WP_CLI::line( wp_json_encode( $result->to_array() ) );
-	}
-
-	/**
-	 * Run the migration from the 1.x data layout synchronously.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [--batch-size=<number>]
-	 * : Items to process per batch.
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp trust-optimize migrate --batch-size=100
-	 *
-	 * @param array $args Positional arguments.
-	 * @param array $assoc_args Associative arguments.
-	 */
-	public function migrate( $args, $assoc_args ) {
-		if ( ! $this->migration->is_running() ) {
-			\WP_CLI::success( 'No migration is pending.' );
-			return;
-		}
-
-		$batch_size = isset( $assoc_args['batch-size'] ) ? max( 1, min( 500, (int) $assoc_args['batch-size'] ) ) : MigrationRunner::BATCH_SIZE;
-
-		// The batches run here, so the background one must not run in parallel.
-		$this->migration->unschedule();
-
-		$total    = $this->migration->get_progress()[1];
-		$progress = \WP_CLI\Utils\make_progress_bar( 'Migrating', $total );
-		$done     = $this->migration->get_progress()[0] - 1;
-		$errors   = $this->migration->get_state()['errors'];
-		$previous = end( $errors );
-
-		while ( $this->migration->is_running() ) {
-			$state = $this->migration->run_batch( $batch_size );
-
-			$errors = $state['errors'];
-			$last   = end( $errors );
-
-			if ( $last !== $previous ) {
-				$this->migration->schedule( $this->migration->get_delay() );
-				\WP_CLI::error( sprintf( 'Step %s failed: %s', $last['step'], $last['message'] ) );
-			}
-
-			if ( $this->migration->is_running() && $this->migration->get_delay() > 0 ) {
-				$this->migration->schedule( $this->migration->get_delay() );
-				$progress->finish();
-				\WP_CLI::warning( sprintf( 'Step %s is waiting; it will be retried in the background in %d seconds.', $state['step'], $this->migration->get_delay() ) );
-				return;
-			}
-
-			$position = $this->migration->is_running() ? $this->migration->get_progress()[0] - 1 : $total;
-
-			for ( ; $done < $position; $done++ ) {
-				$progress->tick();
-			}
-		}
-
-		$progress->finish();
-		\WP_CLI::success( 'Migration finished.' );
 	}
 
 	/**

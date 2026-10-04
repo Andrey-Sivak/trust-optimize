@@ -19,7 +19,6 @@ use TrustOptimize\Bulk\Inventory;
 use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\CLI\Command;
-use TrustOptimize\CLI\MigrationCommand;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
@@ -197,8 +196,7 @@ class Plugin {
 		}
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->inventory, $progress, $this->bulk_producer, $this->processor, $this->cleanup, $migration ) );
-			\WP_CLI::add_command( 'trust-optimize migration', new MigrationCommand( $conflicts ) );
+			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->inventory, $progress, $this->bulk_producer, $this->processor, $this->cleanup ) );
 		}
 	}
 }
