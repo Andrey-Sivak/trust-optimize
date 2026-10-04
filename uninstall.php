@@ -97,12 +97,6 @@ function trust_optimize_uninstall_site() {
 	trust_optimize_drop_plugin_tables();
 	trust_optimize_delete_plugin_options();
 
-	$probe = \TrustOptimize\Utils\LegacyProbeDirectories::remove_empty();
-
-	if ( ! empty( $probe['kept'] ) ) {
-		trust_optimize_uninstall_log( 'TrustOptimize uninstall left these directories of the 1.x capability probe because they are not empty.', $probe['kept'] );
-	}
-
 	if ( ! empty( $conflicts ) ) {
 		trust_optimize_uninstall_log( 'TrustOptimize uninstall left these files untouched because they belong to other attachments or lie outside the uploads directory.', array_column( $conflicts, 'path' ) );
 		update_option( 'trust_optimize_uninstall_conflicts', $conflicts, false );

@@ -182,22 +182,4 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'outside_uploads' ), array_column( $report, 'source' ) );
 		$this->assertStringContainsString( 'outside-uploads-test', $this->logged() );
 	}
-
-	public function test_uninstall_removes_empty_probe_directories_only() {
-		$uploads = wp_upload_dir()['basedir'];
-		$empty   = $uploads . '/trust-optimize-capability-uninstall';
-		$full    = $uploads . '/trust-optimize-capability-uninstall-full';
-		wp_mkdir_p( $empty );
-		wp_mkdir_p( $full );
-		file_put_contents( $full . '/probe.webp', 'x' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-
-		trust_optimize_uninstall_site();
-
-		$this->assertDirectoryDoesNotExist( $empty );
-		$this->assertFileExists( $full . '/probe.webp' );
-		$this->assertStringContainsString( 'uninstall-full', $this->logged() );
-
-		unlink( $full . '/probe.webp' );
-		rmdir( $full );
-	}
 }
