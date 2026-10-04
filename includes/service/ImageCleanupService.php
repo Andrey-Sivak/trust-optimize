@@ -149,39 +149,6 @@ class ImageCleanupService {
 	}
 
 	/**
-	 * Delete the 1.x file that a regenerated row still points at, after the checks of remove().
-	 *
-	 * The row keeps its 2.0 file; it forgets the 1.x path unless the file could not be deleted.
-	 *
-	 * @param int   $attachment_id Attachment ID.
-	 * @param array $row           Variant row with a legacy_relative_path.
-	 * @return DeleteResult
-	 */
-	public function retire_legacy_file( $attachment_id, array $row ) {
-		if ( empty( $row['legacy_relative_path'] ) ) {
-			return DeleteResult::skipped( 'no_legacy_file' );
-		}
-
-		$result = $this->remove(
-			$attachment_id,
-			array(
-				array_merge(
-					$row,
-					array(
-						'naming'        => 'v2',
-						'relative_path' => null,
-						'file_hash'     => null,
-					)
-				),
-			),
-			false
-		);
-		$this->clear_caches( $attachment_id );
-
-		return $result;
-	}
-
-	/**
 	 * Clean plugin-managed files for a bounded batch of attachments.
 	 *
 	 * Intended for uninstall/maintenance paths where running until timeout would be unsafe.
