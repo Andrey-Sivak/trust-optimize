@@ -5,7 +5,7 @@ All notable changes to the TrustOptimize plugin will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-10-05
 
 ### Added
 - First public release. Converts the JPEG and PNG sizes that WordPress generates into WebP and AVIF on your own server; the originals are never modified. The formats the server can write are detected through `wp_image_editor_supports()`, and a format is switched off when a real conversion proves it does not work.
