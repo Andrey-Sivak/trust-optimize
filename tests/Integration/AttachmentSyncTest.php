@@ -71,6 +71,45 @@ class AttachmentSyncTest extends WP_UnitTestCase {
 		$this->assertSame( 'up_to_date', $again->get_message() );
 	}
 
+	public function test_sync_regenerates_variants_when_the_source_was_replaced_in_place() {
+		$id = $this->upload();
+		$this->processor()->sync( $id );
+		$file   = get_attached_file( $id );
+		$before = $this->original_variant( $id );
+		$this->assertSame( (int) wp_filesize( $file ), $before['source_file_size'] );
+
+		// Enable Media Replace and the like: new bytes under the same name.
+		copy( DIR_TESTDATA . '/images/test-image.jpg', $file );
+		clearstatcache( true, $file );
+
+		$result = $this->processor()->sync( $id );
+
+		$this->assertTrue( $result->is_success(), wp_json_encode( $result->to_array() ) );
+		$after = $this->original_variant( $id );
+		$this->assertSame( $before['relative_path'], $after['relative_path'] );
+		$this->assertNotSame( $before['file_hash'], $after['file_hash'], 'The variant was built from the new source.' );
+		$this->assertSame( hash_file( 'sha256', wp_upload_dir()['basedir'] . '/' . $after['relative_path'] ), $after['file_hash'] );
+		$this->assertSame( (int) wp_filesize( $file ), $after['source_file_size'] );
+
+		$this->assertSame( 'up_to_date', $this->processor()->sync( $id )->get_message(), 'The next sync has nothing to do.' );
+	}
+
+	/**
+	 * The served webp variant of the original file.
+	 *
+	 * @param int $id Attachment ID.
+	 * @return array
+	 */
+	private function original_variant( $id ) {
+		foreach ( $this->variants->get_servable_for_attachment( $id ) as $row ) {
+			if ( 'original' === $row['size_name'] && 'webp' === $row['format'] ) {
+				return $row;
+			}
+		}
+
+		$this->fail( 'The original has no webp variant.' );
+	}
+
 	public function test_sync_removes_variants_of_a_disabled_format() {
 		$id = $this->upload();
 		$this->processor()->sync( $id );

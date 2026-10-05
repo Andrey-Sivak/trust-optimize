@@ -92,7 +92,7 @@ class VariantPlanner {
 			return new Plan( $source, array(), $existing );
 		}
 
-		$desired = self::desired_variants( $source['relative_path'], $source['metadata'], $settings->enabled_formats(), $source['mime'] );
+		$desired = self::with_source_sizes( self::desired_variants( $source['relative_path'], $source['metadata'], $settings->enabled_formats(), $source['mime'] ) );
 		// A file that keeps crashing workers is not retried by itself; an explicit sync resets the count.
 		$retry   = $this->attachments->get_attempts( $attachment_id ) < AttachmentRepository::MAX_ATTEMPTS;
 		$actions = self::reconcile( $existing, $desired, $settings, $retry );
@@ -189,10 +189,36 @@ class VariantPlanner {
 	}
 
 	/**
+	 * Add the current size of each source file, so that reconcile() can tell a replaced file from the same one.
+	 *
+	 * @param array[] $desired Output of desired_variants().
+	 * @return array[] The same entries with source_file_size (0 when the file cannot be measured).
+	 */
+	private static function with_source_sizes( array $desired ) {
+		$sizes = array();
+
+		foreach ( $desired as &$want ) {
+			$path = $want['source_relative_path'];
+
+			if ( ! isset( $sizes[ $path ] ) ) {
+				$absolute       = UploadsPath::absolute( $path );
+				$sizes[ $path ] = null === $absolute ? 0 : (int) wp_filesize( $absolute );
+			}
+
+			$want['source_file_size'] = $sizes[ $path ];
+		}
+
+		return $desired;
+	}
+
+	/**
 	 * Compare stored rows with the desired variants.
 	 *
+	 * A done or skipped row is stale when the settings changed or when the source file now has another
+	 * size (replaced in place). An unknown size, on either side, never makes a row stale.
+	 *
 	 * @param array[]              $existing Stored rows.
-	 * @param array[]              $desired  Output of desired_variants().
+	 * @param array[]              $desired  Output of desired_variants(), optionally with source_file_size.
 	 * @param OptimizationSettings $settings     Current settings.
 	 * @param bool                 $retry_failed Whether failed rows go back to pending.
 	 * @return array{insert:array[],reset:array[],delete:array[],replaced:array[]}
@@ -234,7 +260,8 @@ class VariantPlanner {
 			}
 
 			$retry = $retry_failed && VariantStatus::FAILED === $row['status'];
-			$stale = in_array( $row['status'], array( VariantStatus::DONE, VariantStatus::SKIPPED ), true ) && $settings->is_stale( $row );
+			$stale = in_array( $row['status'], array( VariantStatus::DONE, VariantStatus::SKIPPED ), true )
+				&& ( $settings->is_stale( $row ) || self::source_changed( $row, $want ) );
 
 			if ( $retry || $stale ) {
 				$result['reset'][] = $want;
@@ -245,6 +272,20 @@ class VariantPlanner {
 		$result['delete'] = array_values( $by_key );
 
 		return $result;
+	}
+
+	/**
+	 * Whether the source file has another size than when the row was built.
+	 *
+	 * @param array $row  Stored row.
+	 * @param array $want Desired variant.
+	 * @return bool
+	 */
+	private static function source_changed( array $row, array $want ) {
+		$built_from = (int) ( $row['source_file_size'] ?? 0 );
+		$now        = (int) ( $want['source_file_size'] ?? 0 );
+
+		return $built_from > 0 && $now > 0 && $built_from !== $now;
 	}
 
 	/**
