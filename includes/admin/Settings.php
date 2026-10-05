@@ -117,10 +117,7 @@ class Settings {
 	 * @param CapabilityService $capabilities Capability service.
 	 */
 	public function add_default_settings( CapabilityService $capabilities ) {
-		$defaults                    = $this->defaults;
-		$defaults['convert_to_avif'] = (int) $capabilities->supports( 'avif' );
-
-		add_option( 'trust_optimize_options', $defaults );
+		add_option( 'trust_optimize_options', $this->defaults_for( $capabilities ) );
 	}
 
 	/**
@@ -155,11 +152,25 @@ class Settings {
 	}
 
 	/**
-	 * Reset settings to defaults.
+	 * Reset settings to the defaults of a new install.
 	 *
+	 * @param CapabilityService $capabilities Capability service.
 	 * @return bool
 	 */
-	public function reset() {
-		return update_option( 'trust_optimize_options', $this->defaults );
+	public function reset( CapabilityService $capabilities ) {
+		return update_option( 'trust_optimize_options', $this->defaults_for( $capabilities ) );
+	}
+
+	/**
+	 * Defaults for this server: AVIF is on only where it can be written.
+	 *
+	 * @param CapabilityService $capabilities Capability service.
+	 * @return array
+	 */
+	private function defaults_for( CapabilityService $capabilities ) {
+		$defaults                    = $this->defaults;
+		$defaults['convert_to_avif'] = (int) $capabilities->supports( 'avif' );
+
+		return $defaults;
 	}
 }

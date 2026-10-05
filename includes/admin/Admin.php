@@ -329,7 +329,7 @@ class Admin {
 	public function handle_reset() {
 		$this->authorize( 'trust_optimize_reset' );
 
-		$this->settings->reset();
+		$this->settings->reset( $this->capabilities );
 
 		$this->redirect_to_settings( 'reset' );
 	}

@@ -6,6 +6,7 @@
  */
 
 use TrustOptimize\Admin\Settings;
+use TrustOptimize\Capabilities\CapabilityService;
 
 /**
  * @covers \TrustOptimize\Admin\Admin
@@ -39,6 +40,7 @@ class SettingsResetTest extends WP_UnitTestCase {
 	}
 
 	public function test_reset_restores_the_defaults() {
+		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => true ) );
 		update_option( 'trust_optimize_options', array( 'webp_quality' => 40, 'remove_data_on_uninstall' => 1, 'image_quality' => 90 ) );
 		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
 
@@ -46,6 +48,20 @@ class SettingsResetTest extends WP_UnitTestCase {
 
 		$this->assertSame( ( new Settings() )->get_defaults(), get_option( 'trust_optimize_options' ) );
 		$this->assertStringContainsString( 'trust_optimize_notice=reset', $location );
+	}
+
+	public function test_reset_turns_avif_on_only_where_the_server_supports_it() {
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
+		update_option( 'trust_optimize_options', array( 'convert_to_avif' => 1 ) );
+		$this->request( 'reset' );
+		$this->assertSame( 0, get_option( 'trust_optimize_options' )['convert_to_avif'], 'No AVIF writer: the reset must not enable it.' );
+		$this->assertSame( 1, get_option( 'trust_optimize_options' )['convert_to_webp'] );
+
+		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => true ) );
+		$this->request( 'reset' );
+		$this->assertSame( 1, get_option( 'trust_optimize_options' )['convert_to_avif'] );
 	}
 
 	public function test_reset_is_refused_without_manage_options() {
