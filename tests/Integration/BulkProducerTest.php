@@ -320,6 +320,47 @@ class BulkProducerTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->variants->get_for_attachment( $b ) );
 	}
 
+	public function test_remove_job_keeps_a_file_that_another_attachment_still_needs() {
+		$name = 'bulk-shared-' . wp_generate_uuid4() . '.jpg.webp';
+		$file = wp_upload_dir()['basedir'] . '/' . $name;
+		file_put_contents( $file, 'shared variant' );
+		$this->temp_files[] = $file;
+
+		foreach ( array( 3001, 3002 ) as $attachment_id ) {
+			$this->variants->upsert(
+				array(
+					'attachment_id'        => $attachment_id,
+					'size_name'            => 'original',
+					'format'               => 'webp',
+					'status'               => VariantStatus::DONE,
+					'source_relative_path' => 'bulk-shared.jpg',
+					'relative_path'        => $name,
+					'file_hash'            => hash( 'sha256', 'shared variant' ),
+				)
+			);
+		}
+
+		// One attachment per run: the first run removes only 3001.
+		add_filter(
+			'trust_optimize_bulk_batch_size',
+			static function () {
+				return 1;
+			}
+		);
+		$job = $this->producer->launch( BulkJob::TYPE_REMOVE );
+		$this->producer->produce( $job->get_id() );
+
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3001 ) );
+		$this->assertCount( 1, $this->variants->get_servable_for_attachment( 3002 ) );
+		$this->assertFileExists( $file, 'The file is still the variant of another attachment.' );
+
+		$job = $this->drive( $job->get_id() );
+
+		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3002 ) );
+		$this->assertFileDoesNotExist( $file, 'The last owner deletes the file.' );
+	}
+
 	public function test_inventory_job_walks_the_library_and_completes() {
 		$this->upload();
 		$this->upload();

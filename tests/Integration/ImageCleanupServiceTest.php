@@ -8,9 +8,12 @@
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Files\FileOwnership;
+use TrustOptimize\Frontend\PictureRenderer;
+use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Service\ImageCleanupService;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
+use TrustOptimize\Utils\UploadsPath;
 
 /**
  * @covers \TrustOptimize\Service\ImageCleanupService
@@ -190,6 +193,42 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 
 		unlink( $outside . '/g.jpg.webp' );
 		rmdir( $outside );
+	}
+
+	public function test_a_file_shared_with_another_attachment_is_kept_until_its_last_owner_is_cleaned_up() {
+		$this->variant( 1020, 'shared.jpg.webp' );
+		$this->variant( 1021, 'shared.jpg.webp' );
+
+		$first = $this->cleanup->cleanup_attachment( 1020 );
+
+		$this->assertSame( 'shared_file', $first->get_data()['skipped'][0]['reason'] );
+		$this->assertFileExists( $this->dir . '/shared.jpg.webp' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1020 ), 'Its own row is removed.' );
+
+		$remaining = $this->variants->get_servable_for_attachment( 1021 );
+		$this->assertCount( 1, $remaining, 'The other attachment still has its variant.' );
+		$this->assertFileExists( UploadsPath::absolute( VariantRepository::servable_path( $remaining[0] ) ) );
+
+		$img = '<img src="' . wp_upload_dir()['baseurl'] . '/' . $this->relative_dir . '/source.jpg" alt="x">';
+		$out = ( new PictureRenderer( $this->variants, new UploadsUrl() ) )->render( $img, 1021 );
+		$this->assertStringContainsString( '<picture>', $out );
+		$this->assertStringContainsString( $this->relative_dir . '/shared.jpg.webp', $out );
+
+		$this->cleanup->cleanup_attachment( 1021 );
+
+		$this->assertFileDoesNotExist( $this->dir . '/shared.jpg.webp', 'The last owner deletes the file.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1021 ) );
+	}
+
+	public function test_cleanup_variants_keeps_a_shared_file_too() {
+		$this->variant( 1022, 'shared2.jpg.webp' );
+		$this->variant( 1023, 'shared2.jpg.webp' );
+
+		$this->cleanup->cleanup_variants( 1022, $this->variants->get_for_attachment( 1022 ) );
+
+		$this->assertFileExists( $this->dir . '/shared2.jpg.webp' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1022 ) );
+		$this->assertCount( 1, $this->variants->get_for_attachment( 1023 ) );
 	}
 
 	public function test_cleanup_variants_removes_only_the_given_rows() {

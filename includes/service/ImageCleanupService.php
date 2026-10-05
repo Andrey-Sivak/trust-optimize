@@ -19,8 +19,8 @@ use TrustOptimize\Value\DeleteResult;
  * Class ImageCleanupService
  *
  * Deletes only files that a variant row of the plugin points at. A row is removed
- * once its file is confirmed gone (or turned out not to be ours); a file that cannot
- * be deleted keeps its row, marked failed.
+ * once its file is confirmed gone (or turned out not to be ours, or is still needed by
+ * another attachment); a file that cannot be deleted keeps its row, marked failed.
  */
 class ImageCleanupService {
 
@@ -202,11 +202,9 @@ class ImageCleanupService {
 		$errors    = array();
 
 		foreach ( $rows as $row ) {
-			$outcome = $this->remove_file( $row['relative_path'] ?? '', $row['file_hash'] ?? null, $protected );
+			$outcome = $this->remove_file( $attachment_id, $row['relative_path'] ?? '', $row['file_hash'] ?? null, $protected );
 
-			if ( 'deleted' === $outcome['status'] ) {
-				$deleted[] = $outcome['path'];
-			} elseif ( 'failed' === $outcome['status'] ) {
+			if ( 'failed' === $outcome['status'] ) {
 				$errors[] = array(
 					'variant' => $row,
 					'reason'  => $outcome['reason'],
@@ -217,6 +215,10 @@ class ImageCleanupService {
 					$this->variants->transition( $row['id'], $row['status'], VariantStatus::FAILED, array( 'reason' => $outcome['reason'] ) );
 				}
 				continue;
+			}
+
+			if ( 'deleted' === $outcome['status'] ) {
+				$deleted[] = $outcome['path'];
 			} else {
 				$skipped[] = array(
 					'variant' => $row,
@@ -248,12 +250,13 @@ class ImageCleanupService {
 	/**
 	 * Delete one file of a row when it is safe to.
 	 *
+	 * @param int         $attachment_id Attachment the row belongs to.
 	 * @param string      $relative_path Path relative to uploads, empty when the row has no file.
 	 * @param string|null $hash          Expected SHA-256 of the file, if known.
 	 * @param array       $protected     Protected paths keyed by normalized path.
 	 * @return array{status:string,reason?:string,path?:string} Status: deleted, skipped or failed.
 	 */
-	private function remove_file( $relative_path, $hash, array $protected ) {
+	private function remove_file( $attachment_id, $relative_path, $hash, array $protected ) {
 		if ( empty( $relative_path ) ) {
 			return array(
 				'status' => 'skipped',
@@ -281,6 +284,14 @@ class ImageCleanupService {
 			return array(
 				'status' => 'skipped',
 				'reason' => 'missing_file',
+			);
+		}
+
+		// Duplicated media (WPML, Polylang) share one source and so one variant file: the last owner deletes it.
+		if ( $this->ownership->shared_with_other_variant( $attachment_id, $relative_path ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'shared_file',
 			);
 		}
 
