@@ -15,7 +15,7 @@ use TrustOptimize\Domain\VariantStatus;
 /**
  * Class StatusLengthTest
  *
- * Guards against H-2: a status longer than its VARCHAR column is rejected by wpdb.
+ * Guards against a regression: a status longer than its VARCHAR column is rejected by wpdb.
  */
 class StatusLengthTest extends TestCase {
 

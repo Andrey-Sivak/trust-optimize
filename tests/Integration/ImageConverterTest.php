@@ -1,6 +1,6 @@
 <?php
 /**
- * ImageConverter tests (regressions H-1, H-2, M-1, M-8, M-13).
+ * ImageConverter tests.
  *
  * @package TrustOptimize\Tests
  */
@@ -117,7 +117,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Regression H-1: same stem in one directory must not overwrite anything.
+	 * Regression: same stem in one directory must not overwrite anything.
 	 */
 	public function test_same_stem_files_do_not_overwrite_each_other_or_originals() {
 		$jpg  = $this->source( 'photo.jpg', 'jpg', 902 );

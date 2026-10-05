@@ -69,7 +69,7 @@ class AttachmentRepositoryTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Regression H-2: "done + failed" must be stored as "partial" (a 21-character literal was rejected by the old column).
+	 * Regression: "done + failed" must be stored as "partial" (a 21-character literal was rejected by the old column).
 	 */
 	public function test_recompute_stores_partial_for_done_and_failed() {
 		$this->add_variant( 704, 'webp', VariantStatus::DONE );
