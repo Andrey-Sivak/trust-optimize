@@ -10,6 +10,7 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -62,7 +63,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => true ) );
 		$this->capabilities = new CapabilityService();
 		$this->variants     = new VariantRepository( new DatabaseManager() );
-		$this->converter    = new ImageConverter( $this->variants, new AtomicImageWriter( $this->variants ), $this->capabilities );
+		$this->converter    = new ImageConverter( $this->variants, new AtomicImageWriter( $this->variants, new FileOwnership( $this->variants ) ), $this->capabilities );
 	}
 
 	public function tear_down() {

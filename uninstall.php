@@ -119,7 +119,8 @@ function trust_optimize_uninstall_cleanup_generated_files() {
 
 	$variants    = new \TrustOptimize\Storage\VariantRepository( $database_manager );
 	$attachments = new \TrustOptimize\Storage\AttachmentRepository( $database_manager, $variants );
-	$cleanup     = new \TrustOptimize\Service\ImageCleanupService( $variants, $attachments );
+	$ownership   = new \TrustOptimize\Files\FileOwnership( $variants );
+	$cleanup     = new \TrustOptimize\Service\ImageCleanupService( $variants, $attachments, $ownership );
 	$batch_size  = (int) apply_filters( 'trust_optimize_uninstall_cleanup_batch_size', 100 );
 	$max_records = (int) apply_filters( 'trust_optimize_uninstall_cleanup_max_records', 5000 );
 	$max_seconds = (float) apply_filters( 'trust_optimize_uninstall_cleanup_max_seconds', 20 );

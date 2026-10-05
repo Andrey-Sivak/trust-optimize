@@ -25,12 +25,21 @@ class AtomicImageWriter {
 	private $variants;
 
 	/**
+	 * File ownership checks.
+	 *
+	 * @var FileOwnership
+	 */
+	private $ownership;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param VariantRepository $variants Variant repository.
+	 * @param VariantRepository $variants  Variant repository.
+	 * @param FileOwnership     $ownership File ownership checks.
 	 */
-	public function __construct( VariantRepository $variants ) {
-		$this->variants = $variants;
+	public function __construct( VariantRepository $variants, FileOwnership $ownership ) {
+		$this->variants  = $variants;
+		$this->ownership = $ownership;
 	}
 
 	/**

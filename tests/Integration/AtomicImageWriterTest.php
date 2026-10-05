@@ -7,6 +7,7 @@
 
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Storage\VariantRepository;
 
 /**
@@ -41,7 +42,7 @@ class AtomicImageWriterTest extends WP_UnitTestCase {
 		wp_mkdir_p( $this->dir );
 
 		$this->variants = new VariantRepository( new DatabaseManager() );
-		$this->writer   = new AtomicImageWriter( $this->variants );
+		$this->writer   = new AtomicImageWriter( $this->variants, new FileOwnership( $this->variants ) );
 	}
 
 	public function tear_down() {

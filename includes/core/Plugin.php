@@ -22,6 +22,7 @@ use TrustOptimize\CLI\Command;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Frontend\ContentPrimer;
 use TrustOptimize\Frontend\ImageDelivery;
 use TrustOptimize\Frontend\PictureRenderer;
@@ -129,7 +130,8 @@ class Plugin {
 		$capabilities = new CapabilityService();
 		$variants     = new VariantRepository( $database );
 		$attachments  = new AttachmentRepository( $database, $variants );
-		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
+		$ownership    = new FileOwnership( $variants );
+		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants, $ownership ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
 		$progress     = new JobProgress( $attachments, $eligibility );
@@ -137,7 +139,7 @@ class Plugin {
 		$urls         = new UploadsUrl();
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
-		$this->cleanup          = new ImageCleanupService( $variants, $attachments );
+		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $ownership );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );

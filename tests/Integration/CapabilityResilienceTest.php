@@ -196,7 +196,7 @@ class CapabilityResilienceTest extends WP_UnitTestCase {
 
 		$settings = new TrustOptimize\Settings\OptimizationSettings( array( 'zzz' ), array( 'zzz' ), array( 'zzz' => 80 ) );
 		$row      = $this->variants->get_for_attachment( 4242 )[0];
-		$converter = new TrustOptimize\Features\Optimization\ImageConverter( $this->variants, new TrustOptimize\Files\AtomicImageWriter( $this->variants ), new CapabilityService() );
+		$converter = new TrustOptimize\Features\Optimization\ImageConverter( $this->variants, new TrustOptimize\Files\AtomicImageWriter( $this->variants, new TrustOptimize\Files\FileOwnership( $this->variants ) ), new CapabilityService() );
 		$result    = $converter->convert( $row, $settings );
 
 		$this->assertTrue( $result->is_failed() );

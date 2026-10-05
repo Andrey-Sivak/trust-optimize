@@ -8,6 +8,7 @@
 namespace TrustOptimize\Service;
 
 use TrustOptimize\Domain\VariantStatus;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -38,14 +39,23 @@ class ImageCleanupService {
 	private $attachments;
 
 	/**
+	 * File ownership checks.
+	 *
+	 * @var FileOwnership
+	 */
+	private $ownership;
+
+	/**
 	 * Constructor.
 	 *
 	 * @param VariantRepository    $variants    Variant repository.
 	 * @param AttachmentRepository $attachments Attachment repository.
+	 * @param FileOwnership        $ownership   File ownership checks.
 	 */
-	public function __construct( VariantRepository $variants, AttachmentRepository $attachments ) {
+	public function __construct( VariantRepository $variants, AttachmentRepository $attachments, FileOwnership $ownership ) {
 		$this->variants    = $variants;
 		$this->attachments = $attachments;
+		$this->ownership   = $ownership;
 	}
 
 	/**

@@ -12,6 +12,7 @@ use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -181,7 +182,7 @@ class ImageGuardTest extends WP_UnitTestCase {
 		Plugin::get_instance()->planner->plan( $id );
 
 		$plugin    = Plugin::get_instance();
-		$converter = new Stubborn_Converter( $this->variants, new AtomicImageWriter( $this->variants ), new CapabilityService() );
+		$converter = new Stubborn_Converter( $this->variants, new AtomicImageWriter( $this->variants, new FileOwnership( $this->variants ) ), new CapabilityService() );
 		$processor = new AttachmentProcessor( $this->attachments, $this->variants, $converter, $plugin->planner, $plugin->cleanup, new TrustOptimize\Admin\Settings(), new CapabilityService() );
 
 		$processor->run( $id, INF );
