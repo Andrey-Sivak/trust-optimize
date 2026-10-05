@@ -156,7 +156,7 @@ Filters:
 
 == Screenshots ==
 
-1. Overview: how many images are optimized and how much storage the WebP files save.
+1. Overview: how many images are optimized and how much smaller the AVIF and WebP files are.
 2. Bulk optimization of the existing library with progress, pause and resume.
 3. Settings: delivery, formats and quality, safety limits.
 4. Optimization status of every image in the Media Library.

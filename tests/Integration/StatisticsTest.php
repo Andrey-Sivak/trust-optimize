@@ -93,7 +93,8 @@ class StatisticsTest extends WP_UnitTestCase {
 		$this->assertSame( 1, $stats['failed'] );
 		$this->assertSame( 1, $stats['queued'] );
 		$this->assertSame( 0, $stats['partial'] );
-		$this->assertSame( 2100, $stats['saved_bytes'], 'Finished WebP variants only: (1000-400)+(2000-500).' );
+		$this->assertSame( 2100, $stats['saved_bytes_by_format']['webp'], 'Finished WebP variants only: (1000-400)+(2000-500).' );
+		$this->assertSame( 700, $stats['saved_bytes_by_format']['avif'], 'Finished AVIF variants only: 1000-300.' );
 		$this->assertSame( 1, $stats['outdated'], 'The AVIF variant, because AVIF is switched off.' );
 		$this->assertEquals( 33.3, $stats['rate'] );
 	}
@@ -123,7 +124,7 @@ class StatisticsTest extends WP_UnitTestCase {
 	public function test_an_empty_library_has_zero_rate() {
 		$stats = $this->statistics->get();
 
-		$this->assertSame( 0, $stats['saved_bytes'] );
+		$this->assertSame( array( 'avif' => 0, 'webp' => 0 ), $stats['saved_bytes_by_format'] );
 		$this->assertSame( 0, $stats['rate'] );
 	}
 
@@ -136,6 +137,21 @@ class StatisticsTest extends WP_UnitTestCase {
 		$html = ob_get_clean();
 
 		$this->assertStringContainsString( '2.1 KB', $html );
+		$this->assertStringContainsString( '700.0 B', $html );
+		$this->assertStringContainsString( 'Saved with AVIF', $html );
 		$this->assertStringContainsString( '33.3%', $html );
+	}
+
+	public function test_the_card_falls_back_to_webp_when_there_are_no_avif_files() {
+		$image = $this->image();
+		$this->variant( $image, 'full', 'webp', 1000, 400 );
+		wp_set_current_user( self::factory()->user->create( array( 'role' => 'administrator' ) ) );
+
+		ob_start();
+		Plugin::get_instance()->admin->display_admin_page();
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'Saved with WebP', $html );
+		$this->assertStringNotContainsString( 'Saved with AVIF', $html );
 	}
 }

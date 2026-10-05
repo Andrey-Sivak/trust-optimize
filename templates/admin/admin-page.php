@@ -16,6 +16,10 @@ $trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'
 $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
 $trust_optimize_unoptimized      = max( 0, $trust_optimize_stats['eligible'] - $trust_optimize_stats['optimized'] );
 
+// Browsers receive AVIF first: the card shows its savings once AVIF files exist, otherwise those of WebP.
+$trust_optimize_saved_format = ! empty( $trust_optimize_stats['saved_bytes_by_format']['avif'] ) ? 'avif' : 'webp';
+$trust_optimize_saved_label  = 'avif' === $trust_optimize_saved_format ? __( 'Saved with AVIF', 'trust-optimize' ) : __( 'Saved with WebP', 'trust-optimize' );
+
 // Each check of the server: label, whether it is fine and the value shown next to it.
 $trust_optimize_server_checks = array(
 	array( __( 'GD', 'trust-optimize' ), extension_loaded( 'gd' ), extension_loaded( 'gd' ) ? __( 'available', 'trust-optimize' ) : __( 'missing', 'trust-optimize' ) ),
@@ -72,8 +76,8 @@ $trust_optimize_server_checks = array(
 				<div class="trust-optimize-card-label"><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></div>
 			</div>
 			<div class="trust-optimize-card">
-				<div class="trust-optimize-card-value"><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?></div>
-				<div class="trust-optimize-card-label"><?php esc_html_e( 'Saved by WebP files', 'trust-optimize' ); ?></div>
+				<div class="trust-optimize-card-value"><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format'][ $trust_optimize_saved_format ], 1 ) ); ?></div>
+				<div class="trust-optimize-card-label"><?php echo esc_html( $trust_optimize_saved_label ); ?></div>
 			</div>
 			<div class="trust-optimize-card">
 				<div class="trust-optimize-card-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['rate'], 1 ) . '%' ); ?></div>
@@ -93,7 +97,8 @@ $trust_optimize_server_checks = array(
 				<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['failed'] ) ); ?></td></tr>
 				<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['skipped'] ) ); ?></td></tr>
 				<tr><th><?php esc_html_e( 'Outdated variants (settings changed)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['outdated'] ) ); ?></td></tr>
-				<tr><th><?php esc_html_e( 'Storage saved (WebP files only)', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Storage saved by AVIF files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format']['avif'], 1 ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Storage saved by WebP files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format']['webp'], 1 ) ); ?></td></tr>
 			</tbody>
 		</table>
 	</div>
