@@ -151,8 +151,8 @@ Filters:
 * `trust_optimize_bulk_max_pending` ( int ) – pending tasks the bulk job keeps queued (default 200).
 * `trust_optimize_bulk_time_budget` ( int $seconds ) – time of one producer run (default 20).
 * `trust_optimize_bulk_stale_after_seconds` ( int ) – a running job without progress is considered stale after this time (default 900).
-* `trust_optimize_uninstall_cleanup_batch_size` ( int ) – variant records handled per step on uninstall (default 100).
-* `trust_optimize_uninstall_cleanup_max_records` ( int ) – variant records handled per site in one uninstall request (default 5000).
+* `trust_optimize_uninstall_cleanup_batch_size` ( int ) – attachments cleaned per step on uninstall (default 100).
+* `trust_optimize_uninstall_cleanup_max_records` ( int ) – attachments cleaned per site in one uninstall request (default 5000).
 * `trust_optimize_uninstall_cleanup_max_seconds` ( float ) – time one uninstall request spends per site (default 20).
 
 == Screenshots ==
