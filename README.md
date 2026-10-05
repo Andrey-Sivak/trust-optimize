@@ -7,7 +7,7 @@ Converts the image sizes WordPress generates into WebP and AVIF and serves them 
 - WebP and AVIF variants of every generated size of JPEG and PNG uploads, named after the source: `photo.jpg` → `photo.jpg.webp`, `photo.jpg.avif`.
 - `<picture>` built on top of the `srcset` and `sizes` that WordPress calculates; only the URLs and `type` change. Without a finished variant the original `<img>` stays untouched.
 - Background conversion with Action Scheduler, one task per attachment.
-- Bulk conversion and removal for the existing library: settings page and WP-CLI (`wp trust-optimize`).
+- Bulk conversion and removal for the existing library: the admin page and WP-CLI (`wp trust-optimize`).
 - Protection against bad input: pixel limit, free disk check, retry counter, variants that are not smaller than the source are dropped.
 - Site Health tests, REST API for the Media Library status column.
 - Never deletes or overwrites a file that another attachment uses, or the original of another attachment.

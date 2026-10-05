@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safe file handling: variants are written through a temporary file and `rename()`, never overwrite or delete a file that belongs to another attachment, and a file shared by several attachments is deleted only by its last owner.
 - Background conversion with Action Scheduler: one task per attachment, an attempt counter for failing images, a pixel limit and a pause when free disk space runs low.
 - Bulk conversion and removal of the whole library with progress, pause, resume and cancel, from the settings page, the REST API or WP-CLI.
-- Settings page with statistics, formats and quality, `force_lazy`, `max_pixels`, `min_free_disk`, `remove_data_on_uninstall` and a reset to defaults that respects what the server supports.
+- Admin pages: an overview with statistics and a bulk optimization panel, and a settings page grouped into delivery, formats and quality, limits and uninstall, with the largest image entered in megapixels (stored as `max_pixels`) and a reset to defaults that respects what the server supports.
 - Media Library status column with batched status requests and polling that stops.
 - WP-CLI: `wp trust-optimize` with `inventory`, `sync`, `status`, `pause`, `resume`, `cancel`, `remove`, `sync-attachment` and `remove-attachment`.
 - REST API under `/trust-optimize/v1/` for statuses, bulk jobs and single attachments.
