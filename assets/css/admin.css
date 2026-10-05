@@ -1,37 +1,159 @@
-.trust-optimize-bulk-panel {
+/* Overview and bulk pages. */
+.trust-optimize-wrap {
+	max-width: 1100px;
+}
+
+.trust-optimize-wrap [hidden] {
+	display: none !important;
+}
+
+.trust-optimize-version {
+	color: #646970;
+	font-size: 13px;
+	font-weight: 400;
+	margin-left: 8px;
+}
+
+.trust-optimize-tabs {
 	margin-top: 16px;
-	max-width: 960px;
 }
 
-.trust-optimize-preflight {
+.trust-optimize-panel {
+	padding-top: 20px;
+}
+
+.trust-optimize-panel h2 {
+	margin: 24px 0 8px;
+}
+
+.trust-optimize-panel .notice.inline {
+	margin: 0 0 20px;
+}
+
+.trust-optimize-open-tab {
+	margin-left: 8px;
+}
+
+/* Cards. */
+.trust-optimize-cards {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-	gap: 8px 16px;
-	margin: 12px 0 18px;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 16px;
 }
 
+.trust-optimize-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 4px;
+	padding: 16px 20px;
+}
+
+.trust-optimize-card-value {
+	font-size: 26px;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.trust-optimize-card-label {
+	color: #646970;
+	margin-top: 4px;
+}
+
+@media (max-width: 960px) {
+	.trust-optimize-cards {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+@media (max-width: 600px) {
+	.trust-optimize-cards {
+		grid-template-columns: 1fr;
+	}
+}
+
+.trust-optimize-details,
+.trust-optimize-bulk-counters {
+	max-width: 640px;
+}
+
+.trust-optimize-details td {
+	text-align: right;
+}
+
+/* Server checks. */
+.trust-optimize-server {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+	gap: 8px 16px;
+	margin: 0;
+}
+
+.trust-optimize-server li {
+	margin: 0;
+}
+
+.trust-optimize-server .dashicons {
+	vertical-align: text-bottom;
+}
+
+.trust-optimize-server .is-ok .dashicons {
+	color: #00a32a;
+}
+
+.trust-optimize-server .is-warning .dashicons {
+	color: #dba617;
+}
+
+.trust-optimize-server strong {
+	margin-right: 4px;
+}
+
+/* Bulk panel. */
 .trust-optimize-bulk-actions {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
-	margin-bottom: 16px;
+	margin-bottom: 8px;
+}
+
+.trust-optimize-progress-wrap {
+	margin-top: 16px;
+	max-width: 640px;
 }
 
 .trust-optimize-progress-bar {
 	background: #dcdcde;
 	border-radius: 3px;
-	height: 16px;
+	height: 12px;
 	overflow: hidden;
 }
 
 .trust-optimize-progress-bar span {
-	background: #2271b1;
+	background: var(--wp-admin-theme-color, #2271b1);
 	display: block;
 	height: 100%;
 	transition: width 0.2s ease;
+	width: 0;
+}
+
+.trust-optimize-bulk-status {
+	margin: 8px 0 0;
 }
 
 .trust-optimize-bulk-counters {
 	margin-top: 16px;
-	max-width: 640px;
+}
+
+.trust-optimize-last-error td {
+	color: #d63638;
+}
+
+.trust-optimize-remove {
+	border-top: 1px solid #dcdcde;
+	margin-top: 32px;
+	padding-top: 8px;
+}
+
+.trust-optimize-remove .description {
+	margin-bottom: 12px;
 }
