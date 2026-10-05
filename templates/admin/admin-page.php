@@ -28,8 +28,6 @@ $trust_optimize_server_checks = array(
 );
 ?>
 
-?>
-
 <div class="wrap trust-optimize-wrap">
 	<h1>
 		<?php esc_html_e( 'TrustOptimize', 'trust-optimize' ); ?>

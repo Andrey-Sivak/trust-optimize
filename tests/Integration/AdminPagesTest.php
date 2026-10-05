@@ -56,6 +56,7 @@ class AdminPagesTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'Welcome to TrustOptimize', $html );
 		$this->assertStringNotContainsString( 'Cursor', $html );
 		$this->assertStringNotContainsString( 'trust-optimize-logo', $html );
+		$this->assertStringNotContainsString( '?>', $html );
 	}
 
 	public function test_the_overview_offers_the_bulk_tab_only_while_images_are_not_optimized() {
@@ -107,6 +108,7 @@ class AdminPagesTest extends WP_UnitTestCase {
 
 		$this->assertStringNotContainsString( 'General Settings', $html );
 		$this->assertStringNotContainsString( 'About TrustOptimize', $html );
+		$this->assertStringNotContainsString( '?>', $html );
 	}
 
 	public function test_formats_are_named_without_uppercasing_them() {
