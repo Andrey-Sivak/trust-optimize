@@ -7,10 +7,12 @@
 
 namespace TrustOptimize\Admin;
 
+use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Health\SiteHealth;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -163,14 +165,14 @@ class Admin {
 		$trust_optimize_overdue        = $this->health->test_overdue_tasks();
 		$trust_optimize_max_pending    = BulkProducer::max_pending();
 
-		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
+		require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}
 
 	/**
 	 * Display the settings page.
 	 */
 	public function display_settings_page() {
-		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/settings-page.php';
+		require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/settings-page.php';
 	}
 
 	/**
@@ -396,10 +398,28 @@ class Admin {
 					'restUrl' => rest_url( 'trust-optimize/v1/' ),
 					'nonce'   => wp_create_nonce( 'wp_rest' ),
 					'i18n'    => array(
-						'finishing'     => __( 'Finishing…', 'trust-optimize' ),
-						'confirmReset'  => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
-						'confirmRemove' => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
-						'confirmCancel' => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
+						'working'           => __( 'Working…', 'trust-optimize' ),
+						'idle'              => __( 'No bulk job is running.', 'trust-optimize' ),
+						'requestFailed'     => __( 'Request failed.', 'trust-optimize' ),
+						/* translators: 1: what the job is doing, e.g. Optimizing; 2: percent done; 3: attachments processed; 4: attachments in the job. */
+						'progress'          => __( '%1$s — %2$s (%3$s of %4$s)', 'trust-optimize' ),
+						/* translators: %1$s: what the job is doing, e.g. Optimizing. */
+						'progressFinishing' => __( '%1$s — finishing…', 'trust-optimize' ),
+						'active'            => array(
+							BulkJob::TYPE_SYNC      => __( 'Optimizing', 'trust-optimize' ),
+							BulkJob::TYPE_REMOVE    => __( 'Removing optimized files', 'trust-optimize' ),
+							BulkJob::TYPE_INVENTORY => __( 'Analyzing', 'trust-optimize' ),
+						),
+						'statuses'          => array(
+							JobStatus::PAUSED    => __( 'Paused', 'trust-optimize' ),
+							JobStatus::COMPLETED => __( 'Completed', 'trust-optimize' ),
+							JobStatus::COMPLETED_WITH_ERRORS => __( 'Completed with errors', 'trust-optimize' ),
+							JobStatus::CANCELLED => __( 'Cancelled', 'trust-optimize' ),
+							JobStatus::FAILED    => __( 'Failed', 'trust-optimize' ),
+						),
+						'confirmReset'      => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
+						'confirmRemove'     => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
+						'confirmCancel'     => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
 					),
 				)
 			);
@@ -463,7 +483,7 @@ class Admin {
 						'trust-optimize'
 					),
 					number_format_i18n( $remaining ),
-					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize#media-library' ) ) . '">' . esc_html__( 'TrustOptimize', 'trust-optimize' ) . '</a>'
+					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize#bulk' ) ) . '">' . esc_html__( 'TrustOptimize', 'trust-optimize' ) . '</a>'
 				),
 				array( 'a' => array( 'href' => array() ) )
 			)
