@@ -38,4 +38,20 @@ class SettingsFormTest extends WP_UnitTestCase {
 
 		$this->assertNull( ImageLimits::skip_reason( 100, 100 ) );
 	}
+
+	public function test_the_limit_entered_in_megapixels_is_stored_in_pixels() {
+		$options = ( new Settings() )->sanitize( array( 'max_megapixels' => '12.5', 'max_pixels' => 1000 ) );
+
+		$this->assertSame( 12500000, $options['max_pixels'] );
+		$this->assertArrayNotHasKey( 'max_megapixels', $options );
+	}
+
+	public function test_pixels_are_used_when_no_positive_megapixels_come_in() {
+		$settings = new Settings();
+
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_megapixels' => 0, 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_megapixels' => 'abc', 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( ImageLimits::DEFAULT_MAX_PIXELS, $settings->sanitize( array( 'max_megapixels' => -3 ) )['max_pixels'] );
+	}
 }

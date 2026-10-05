@@ -84,4 +84,54 @@ class AdminPagesTest extends WP_UnitTestCase {
 		$this->assertMatchesRegularExpression( '/data-action="resume" hidden/', $html );
 		$this->assertMatchesRegularExpression( '/data-action="cancel" hidden/', $html );
 	}
+
+	private function settings_page() {
+		$GLOBALS['title'] = 'Settings';
+
+		Plugin::get_instance()->admin->register_settings();
+
+		ob_start();
+		Plugin::get_instance()->admin->display_settings_page();
+
+		return ob_get_clean();
+	}
+
+	public function test_the_settings_are_grouped_in_four_sections() {
+		$html = $this->settings_page();
+
+		$this->assertSame( 4, substr_count( $html, '<h2>' ) );
+
+		foreach ( array( 'Delivery', 'Formats and quality', 'Limits', 'Uninstall' ) as $title ) {
+			$this->assertStringContainsString( '<h2>' . $title . '</h2>', $html );
+		}
+
+		$this->assertStringNotContainsString( 'General Settings', $html );
+		$this->assertStringNotContainsString( 'About TrustOptimize', $html );
+	}
+
+	public function test_formats_are_named_without_uppercasing_them() {
+		$html = $this->settings_page();
+
+		$this->assertStringContainsString( 'Create WebP', $html );
+		$this->assertStringContainsString( 'WebP quality', $html );
+		$this->assertStringContainsString( 'AVIF quality', $html );
+		$this->assertStringNotContainsString( 'WEBP', $html );
+	}
+
+	public function test_the_image_limit_is_entered_in_megapixels() {
+		update_option( 'trust_optimize_options', array( 'max_pixels' => 50000000 ) );
+
+		$html = $this->settings_page();
+
+		$this->assertMatchesRegularExpression( '/name="trust_optimize_options\[max_megapixels\]"\s+value="50"/', $html );
+		$this->assertStringNotContainsString( 'trust_optimize_options[max_pixels]', $html );
+	}
+
+	public function test_reset_and_format_check_sit_next_to_the_fields_they_belong_to() {
+		$html = $this->settings_page();
+
+		$this->assertMatchesRegularExpression( '/<button[^>]+form="trust-optimize-recheck-form"/', $html );
+		$this->assertMatchesRegularExpression( '/<button[^>]+form="trust-optimize-reset-form"/', $html );
+		$this->assertStringNotContainsString( 'Default quality for new installs', $html );
+	}
 }

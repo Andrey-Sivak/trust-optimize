@@ -24,6 +24,16 @@ use TrustOptimize\Storage\VariantRepository;
 class Admin {
 
 	/**
+	 * How the formats are written.
+	 *
+	 * @var string[]
+	 */
+	const FORMAT_NAMES = array(
+		'webp' => 'WebP',
+		'avif' => 'AVIF',
+	);
+
+	/**
 	 * Plugin settings.
 	 *
 	 * @var Settings
@@ -185,12 +195,9 @@ class Admin {
 			array( 'sanitize_callback' => array( $this->settings, 'sanitize' ) )
 		);
 
-		add_settings_section(
-			'trust_optimize_general_section',
-			__( 'General Settings', 'trust-optimize' ),
-			array( $this, 'render_general_section' ),
-			'trust_optimize_settings'
-		);
+		foreach ( $this->get_sections() as $id => $title ) {
+			add_settings_section( 'trust_optimize_' . $id . '_section', $title, '', 'trust_optimize_settings' );
+		}
 
 		foreach ( $this->get_fields() as $key => $field ) {
 			add_settings_field(
@@ -198,7 +205,7 @@ class Admin {
 				$field['label'],
 				array( $this, 'render_field' ),
 				'trust_optimize_settings',
-				'trust_optimize_general_section',
+				'trust_optimize_' . $field['section'] . '_section',
 				array_merge(
 					$field,
 					array(
@@ -208,39 +215,70 @@ class Admin {
 				)
 			);
 		}
+
+		add_settings_field(
+			'recheck_capabilities',
+			__( 'Format support', 'trust-optimize' ),
+			array( $this, 'render_recheck_button' ),
+			'trust_optimize_settings',
+			'trust_optimize_formats_section'
+		);
+	}
+
+	/**
+	 * The sections of the settings page, in the order they are shown.
+	 *
+	 * @return string[] Titles keyed by section ID.
+	 */
+	private function get_sections() {
+		return array(
+			'delivery'  => __( 'Delivery', 'trust-optimize' ),
+			'formats'   => __( 'Formats and quality', 'trust-optimize' ),
+			'limits'    => __( 'Limits', 'trust-optimize' ),
+			'uninstall' => __( 'Uninstall', 'trust-optimize' ),
+		);
 	}
 
 	/**
 	 * The settings shown on the page.
 	 *
-	 * @return array[] Field definitions keyed by option key.
+	 * @return array[] Field definitions keyed by option key; each names its section.
 	 */
 	private function get_fields() {
 		$fields = array(
 			'enable_adaptive_images' => array(
+				'section'     => 'delivery',
 				'label'       => __( 'Serve optimized images', 'trust-optimize' ),
 				'type'        => 'checkbox',
 				'description' => __( 'Wrap images in a picture element that offers the generated WebP and AVIF files.', 'trust-optimize' ),
+			),
+			'force_lazy'             => array(
+				'section'     => 'delivery',
+				'label'       => __( 'Force lazy loading', 'trust-optimize' ),
+				'type'        => 'checkbox',
+				'description' => __( 'Add loading="lazy" to images that have no loading attribute. Off by default so that the largest image of a page is not delayed.', 'trust-optimize' ),
 			),
 		);
 
 		foreach ( array_keys( OptimizationSettings::FORMAT_OPTIONS ) as $format ) {
 			$fields[ 'convert_to_' . $format ] = array(
+				'section'     => 'formats',
 				/* translators: %s: format name, e.g. WebP. */
-				'label'       => sprintf( __( 'Create %s', 'trust-optimize' ), strtoupper( $format ) ),
+				'label'       => sprintf( __( 'Create %s', 'trust-optimize' ), self::FORMAT_NAMES[ $format ] ),
 				'type'        => 'checkbox',
 				'disabled'    => ! $this->capabilities->supports( $format ),
 				'description' => $this->capabilities->supports( $format )
 					? ''
 					/* translators: %s: format name, e.g. WebP. */
-					: sprintf( __( 'This server cannot write %s files.', 'trust-optimize' ), strtoupper( $format ) ),
+					: sprintf( __( 'This server cannot write %s files.', 'trust-optimize' ), self::FORMAT_NAMES[ $format ] ),
 			);
 		}
 
 		foreach ( Settings::QUALITY_KEYS as $key ) {
 			$fields[ $key ] = array(
+				'section'     => 'formats',
 				/* translators: %s: format name, e.g. WebP. */
-				'label'       => sprintf( __( '%s quality', 'trust-optimize' ), strtoupper( strtok( $key, '_' ) ) ),
+				'label'       => sprintf( __( '%s quality', 'trust-optimize' ), self::FORMAT_NAMES[ strtok( $key, '_' ) ] ),
 				'type'        => 'number',
 				'min'         => 1,
 				'max'         => 100,
@@ -249,36 +287,29 @@ class Admin {
 		}
 
 		return $fields + array(
-			'force_lazy'               => array(
-				'label'       => __( 'Force lazy loading', 'trust-optimize' ),
-				'type'        => 'checkbox',
-				'description' => __( 'Add loading="lazy" to images that have no loading attribute. Off by default so that the largest image of a page is not delayed.', 'trust-optimize' ),
-			),
-			'max_pixels'               => array(
-				'label'       => __( 'Largest image to convert (pixels)', 'trust-optimize' ),
+			'max_megapixels'           => array(
+				'section'     => 'limits',
+				'label'       => __( 'Largest image to convert (megapixels)', 'trust-optimize' ),
 				'type'        => 'number',
-				'min'         => 1,
-				'description' => __( 'Width times height. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
+				'min'         => 0.1,
+				'step'        => 0.1,
+				'value'       => round( (int) $this->settings->get( 'max_pixels' ) / 1000000, 1 ),
+				'description' => __( 'Width times height in millions of pixels. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
 			),
 			'min_free_disk'            => array(
+				'section'     => 'limits',
 				'label'       => __( 'Minimum free disk space (MB)', 'trust-optimize' ),
 				'type'        => 'number',
 				'min'         => 0,
 				'description' => __( 'Conversion pauses below this value. 0 keeps the automatic value: 1 GB or 5% of the disk, whichever is larger.', 'trust-optimize' ),
 			),
 			'remove_data_on_uninstall' => array(
+				'section'     => 'uninstall',
 				'label'       => __( 'Remove data on uninstall', 'trust-optimize' ),
 				'type'        => 'checkbox',
 				'description' => __( 'Delete the generated files and the plugin data when the plugin is deleted. Originals are never deleted.', 'trust-optimize' ),
 			),
 		);
-	}
-
-	/**
-	 * Render the general settings section.
-	 */
-	public function render_general_section() {
-		echo '<p>' . esc_html__( 'Configure general settings for TrustOptimize.', 'trust-optimize' ) . '</p>';
 	}
 
 	/**
@@ -290,7 +321,7 @@ class Admin {
 	 */
 	public function render_field( $args ) {
 		$key   = $args['key'];
-		$value = $this->settings->get( $key );
+		$value = $args['value'] ?? $this->settings->get( $key );
 		$name  = 'trust_optimize_options[' . $key . ']';
 
 		if ( 'checkbox' === $args['type'] ) {
@@ -309,18 +340,32 @@ class Admin {
 			);
 		} else {
 			printf(
-				'<input type="number" id="%1$s" name="%2$s" value="%3$d" min="%4$d" %5$s class="regular-text">',
+				'<input type="number" id="%1$s" name="%2$s" value="%3$s" min="%4$s" step="%5$s"%6$s class="small-text">',
 				esc_attr( $key ),
 				esc_attr( $name ),
-				(int) $value,
-				(int) $args['min'],
-				isset( $args['max'] ) ? 'max="' . (int) $args['max'] . '"' : ''
+				esc_attr( $value ),
+				esc_attr( $args['min'] ),
+				esc_attr( $args['step'] ?? 1 ),
+				isset( $args['max'] ) ? ' max="' . esc_attr( $args['max'] ) . '"' : ''
 			);
 		}
 
 		if ( '' !== $args['description'] ) {
 			echo '<p class="description">' . esc_html( $args['description'] ) . '</p>';
 		}
+	}
+
+	/**
+	 * Render the button that detects the supported formats again.
+	 *
+	 * The button belongs to the form of the page, which cannot hold another form: it submits the form below the settings through its form attribute.
+	 */
+	public function render_recheck_button() {
+		printf(
+			'<button type="submit" form="trust-optimize-recheck-form" class="button">%s</button><p class="description">%s</p>',
+			esc_html__( 'Re-check format support', 'trust-optimize' ),
+			esc_html__( 'Run this after the image libraries of the server changed.', 'trust-optimize' )
+		);
 	}
 
 	/**

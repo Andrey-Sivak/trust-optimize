@@ -85,6 +85,7 @@ class Settings {
 	 *
 	 * Only known keys survive, so keys of earlier versions disappear on the next save. Checkboxes
 	 * that are absent from the input are off, other missing values fall back to the defaults.
+	 * max_megapixels, when positive, takes the place of max_pixels and is never stored itself.
 	 *
 	 * @param mixed $input Submitted values.
 	 * @return array
@@ -101,7 +102,10 @@ class Settings {
 			$output[ $key ] = max( 1, min( 100, (int) ( $input[ $key ] ?? $this->defaults[ $key ] ) ) );
 		}
 
-		$max_pixels              = (int) ( $input['max_pixels'] ?? 0 );
+		// The form enters the limit in megapixels; code and CLI may still send pixels. Only pixels are stored.
+		$megapixels = $input['max_megapixels'] ?? 0;
+		$max_pixels = is_numeric( $megapixels ) && $megapixels > 0 ? (int) round( $megapixels * 1000000 ) : (int) ( $input['max_pixels'] ?? 0 );
+
 		$output['max_pixels']    = $max_pixels > 0 ? $max_pixels : $this->defaults['max_pixels'];
 		$output['min_free_disk'] = max( 0, (int) ( $input['min_free_disk'] ?? 0 ) );
 
