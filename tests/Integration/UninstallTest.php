@@ -142,6 +142,29 @@ class UninstallTest extends WP_UnitTestCase {
 		$this->assertFalse( $this->table_exists( 'variants' ) );
 	}
 
+	public function test_the_original_of_another_attachment_survives_the_uninstall_even_when_a_row_points_at_it() {
+		$b = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
+		$this->attachment_ids = array( $b );
+		$file     = get_attached_file( $b );
+		$checksum = hash_file( 'sha256', $file );
+		( new TrustOptimize\Storage\VariantRepository( new TrustOptimize\Database\DatabaseManager() ) )->upsert(
+			array(
+				'attachment_id'        => 3003,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => TrustOptimize\Domain\VariantStatus::DONE,
+				'source_relative_path' => 'elsewhere.jpg',
+				'relative_path'        => get_post_meta( $b, '_wp_attached_file', true ),
+				'file_hash'            => $checksum,
+			)
+		);
+
+		trust_optimize_uninstall_site();
+
+		$this->assertSame( $checksum, hash_file( 'sha256', $file ), 'The original of another attachment survives.' );
+		$this->assertFalse( $this->table_exists( 'variants' ) );
+	}
+
 	public function test_a_row_outside_uploads_does_not_block_the_final_cleanup() {
 		$inside    = $this->add_variant_file( 3001, $this->relative_dir, 'a.jpg.webp' );
 		$outside   = dirname( wp_upload_dir()['basedir'] ) . '/outside-uploads-test';

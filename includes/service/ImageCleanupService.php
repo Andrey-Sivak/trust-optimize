@@ -19,8 +19,8 @@ use TrustOptimize\Value\DeleteResult;
  * Class ImageCleanupService
  *
  * Deletes only files that a variant row of the plugin points at. A row is removed
- * once its file is confirmed gone (or turned out not to be ours, or is still needed by
- * another attachment); a file that cannot be deleted keeps its row, marked failed.
+ * once its file is confirmed gone (or turned out not to be ours, or is in use by another
+ * attachment); a file that cannot be deleted keeps its row, marked failed.
  */
 class ImageCleanupService {
 
@@ -284,6 +284,14 @@ class ImageCleanupService {
 			return array(
 				'status' => 'skipped',
 				'reason' => 'missing_file',
+			);
+		}
+
+		// An importer may have registered the file as the original of another attachment.
+		if ( $this->ownership->is_attachment_file( $relative_path, $attachment_id ) ) {
+			return array(
+				'status' => 'skipped',
+				'reason' => 'attachment_file',
 			);
 		}
 

@@ -61,7 +61,8 @@ class AtomicImageWriter {
 		}
 
 		$relative = ltrim( substr( $target_path, strlen( UploadsPath::basedir() ) ), '/' );
-		if ( file_exists( $target_path ) && ! $this->variants->owns( $relative ) ) {
+		// An existing file is replaced only when a variant row owns it and no attachment registered it as its original.
+		if ( file_exists( $target_path ) && ( ! $this->variants->owns( $relative ) || $this->ownership->is_attachment_file( $relative ) ) ) {
 			return new WP_Error( 'target_exists_foreign', 'Target file exists and is not a TrustOptimize variant.' );
 		}
 

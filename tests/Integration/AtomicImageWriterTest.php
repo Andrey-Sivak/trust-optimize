@@ -129,6 +129,33 @@ class AtomicImageWriterTest extends WP_UnitTestCase {
 		$this->assertNotSame( 'old variant', file_get_contents( $target ) );
 	}
 
+	public function test_never_overwrites_the_original_of_another_attachment() {
+		$source = $this->make_jpeg( 'photo.jpg' );
+		$target = $this->dir . '/photo.jpg.webp';
+		file_put_contents( $target, 'original of another attachment' );
+		$this->variants->upsert(
+			array(
+				'attachment_id' => 801,
+				'size_name'     => 'original',
+				'format'        => 'webp',
+				'relative_path' => $this->relative( $target ),
+			)
+		);
+		self::factory()->post->create(
+			array(
+				'post_type'  => 'attachment',
+				'meta_input' => array( '_wp_attached_file' => $this->relative( $target ) ),
+			)
+		);
+
+		$result = $this->writer->save( wp_get_image_editor( $source ), $target, 'image/webp' );
+
+		$this->assertWPError( $result );
+		$this->assertSame( 'target_exists_foreign', $result->get_error_code() );
+		$this->assertSame( hash( 'sha256', 'original of another attachment' ), hash_file( 'sha256', $target ) );
+		$this->assertSame( array(), $this->leftovers() );
+	}
+
 	public function test_rejects_target_outside_uploads() {
 		$editor = wp_get_image_editor( $this->make_jpeg( 'photo.jpg' ) );
 

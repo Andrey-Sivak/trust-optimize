@@ -231,6 +231,22 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 		$this->assertCount( 1, $this->variants->get_for_attachment( 1023 ) );
 	}
 
+	public function test_a_file_that_is_the_original_of_another_attachment_is_never_deleted() {
+		$this->variant( 1030, 'imported.jpg.webp', 'webp', 'original of another attachment' );
+		self::factory()->post->create(
+			array(
+				'post_type'  => 'attachment',
+				'meta_input' => array( '_wp_attached_file' => $this->relative_dir . '/imported.jpg.webp' ),
+			)
+		);
+
+		$result = $this->cleanup->cleanup_attachment( 1030 );
+
+		$this->assertSame( 'attachment_file', $result->get_data()['skipped'][0]['reason'] );
+		$this->assertSame( hash( 'sha256', 'original of another attachment' ), hash_file( 'sha256', $this->dir . '/imported.jpg.webp' ) );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1030 ), 'The row is removed: it must not claim the file.' );
+	}
+
 	public function test_cleanup_variants_removes_only_the_given_rows() {
 		$keep = $this->variant( 1005, 'e1.jpg.webp' );
 		$this->variant( 1005, 'e2.jpg.webp' );

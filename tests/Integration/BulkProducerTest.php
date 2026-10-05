@@ -361,6 +361,29 @@ class BulkProducerTest extends WP_UnitTestCase {
 		$this->assertFileDoesNotExist( $file, 'The last owner deletes the file.' );
 	}
 
+	public function test_remove_job_does_not_touch_the_original_of_another_attachment() {
+		$original = $this->upload();
+		$file     = get_attached_file( $original );
+		$checksum = hash_file( 'sha256', $file );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 3010,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => 'elsewhere.jpg',
+				'relative_path'        => get_post_meta( $original, '_wp_attached_file', true ),
+				'file_hash'            => $checksum,
+			)
+		);
+
+		$job = $this->drive( $this->producer->launch( BulkJob::TYPE_REMOVE )->get_id() );
+
+		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3010 ) );
+		$this->assertSame( $checksum, hash_file( 'sha256', $file ), 'The original of another attachment is intact.' );
+	}
+
 	public function test_inventory_job_walks_the_library_and_completes() {
 		$this->upload();
 		$this->upload();
