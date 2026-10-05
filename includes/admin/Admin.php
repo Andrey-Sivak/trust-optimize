@@ -292,8 +292,8 @@ class Admin {
 				'label'       => __( 'Largest image to convert (megapixels)', 'trust-optimize' ),
 				'type'        => 'number',
 				'min'         => 0.1,
-				'step'        => 0.1,
-				'value'       => round( (int) $this->settings->get( 'max_pixels' ) / 1000000, 1 ),
+				'step'        => 'any',
+				'value'       => (int) $this->settings->get( 'max_pixels' ) / 1000000,
 				'description' => __( 'Width times height in millions of pixels. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
 			),
 			'min_free_disk'            => array(
