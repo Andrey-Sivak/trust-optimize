@@ -129,8 +129,17 @@ class Admin {
 			'manage_options',
 			'trust-optimize',
 			array( $this, 'display_admin_page' ),
-			'dashicons-visibility',
+			'dashicons-format-image',
 			30
+		);
+
+		add_submenu_page(
+			'trust-optimize',
+			__( 'TrustOptimize', 'trust-optimize' ),
+			__( 'Overview', 'trust-optimize' ),
+			'manage_options',
+			'trust-optimize',
+			array( $this, 'display_admin_page' )
 		);
 
 		add_submenu_page(
