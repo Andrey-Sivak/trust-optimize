@@ -100,10 +100,10 @@ class AdminPagesTest extends WP_UnitTestCase {
 	public function test_the_settings_are_grouped_in_four_sections() {
 		$html = $this->settings_page();
 
-		$this->assertSame( 4, substr_count( $html, '<h2>' ) );
+		$this->assertSame( 4, preg_match_all( '/<h2[ >]/', $html ) );
 
 		foreach ( array( 'Delivery', 'Formats and quality', 'Limits', 'Uninstall' ) as $title ) {
-			$this->assertStringContainsString( '<h2>' . $title . '</h2>', $html );
+			$this->assertMatchesRegularExpression( '/<h2[^>]*>' . preg_quote( $title, '/' ) . '<\/h2>/', $html );
 		}
 
 		$this->assertStringNotContainsString( 'General Settings', $html );
