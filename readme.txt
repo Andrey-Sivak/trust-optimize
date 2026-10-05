@@ -170,23 +170,17 @@ Actions:
 
 == Changelog ==
 
-= 2.0.0 =
-* New storage in database tables and new variant file names (`photo.jpg.webp`); the data of 1.x is migrated in the background.
-* AVIF output, `<picture>` delivery on top of the core `srcset`, one background task per image, bulk jobs with pause and resume, WP-CLI, Site Health tests.
-* Requires PHP 8.0, WordPress 6.5 and MySQL 5.7 / MariaDB 10.3.
-* Fixes: variants never overwrite foreign files, safer uninstall, working settings and reset, real statistics.
-* See CHANGELOG.md in the plugin for the complete list.
-
 = 1.0.0 =
-* Initial release
+* First public release.
+* WebP and AVIF conversion of every JPEG and PNG size WordPress generates, delivered through `<picture>` on top of the core `srcset`.
+* Background conversion with Action Scheduler, bulk conversion and removal with pause and resume, WP-CLI, REST API, Site Health tests.
+* Safe by design: originals and files of other attachments are never overwritten or deleted.
+* See CHANGELOG.md in the plugin for the complete list.
 
 == Upgrade Notice ==
 
-= 2.0.0 =
-Major release. Back up the uploads folder and the database first. The images are regenerated in the background with new file names and the old files are removed afterwards; files of 1.x that collide with other attachments are reported and never deleted. Requires PHP 8.0 and WordPress 6.5.
-
 = 1.0.0 =
-This is the first version of TrustOptimize.
+First public release.
 
 == Development ==
 
