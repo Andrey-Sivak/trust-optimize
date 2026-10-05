@@ -76,7 +76,7 @@ if ( ! defined( 'WPINC' ) ) {
 				<?php esc_html_e( 'TrustOptimize is an advanced media optimization solution for WordPress.', 'trust-optimize' ); ?>
 			</p>
 			<p>
-				<a href="https://example.com/trust-optimize-docs" target="_blank">
+				<a href="https://github.com/Andrey-Sivak/trust-optimize#readme" target="_blank">
 					<?php esc_html_e( 'Documentation', 'trust-optimize' ); ?>
 				</a>
 			</p>
