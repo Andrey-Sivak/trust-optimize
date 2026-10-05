@@ -66,7 +66,7 @@ class ImageConverter {
 	 *
 	 * @param array                $variant_row Row from the variants table.
 	 * @param OptimizationSettings $settings    Current settings (quality).
-	 * @return OptimizeResult Success (done), skipped (reason in message) or failed (reason in message).
+	 * @return OptimizeResult Success (done), skipped (reason in message; row_gone when the row was removed meanwhile) or failed (reason in message).
 	 */
 	public function convert( array $variant_row, OptimizationSettings $settings ) {
 		$id     = (int) $variant_row['id'];
@@ -111,8 +111,7 @@ class ImageConverter {
 		$file_size = (int) wp_filesize( $saved['path'] );
 
 		if ( $file_size >= $source_size ) {
-			wp_delete_file( $saved['path'] );
-			$this->variants->transition(
+			$published = $this->variants->transition(
 				$id,
 				VariantStatus::PROCESSING,
 				VariantStatus::SKIPPED,
@@ -125,11 +124,12 @@ class ImageConverter {
 					'reason'           => 'not_smaller',
 				)
 			);
+			$this->discard_unowned_file( $saved['path'], $target_relative );
 
-			return OptimizeResult::skipped( 'not_smaller' );
+			return OptimizeResult::skipped( $published ? 'not_smaller' : 'row_gone' );
 		}
 
-		$this->variants->transition(
+		$published = $this->variants->transition(
 			$id,
 			VariantStatus::PROCESSING,
 			VariantStatus::DONE,
@@ -145,7 +145,26 @@ class ImageConverter {
 			)
 		);
 
+		// The row was removed while the file was being written: nothing may point at the file now.
+		if ( ! $published ) {
+			$this->discard_unowned_file( $saved['path'], $target_relative );
+
+			return OptimizeResult::skipped( 'row_gone' );
+		}
+
 		return OptimizeResult::success( 'done', array( 'relative_path' => $target_relative ) );
+	}
+
+	/**
+	 * Delete a file the converter has just written unless a variant row still points at it.
+	 *
+	 * @param string $path          Absolute path of the file.
+	 * @param string $relative_path Path relative to uploads.
+	 */
+	private function discard_unowned_file( $path, $relative_path ) {
+		if ( ! $this->variants->owns( $relative_path ) ) {
+			wp_delete_file( $path );
+		}
 	}
 
 	/**

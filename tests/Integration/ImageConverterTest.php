@@ -189,6 +189,92 @@ class ImageConverterTest extends WP_UnitTestCase {
 		$this->assertSame( 'foreign', file_get_contents( $this->dir . '/photo.jpg.webp' ) );
 	}
 
+	/**
+	 * A converter whose writer drops the given variant row right after the file is saved,
+	 * as a cleanup running in another request would.
+	 *
+	 * @param int $row_id Row to delete.
+	 */
+	private function converter_losing_the_row( $row_id ) {
+		$writer = new class( $this->variants, new FileOwnership( $this->variants ), $row_id ) extends AtomicImageWriter {
+			private $repository;
+			private $doomed;
+
+			public function __construct( VariantRepository $variants, FileOwnership $ownership, $doomed ) {
+				parent::__construct( $variants, $ownership );
+				$this->repository = $variants;
+				$this->doomed     = $doomed;
+			}
+
+			public function save( WP_Image_Editor $editor, $target_path, $mime ) {
+				$saved = parent::save( $editor, $target_path, $mime );
+				$this->repository->delete( $this->doomed );
+
+				return $saved;
+			}
+		};
+
+		return new ImageConverter( $this->variants, $writer, $this->capabilities );
+	}
+
+	public function test_a_variant_whose_row_was_removed_meanwhile_is_discarded() {
+		$row = $this->source( 'photo.jpg', 'jpg', 910 );
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings() );
+
+		$this->assertTrue( $result->is_skipped(), wp_json_encode( $result->to_array() ) );
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileDoesNotExist( $this->dir . '/photo.jpg.webp', 'No file is left without a row.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 910 ) );
+	}
+
+	public function test_a_file_another_row_owns_is_kept_when_the_row_was_removed_meanwhile() {
+		$this->source( 'photo.jpg', 'jpg', 911 );
+		$other = $this->variants->upsert(
+			array(
+				'attachment_id'        => 912,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => $this->relative_dir . '/photo.jpg',
+				'relative_path'        => $this->relative_dir . '/photo.jpg.webp',
+			)
+		);
+		file_put_contents( $this->dir . '/photo.jpg.webp', 'variant of the other attachment' );
+		$row = $this->variants->get_for_attachment( 911 )[0];
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings() );
+
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileExists( $this->dir . '/photo.jpg.webp', 'The other row still points at the file.' );
+		$this->assertSame( array( $other ), array_column( $this->variants->get_for_attachment( 912 ), 'id' ) );
+	}
+
+	public function test_a_not_smaller_outcome_reports_the_row_gone_too() {
+		$path = $this->dir . '/noise.jpg';
+		$im   = imagecreatetruecolor( 64, 64 );
+		for ( $x = 0; $x < 64; $x++ ) {
+			for ( $y = 0; $y < 64; $y++ ) {
+				imagesetpixel( $im, $x, $y, imagecolorallocate( $im, wp_rand( 0, 255 ), wp_rand( 0, 255 ), wp_rand( 0, 255 ) ) );
+			}
+		}
+		imagejpeg( $im, $path, 5 );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 913,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'source_relative_path' => $this->relative_dir . '/noise.jpg',
+			)
+		);
+		$row = $this->variants->get_for_attachment( 913 )[0];
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings( 100 ) );
+
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileDoesNotExist( $this->dir . '/noise.jpg.webp' );
+	}
+
 	public function test_unsupported_format_downgrades_the_capability() {
 		// No editor can write "image/zzz", so the capability must be downgraded.
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'zzz' => true ) );
