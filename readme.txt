@@ -1,7 +1,6 @@
 === TrustOptimize ===
 Contributors: andreysivak
-Donate link:
-Tags: optimization, images, performance, media, webp, avif
+Tags: webp, avif, images, performance, optimization
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 8.0
@@ -9,7 +8,7 @@ Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
-Converts the image sizes WordPress creates into WebP and AVIF and serves them through <picture>, on your own server.
+Converts WordPress image sizes to WebP and AVIF on your own server and serves them through picture elements.
 
 == Description ==
 

@@ -17,7 +17,6 @@
  * Author:            Andrii Sivak
  * Author URI:        https://github.com/Andrey-Sivak
  * Text Domain:       trust-optimize
- * Domain Path:       /languages
  * License:           GPL v2 or later
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
@@ -103,9 +102,6 @@ function trust_optimize_deactivate() {
  * Initialize the plugin.
  */
 function trust_optimize_init() {
-	// Load text domain for internationalization
-	load_plugin_textdomain( 'trust-optimize', false, dirname( TRUST_OPTIMIZE_PLUGIN_BASENAME ) . '/languages' );
-
 	Plugin::get_instance()->init();
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );
