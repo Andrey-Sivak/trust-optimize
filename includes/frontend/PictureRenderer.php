@@ -15,7 +15,8 @@ use WP_HTML_Tag_Processor;
  *
  * The <source> elements mirror the srcset and sizes that core computed for the <img>:
  * only the URLs and the type differ, so crops and the selection of a candidate stay
- * the same as without the plugin. The <img> itself is never modified.
+ * the same as without the plugin. A format is offered only when every candidate has a variant
+ * in it. The <img> itself is never modified.
  */
 class PictureRenderer {
 
@@ -85,20 +86,19 @@ class PictureRenderer {
 		$srcset     = $processor->get_attribute( 'srcset' );
 		$sizes      = $processor->get_attribute( 'sizes' );
 		$candidates = is_string( $srcset ) && '' !== trim( $srcset ) ? self::parse_srcset( $srcset ) : array( array( $src, '' ) );
-		$src_path   = $this->urls->relative_path( $src );
 		$sources    = '';
 
 		foreach ( self::FORMATS as $format => $mime ) {
-			if ( null === $src_path || ! isset( $servable[ $format ][ $src_path ] ) ) {
-				continue;
-			}
-
 			$items = array();
+
+			// A source with fewer candidates than the <img> would make the browser choose among other widths.
 			foreach ( $candidates as list( $url, $descriptor ) ) {
 				$path = $this->urls->relative_path( $url );
-				if ( null !== $path && isset( $servable[ $format ][ $path ] ) ) {
-					$items[] = trim( self::directory_of( $url ) . rawurlencode( $servable[ $format ][ $path ] ) . ' ' . $descriptor );
+				if ( null === $path || ! isset( $servable[ $format ][ $path ] ) ) {
+					continue 2;
 				}
+
+				$items[] = trim( self::directory_of( $url ) . rawurlencode( $servable[ $format ][ $path ] ) . ' ' . $descriptor );
 			}
 
 			if ( $items ) {
@@ -113,17 +113,35 @@ class PictureRenderer {
 	/**
 	 * Split a srcset attribute into candidates.
 	 *
+	 * A URL is a run of characters without whitespace, so a comma inside it (a query string) does not
+	 * split it; a comma after the descriptor, or ending the URL, separates the candidates.
+	 *
 	 * @param string $srcset Attribute value.
 	 * @return array[] Pairs of URL and descriptor (such as "300w"; empty when absent).
 	 */
 	private static function parse_srcset( $srcset ) {
 		$candidates = array();
+		$length     = strlen( $srcset );
+		$position   = 0;
 
-		foreach ( preg_split( '/,\s+/', trim( $srcset ) ) as $candidate ) {
-			$parts = preg_split( '/\s+/', trim( $candidate ), 2 );
-			if ( '' !== $parts[0] ) {
-				$candidates[] = array( $parts[0], $parts[1] ?? '' );
+		while ( $position < $length ) {
+			$position += strspn( $srcset, " \t\n\r\f,", $position );
+			if ( $position >= $length ) {
+				break;
 			}
+
+			$url_length = strcspn( $srcset, " \t\n\r\f", $position );
+			$url        = substr( $srcset, $position, $url_length );
+			$position  += $url_length;
+
+			if ( ',' === substr( $url, -1 ) ) {
+				$candidates[] = array( rtrim( $url, ',' ), '' );
+				continue;
+			}
+
+			$descriptor_length = strcspn( $srcset, ',', $position );
+			$candidates[]      = array( $url, trim( substr( $srcset, $position, $descriptor_length ) ) );
+			$position         += $descriptor_length;
 		}
 
 		return $candidates;
