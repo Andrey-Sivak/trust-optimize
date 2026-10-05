@@ -8,6 +8,10 @@
 use TrustOptimize\Admin\Statistics;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Core\Plugin;
+use TrustOptimize\Database\DatabaseManager;
+use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Storage\AttachmentRepository;
+use TrustOptimize\Storage\VariantRepository;
 
 /**
  * @covers \TrustOptimize\Admin\Admin
@@ -59,7 +63,16 @@ class AdminPagesTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( '?>', $html );
 	}
 
-	public function test_the_overview_offers_the_bulk_tab_only_while_images_are_not_optimized() {
+	public function test_the_overview_offers_the_bulk_tab_only_for_unprocessed_images() {
+		$this->assertStringNotContainsString( 'not optimized yet', $this->overview() );
+
+		$optimized = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
+		$skipped   = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
+		$attachments = new AttachmentRepository( new DatabaseManager(), new VariantRepository( new DatabaseManager() ) );
+		$attachments->set_state( $optimized, AttachmentState::OPTIMIZED );
+		$attachments->set_state( $skipped, AttachmentState::SKIPPED, 'not_smaller' );
+		delete_transient( Statistics::TRANSIENT );
+
 		$this->assertStringNotContainsString( 'not optimized yet', $this->overview() );
 
 		self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );

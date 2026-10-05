@@ -14,7 +14,8 @@ if ( ! defined( 'WPINC' ) ) {
 $trust_optimize_upload_dir       = wp_upload_dir();
 $trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
 $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
-$trust_optimize_unoptimized      = max( 0, $trust_optimize_stats['eligible'] - $trust_optimize_stats['optimized'] );
+// Images without a state: optimized, skipped, failed and queued ones are not waiting for the user.
+$trust_optimize_unoptimized = max( 0, $trust_optimize_stats['eligible'] - $trust_optimize_stats['optimized'] - $trust_optimize_stats['partial'] - $trust_optimize_stats['skipped'] - $trust_optimize_stats['failed'] - $trust_optimize_stats['queued'] );
 
 // Browsers receive AVIF first: the card shows its savings once AVIF files exist, otherwise those of WebP.
 $trust_optimize_saved_format = ! empty( $trust_optimize_stats['saved_bytes_by_format']['avif'] ) ? 'avif' : 'webp';
