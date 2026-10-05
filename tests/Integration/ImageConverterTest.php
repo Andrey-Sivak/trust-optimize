@@ -187,34 +187,46 @@ class ImageConverterTest extends WP_UnitTestCase {
 		$this->assertTrue( $result->is_failed() );
 		$this->assertSame( 'target_exists_foreign', $this->variants->get_for_attachment( 907 )[0]['reason'] );
 		$this->assertSame( 'foreign', file_get_contents( $this->dir . '/photo.jpg.webp' ) );
+		$this->assertNull( $this->variants->get_for_attachment( 907 )[0]['relative_path'], 'A foreign file is not claimed by reserving its path.' );
 	}
 
 	/**
-	 * A converter whose writer drops the given variant row right after the file is saved,
-	 * as a cleanup running in another request would.
+	 * A converter whose writer runs a callback right after the file is saved.
 	 *
-	 * @param int $row_id Row to delete.
+	 * @param callable $after_save Called once the file is in place, before the row is updated.
 	 */
-	private function converter_losing_the_row( $row_id ) {
-		$writer = new class( $this->variants, new FileOwnership( $this->variants ), $row_id ) extends AtomicImageWriter {
-			private $repository;
-			private $doomed;
+	private function converter_acting_after_save( callable $after_save ) {
+		$writer = new class( $this->variants, new FileOwnership( $this->variants ), $after_save ) extends AtomicImageWriter {
+			private $after_save;
 
-			public function __construct( VariantRepository $variants, FileOwnership $ownership, $doomed ) {
+			public function __construct( VariantRepository $variants, FileOwnership $ownership, callable $after_save ) {
 				parent::__construct( $variants, $ownership );
-				$this->repository = $variants;
-				$this->doomed     = $doomed;
+				$this->after_save = $after_save;
 			}
 
 			public function save( WP_Image_Editor $editor, $target_path, $mime ) {
 				$saved = parent::save( $editor, $target_path, $mime );
-				$this->repository->delete( $this->doomed );
+				( $this->after_save )();
 
 				return $saved;
 			}
 		};
 
 		return new ImageConverter( $this->variants, $writer, $this->capabilities );
+	}
+
+	/**
+	 * A converter that drops the given variant row right after the file is saved,
+	 * as a cleanup running in another request would.
+	 *
+	 * @param int $row_id Row to delete.
+	 */
+	private function converter_losing_the_row( $row_id ) {
+		return $this->converter_acting_after_save(
+			function () use ( $row_id ) {
+				$this->variants->delete( $row_id );
+			}
+		);
 	}
 
 	public function test_a_variant_whose_row_was_removed_meanwhile_is_discarded() {
@@ -273,6 +285,47 @@ class ImageConverterTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'row_gone', $result->get_message() );
 		$this->assertFileDoesNotExist( $this->dir . '/noise.jpg.webp' );
+	}
+
+	public function test_a_run_killed_after_the_rename_is_recovered_by_the_next_conversion() {
+		$row     = $this->source( 'photo.jpg', 'jpg', 920 );
+		$dying   = $this->converter_acting_after_save(
+			static function () {
+				throw new RuntimeException( 'killed between the rename and the row update' );
+			}
+		);
+		$target  = $this->dir . '/photo.jpg.webp';
+
+		try {
+			$dying->convert( $row, $this->settings() );
+			$this->fail( 'The run was expected to die.' );
+		} catch ( RuntimeException $killed ) {
+			$this->assertFileExists( $target );
+		}
+
+		$crashed = $this->variants->get_for_attachment( 920 )[0];
+		$this->assertSame( VariantStatus::PROCESSING, $crashed['status'] );
+		$this->assertSame( $this->relative_dir . '/photo.jpg.webp', $crashed['relative_path'], 'The path is reserved for the row.' );
+		$this->assertSame( array(), $this->variants->get_servable_for_attachment( 920 ), 'A reserved path is not served.' );
+
+		// What AttachmentProcessor::run() does with a row left in processing by a crashed worker.
+		$this->variants->transition( $crashed['id'], VariantStatus::PROCESSING, VariantStatus::PENDING );
+		$result = $this->converter->convert( $this->variants->get_for_attachment( 920 )[0], $this->settings() );
+
+		$this->assertTrue( $result->is_success(), wp_json_encode( $result->to_array() ) );
+		$done = $this->variants->get_servable_for_attachment( 920 )[0];
+		$this->assertSame( hash_file( 'sha256', $target ), $done['file_hash'] );
+	}
+
+	public function test_a_failed_conversion_releases_the_path_it_reserved() {
+		$row = $this->source( 'gone.jpg', 'jpg', 921 );
+		unlink( $this->dir . '/gone.jpg' );
+
+		$this->assertTrue( $this->converter->convert( $row, $this->settings() )->is_failed() );
+
+		$after = $this->variants->get_for_attachment( 921 )[0];
+		$this->assertSame( VariantStatus::FAILED, $after['status'] );
+		$this->assertNull( $after['relative_path'], 'A failed row must not keep claiming a path nothing was written to.' );
 	}
 
 	public function test_unsupported_format_downgrades_the_capability() {

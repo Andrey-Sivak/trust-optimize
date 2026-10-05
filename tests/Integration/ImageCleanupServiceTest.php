@@ -247,6 +247,25 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->variants->get_for_attachment( 1030 ), 'The row is removed: it must not claim the file.' );
 	}
 
+	public function test_a_row_that_reserved_its_path_but_never_finished_is_removed_with_its_file() {
+		file_put_contents( $this->dir . '/reserved.jpg.webp', 'written before the crash' );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 1040,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => VariantStatus::PROCESSING,
+				'source_relative_path' => $this->relative_dir . '/source.jpg',
+				'relative_path'        => $this->relative_dir . '/reserved.jpg.webp',
+			)
+		);
+
+		$this->cleanup->cleanup_attachment( 1040 );
+
+		$this->assertFileDoesNotExist( $this->dir . '/reserved.jpg.webp', 'The path was reserved by this row, so the file is its own.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1040 ) );
+	}
+
 	public function test_cleanup_variants_removes_only_the_given_rows() {
 		$keep = $this->variant( 1005, 'e1.jpg.webp' );
 		$this->variant( 1005, 'e2.jpg.webp' );
