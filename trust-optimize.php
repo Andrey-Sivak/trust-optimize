@@ -4,7 +4,7 @@
  *
  * @package           TrustOptimize
  * @author            Andrii Sivak
- * @copyright         2025 Andrii Sivak
+ * @copyright         2026 Andrii Sivak
  * @license           GPL-2.0-or-later
  *
  * @wordpress-plugin
