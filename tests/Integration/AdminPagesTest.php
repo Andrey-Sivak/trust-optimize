@@ -149,4 +149,23 @@ class AdminPagesTest extends WP_UnitTestCase {
 		$this->assertMatchesRegularExpression( '/<button[^>]+form="trust-optimize-reset-form"/', $html );
 		$this->assertStringNotContainsString( 'Default quality for new installs', $html );
 	}
+
+	public function test_the_media_column_labels_formats_that_are_not_converted() {
+		$webp = self::factory()->attachment->create( array( 'post_mime_type' => 'image/webp' ) );
+		$jpeg = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
+
+		ob_start();
+		Plugin::get_instance()->admin->render_media_column( 'trust_optimize_status', $webp );
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'Not converted (WebP)', $html );
+		$this->assertStringNotContainsString( 'dashicons', $html );
+		$this->assertStringNotContainsString( 'trust-optimize-polling', $html );
+		$this->assertStringNotContainsString( 'data-attachment-id', $html );
+
+		ob_start();
+		Plugin::get_instance()->admin->render_media_column( 'trust_optimize_status', $jpeg );
+
+		$this->assertStringContainsString( 'Not processed', ob_get_clean() );
+	}
 }

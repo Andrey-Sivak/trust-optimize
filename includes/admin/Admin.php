@@ -14,6 +14,7 @@ use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Health\SiteHealth;
+use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -31,6 +32,18 @@ class Admin {
 	const FORMAT_NAMES = array(
 		'webp' => 'WebP',
 		'avif' => 'AVIF',
+	);
+
+	/**
+	 * How the formats the plugin does not convert are named in the media column.
+	 *
+	 * @var string[]
+	 */
+	const MIME_NAMES = array(
+		'image/webp' => 'WebP',
+		'image/avif' => 'AVIF',
+		'image/gif'  => 'GIF',
+		'image/bmp'  => 'BMP',
 	);
 
 	/**
@@ -630,6 +643,23 @@ class Admin {
 		// Only show for image attachments
 		if ( ! wp_attachment_is_image( $attachment_id ) ) {
 			echo '<span class="dashicons dashicons-minus" title="' . esc_attr__( 'Not an image', 'trust-optimize' ) . '"></span>';
+			return;
+		}
+
+		$mime = get_post_mime_type( $attachment_id );
+
+		// Formats the plugin does not convert have no state to wait for.
+		if ( ! in_array( $mime, VariantPlanner::SOURCE_MIMES, true ) ) {
+			printf(
+				'<span class="trust-optimize-status" data-status="unsupported">%s</span>',
+				esc_html(
+					sprintf(
+						/* translators: %s: image format, e.g. WebP. */
+						__( 'Not converted (%s)', 'trust-optimize' ),
+						self::MIME_NAMES[ $mime ] ?? strtoupper( (string) substr( (string) $mime, strpos( (string) $mime, '/' ) + 1 ) )
+					)
+				)
+			);
 			return;
 		}
 
