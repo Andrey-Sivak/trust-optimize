@@ -151,8 +151,19 @@ class AdminPagesTest extends WP_UnitTestCase {
 	}
 
 	public function test_the_media_column_labels_formats_that_are_not_converted() {
-		$webp = self::factory()->attachment->create( array( 'post_mime_type' => 'image/webp' ) );
-		$jpeg = self::factory()->attachment->create( array( 'post_mime_type' => 'image/jpeg' ) );
+		// wp_attachment_is_image() needs an attached file to tell an image from other attachments.
+		$webp = self::factory()->attachment->create(
+			array(
+				'post_mime_type' => 'image/webp',
+				'file'           => '2026/05/source.webp',
+			)
+		);
+		$jpeg = self::factory()->attachment->create(
+			array(
+				'post_mime_type' => 'image/jpeg',
+				'file'           => '2026/05/source.jpg',
+			)
+		);
 
 		ob_start();
 		Plugin::get_instance()->admin->render_media_column( 'trust_optimize_status', $webp );
