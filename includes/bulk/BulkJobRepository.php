@@ -44,6 +44,28 @@ class BulkJobRepository {
 	const MUTEX_STALE_SECONDS = 60;
 
 	/**
+	 * Columns of the jobs table that transition() may change. Anything else is ignored.
+	 *
+	 * @var string[]
+	 */
+	const UPDATABLE_COLUMNS = array(
+		'status',
+		'cursor_id',
+		'total',
+		'processed',
+		'skipped',
+		'failed_count',
+		'created_count',
+		'deleted_count',
+		'settings_snapshot',
+		'profile_hash',
+		'last_error',
+		'started_at',
+		'updated_at',
+		'finished_at',
+	);
+
+	/**
 	 * Constructor.
 	 *
 	 * @param DatabaseManager $db_manager Database manager.
@@ -527,25 +549,34 @@ class BulkJobRepository {
 	 *
 	 * @param int      $job_id Job ID.
 	 * @param string[] $from   Statuses the job may be in.
-	 * @param array    $data   Columns to set.
+	 * @param array    $data   Columns to set (only UPDATABLE_COLUMNS; null is stored as NULL).
 	 * @return bool True when a row was changed.
 	 */
 	private function transition( $job_id, array $from, array $data ) {
 		global $wpdb;
 
 		$data['updated_at'] = current_time( 'mysql' );
+		$data               = array_intersect_key( $data, array_flip( self::UPDATABLE_COLUMNS ) );
 		$sets               = array();
-		$values             = array();
+		$values             = array( $this->get_table_name() );
 
 		foreach ( $data as $column => $value ) {
-			$sets[]   = "{$column} = %s";
+			$values[] = $column;
+
+			if ( null === $value ) {
+				$sets[] = '%i = NULL';
+				continue;
+			}
+
+			$sets[]   = '%i = %s';
 			$values[] = $value;
 		}
 
 		$values[] = (int) $job_id;
-		$values   = array_merge( array( $this->get_table_name() ), $values, $from );
+		$values   = array_merge( $values, $from );
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- The SET list is made of %i = %s / %i = NULL pairs over UPDATABLE_COLUMNS, every name and value is bound.
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
 				'UPDATE %i SET ' . implode( ', ', $sets ) . ' WHERE id = %d AND status IN (' . implode( ', ', array_fill( 0, count( $from ), '%s' ) ) . ')',
