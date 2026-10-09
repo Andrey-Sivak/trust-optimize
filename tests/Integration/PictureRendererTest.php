@@ -40,7 +40,7 @@ class PictureRendererTest extends WP_UnitTestCase {
 		$this->base     = wp_upload_dir()['baseurl'] . '/2026/05';
 	}
 
-	private function add( $source, $format = 'webp', $status = VariantStatus::DONE, $legacy = null ) {
+	private function add( $source, $format = 'webp', $status = VariantStatus::DONE ) {
 		$this->variants->upsert(
 			array(
 				'attachment_id'        => self::ID,
@@ -49,7 +49,6 @@ class PictureRendererTest extends WP_UnitTestCase {
 				'status'               => $status,
 				'source_relative_path' => '2026/05/' . $source,
 				'relative_path'        => VariantStatus::DONE === $status ? '2026/05/' . $source . '.' . $format : null,
-				'legacy_relative_path' => $legacy,
 			)
 		);
 	}
@@ -137,6 +136,47 @@ class PictureRendererTest extends WP_UnitTestCase {
 		$this->assertStringNotContainsString( 'image/webp', $out );
 	}
 
+	public function test_a_format_is_offered_only_when_it_covers_every_candidate() {
+		foreach ( array( 'a.jpg', 'a-300x200.jpg' ) as $file ) {
+			$this->add( $file, 'webp' );
+		}
+		$this->add( 'a.jpg', 'avif' );
+		$img = $this->img( "{$this->base}/a.jpg", "{$this->base}/a.jpg 1024w, {$this->base}/a-300x200.jpg 300w" );
+
+		$out = $this->renderer->render( $img, self::ID );
+
+		$this->assertStringContainsString( 'image/webp', $out );
+		$this->assertStringContainsString( "{$this->base}/a-300x200.jpg.webp 300w", $out );
+		$this->assertStringNotContainsString( 'image/avif', $out, 'An avif source with a missing candidate would make the browser pick the wrong width.' );
+	}
+
+	public function test_the_img_is_left_as_it_is_when_no_format_covers_every_candidate() {
+		$this->add( 'a.jpg', 'webp' );
+		$this->add( 'a-300x200.jpg', 'avif' );
+		$img = $this->img( "{$this->base}/a.jpg", "{$this->base}/a.jpg 1024w, {$this->base}/a-300x200.jpg 300w" );
+
+		$this->assertSame( $img, $this->renderer->render( $img, self::ID ) );
+	}
+
+	public function test_a_candidate_from_a_host_that_is_not_ours_blocks_the_format() {
+		$this->add( 'a.jpg', 'webp' );
+		$other = str_replace( '//example.org', '//other.example.net', $this->base );
+		$img   = $this->img( "{$this->base}/a.jpg", "{$this->base}/a.jpg 1024w, {$other}/a-300x200.jpg 300w" );
+
+		$this->assertSame( $img, $this->renderer->render( $img, self::ID ) );
+	}
+
+	public function test_candidates_separated_by_a_comma_without_a_space_are_all_read() {
+		foreach ( array( 'a.jpg', 'a-300x200.jpg' ) as $file ) {
+			$this->add( $file );
+		}
+		$img = $this->img( "{$this->base}/a.jpg", "{$this->base}/a-300x200.jpg 300w,{$this->base}/a.jpg 1024w" );
+
+		$out = $this->renderer->render( $img, self::ID );
+
+		$this->assertStringContainsString( 'srcset="' . "{$this->base}/a-300x200.jpg.webp 300w, {$this->base}/a.jpg.webp 1024w" . '"', $out );
+	}
+
 	public function test_avif_comes_before_webp() {
 		$this->add( 'a.jpg', 'webp' );
 		$this->add( 'a.jpg', 'avif' );
@@ -155,22 +195,11 @@ class PictureRendererTest extends WP_UnitTestCase {
 		);
 	}
 
-	public function test_a_pending_row_serves_its_legacy_file_until_it_is_done() {
-		$this->add( 'a.jpg', 'webp', VariantStatus::PENDING, '2026/05/a.webp' );
-		$img = $this->img( "{$this->base}/a.jpg" );
-
-		$this->assertStringContainsString( 'srcset="' . $this->base . '/a.webp"', $this->renderer->render( $img, self::ID ) );
-
-		$this->add( 'a.jpg', 'webp', VariantStatus::DONE, '2026/05/a.webp' );
-
-		$this->assertStringContainsString( 'srcset="' . $this->base . '/a.jpg.webp"', $this->renderer->render( $img, self::ID ) );
-	}
-
-	public function test_a_failed_row_serves_its_legacy_file_only() {
-		$this->add( 'a.jpg', 'webp', VariantStatus::FAILED, '2026/05/a.webp' );
+	public function test_a_row_that_is_not_done_is_not_served() {
+		$this->add( 'a.jpg', 'webp', VariantStatus::PENDING );
 		$this->add( 'b.jpg', 'webp', VariantStatus::FAILED );
 
-		$this->assertStringContainsString( $this->base . '/a.webp', $this->renderer->render( $this->img( "{$this->base}/a.jpg" ), self::ID ) );
+		$this->assertSame( $this->img( "{$this->base}/a.jpg" ), $this->renderer->render( $this->img( "{$this->base}/a.jpg" ), self::ID ) );
 		$this->assertSame( $this->img( "{$this->base}/b.jpg" ), $this->renderer->render( $this->img( "{$this->base}/b.jpg" ), self::ID ) );
 	}
 

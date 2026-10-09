@@ -10,7 +10,7 @@ namespace TrustOptimize\Planning;
 /**
  * Class ImageLimits
  *
- * Decides from the dimensions in the metadata, without decoding the file (D-10).
+ * Decides from the dimensions in the metadata, without decoding the file.
  */
 final class ImageLimits {
 

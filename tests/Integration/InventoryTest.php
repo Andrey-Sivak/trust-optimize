@@ -82,24 +82,6 @@ class InventoryTest extends WP_UnitTestCase {
 		$this->assertSame( array( 'avif' ), Plugin::get_instance()->inventory->summary()['unsupported_output_formats'] );
 	}
 
-	public function test_legacy_rows_are_not_counted_as_outdated() {
-		$id = $this->upload();
-		$this->variants->upsert(
-			array(
-				'attachment_id'        => $id,
-				'size_name'            => 'old',
-				'format'               => 'webp',
-				'status'               => 'done',
-				'naming'               => 'legacy',
-				'source_relative_path' => 'x.jpg',
-				'relative_path'        => 'x.webp',
-				'quality'              => 1,
-			)
-		);
-
-		$this->assertSame( 0, Plugin::get_instance()->inventory->summary()['outdated_variants'] );
-	}
-
 	public function test_the_inventory_job_walks_the_library_without_an_image_editor() {
 		$this->upload();
 		$missing = $this->upload();

@@ -1,15 +1,14 @@
 === TrustOptimize ===
 Contributors: andreysivak
-Donate link:
-Tags: optimization, images, performance, media, webp, avif
+Tags: webp, avif, images, performance, optimization
 Requires at least: 6.5
 Tested up to: 7.1
 Requires PHP: 8.0
-Stable tag: 2.0.0
+Stable tag: 1.0.0
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
-Converts the image sizes WordPress creates into WebP and AVIF and serves them through <picture>, on your own server.
+Converts WordPress image sizes to WebP and AVIF on your own server and serves them through picture elements.
 
 == Description ==
 
@@ -18,12 +17,12 @@ TrustOptimize creates WebP and AVIF copies of every JPEG and PNG size that WordP
 = Features =
 
 * **WebP and AVIF conversion** of every size WordPress generates for JPEG and PNG uploads. Which formats the server can write is detected automatically.
-* **`<picture>` on top of WordPress' own `srcset`**: the `<source>` elements reuse the `srcset` and `sizes` that WordPress calculates, only the URLs and the `type` change, so crops and responsive sizes stay correct. Without a finished variant the original `<img>` is left untouched.
+* **`<picture>` on top of WordPress' own `srcset`**: the `<source>` elements reuse the `srcset` and `sizes` that WordPress calculates, only the URLs and the `type` change, so crops and responsive sizes stay correct. A format is offered only when it has a finished variant for every size listed in the `srcset`; otherwise the original `<img>` is left untouched.
 * **Background conversion** with Action Scheduler: uploads return immediately, one task per image, a failing image does not block the others.
-* **Bulk conversion and removal** of the whole media library from the settings page or WP-CLI, with progress, pause, resume and cancel.
-* **Safe by design**: a converted file is written to a temporary file and renamed, a variant that is not smaller than its source is not kept, huge images and low disk space pause the work instead of failing the server.
+* **Bulk conversion and removal** of the whole media library from the TrustOptimize admin page or WP-CLI, with progress, pause, resume and cancel.
+* **Safe by design**: a converted file is written to a temporary file and renamed, a variant that is not smaller than its source is not kept, huge images and low disk space pause the work instead of failing the server. A file that another attachment still uses, and the original file of another attachment, is never deleted or overwritten.
 * **Site Health tests** for background tasks, supported image formats and free disk space.
-* **WP-CLI**: `wp trust-optimize` (inventory, sync, status, pause, resume, cancel, remove, sync-attachment, remove-attachment, migrate, migration conflicts).
+* **WP-CLI**: `wp trust-optimize` (inventory, sync, status, pause, resume, cancel, remove, sync-attachment, remove-attachment).
 * **REST API** for the Media Library status column and bulk jobs.
 * No external services: all processing happens on your server.
 
@@ -90,19 +89,15 @@ The CDN has to serve `.webp` and `.avif` files from the same origin. If it rewri
 
 No. `loading`, `fetchpriority` and `decoding` stay as WordPress sets them, so the largest image of a page is not delayed. The setting "Force lazy loading" adds `loading="lazy"` to images that have no `loading` attribute and are not `fetchpriority="high"`. To change a single image use the standard `$attr` argument of `wp_get_attachment_image()`, or the `trust_optimize_img_attributes` filter.
 
-= I upgrade from 1.x. What happens? =
+= I changed the settings while a bulk conversion was running. =
 
-Version 2.0 stores its data in new tables and names variants differently (`photo.jpg.webp`). A background migration imports the old data, regenerates the images in the new layout, and only then removes the old files. Make a backup of the `uploads` folder and the database before updating.
-
-Version 1.x could create files that collide with other attachments (for example `logo.png` created from `logo.webp`) and, in the worst case, overwrite an original. The migration never deletes such files. They are listed on the TrustOptimize page and by `wp trust-optimize migration conflicts`; restore the originals of the attachments in the list from your backup. Progress and the remaining work are visible with `wp trust-optimize status`; `wp trust-optimize migrate` runs the migration in the foreground.
+Images processed after the change use the new settings; images processed before it keep their variants. Run the conversion again (the TrustOptimize page or `wp trust-optimize sync`) to bring the whole library in line with the current settings.
 
 = What happens on uninstall? =
 
 By default nothing is deleted. With the setting "Remove data on uninstall" the plugin deletes the generated variants, its tables and options (on a network: for every site that has the setting on).
 
-If the removal of the files could not be finished in one request, the tables and options are kept, and the option `trust_optimize_pending_cleanup` records how many files remain. Install and activate the plugin again, run "Remove Generated Files" on the TrustOptimize page (or `wp trust-optimize remove --all --yes --wait`) and delete the plugin once more.
-
-The option `trust_optimize_uninstall_conflicts` is written when files were left untouched on purpose (they belong to another attachment or lie outside the uploads directory); it lists them. Delete the option after you have looked at the files: `wp option delete trust_optimize_uninstall_conflicts`.
+If the removal of the files could not be finished in one request, the tables and options are kept, and the option `trust_optimize_pending_cleanup` records how many files remain. Install and activate the plugin again, run "Remove optimized files" on the Bulk optimization tab of the TrustOptimize page (or `wp trust-optimize remove --all --yes --wait`) and delete the plugin once more.
 
 = Uninstall on a large multisite network =
 
@@ -112,14 +107,14 @@ On a large network run the removal from the command line, where a web request's 
 
 `wp plugin uninstall trust-optimize --deactivate`
 
-Sites without the setting "Remove data on uninstall" are left untouched. If `trust_optimize_pending_cleanup` or `trust_optimize_uninstall_conflicts` remain on a site afterwards, see "What happens on uninstall?" above.
+Sites without the setting "Remove data on uninstall" are left untouched. If `trust_optimize_pending_cleanup` remains on a site afterwards, see "What happens on uninstall?" above.
 
 = Settings =
 
 * Serve optimized images (on by default): the `<picture>` delivery.
 * Create WebP / Create AVIF, and the quality of each (1-100, defaults 85 and 80). A changed quality applies to images converted from then on.
 * Force lazy loading (off by default).
-* Largest image to convert, in pixels (default 50,000,000): larger images are skipped without being decoded.
+* Largest image to convert, in megapixels (default 50): larger images are skipped without being decoded.
 * Minimum free disk space in MB (0 = automatic: the larger of 1 GB and 5% of the volume).
 * Remove data on uninstall (off by default).
 * Reset to Defaults.
@@ -131,14 +126,12 @@ Sites without the setting "Remove data on uninstall" are left untouched. If `tru
 * `wp trust-optimize status | pause | resume | cancel` – show and control the bulk job.
 * `wp trust-optimize remove --all --yes [--wait]` – delete all variants.
 * `wp trust-optimize sync-attachment <id>` and `remove-attachment <id>` – one image.
-* `wp trust-optimize migrate [--batch-size=<n>]` – run the 1.x migration in the foreground.
-* `wp trust-optimize migration conflicts [--format=table|csv]` – files of 1.x that collide with other attachments.
 
 = REST API =
 
 All routes are under `/wp-json/trust-optimize/v1/`. The status route needs the capability `upload_files`, every other route `manage_options`.
 
-* `GET /images/status?ids=1,2,3` – status of several attachments (the old `/image/{id}/status` route was removed in 2.0).
+* `GET /images/status?ids=1,2,3` – status of several attachments.
 * `GET /status`, `POST /bulk/inventory`, `POST /bulk/start`, `GET /bulk/status`, `POST /bulk/{pause|resume|cancel}` – library status and bulk jobs.
 * `POST /image/{id}/sync`, `POST /image/{id}/remove` – one attachment.
 
@@ -157,36 +150,32 @@ Filters:
 * `trust_optimize_bulk_max_pending` ( int ) – pending tasks the bulk job keeps queued (default 200).
 * `trust_optimize_bulk_time_budget` ( int $seconds ) – time of one producer run (default 20).
 * `trust_optimize_bulk_stale_after_seconds` ( int ) – a running job without progress is considered stale after this time (default 900).
-
-Actions:
-
-* `trust_optimize_schema_upgraded` ( string $old_version, string $new_version ) – after the database schema was created or upgraded.
+* `trust_optimize_uninstall_cleanup_batch_size` ( int ) – attachments cleaned per step on uninstall (default 100).
+* `trust_optimize_uninstall_cleanup_max_records` ( int ) – attachments cleaned per site in one uninstall request (default 5000).
+* `trust_optimize_uninstall_cleanup_max_seconds` ( float ) – time one uninstall request spends per site (default 20).
 
 == Screenshots ==
 
-1. TrustOptimize settings page
-2. Optimization statistics
-3. Bulk conversion progress
+1. Overview: how many images are optimized and how much smaller the AVIF and WebP files are.
+2. Bulk optimization of the existing library with progress, pause and resume.
+3. Settings: delivery, formats and quality, safety limits.
+4. Optimization status of every image in the Media Library.
+5. The page serves AVIF or WebP through picture elements; the original img and its srcset stay untouched.
+6. Site Health checks for background tasks, image formats and disk space.
 
 == Changelog ==
 
-= 2.0.0 =
-* New storage in database tables and new variant file names (`photo.jpg.webp`); the data of 1.x is migrated in the background.
-* AVIF output, `<picture>` delivery on top of the core `srcset`, one background task per image, bulk jobs with pause and resume, WP-CLI, Site Health tests.
-* Requires PHP 8.0, WordPress 6.5 and MySQL 5.7 / MariaDB 10.3.
-* Fixes: variants never overwrite foreign files, safer uninstall, working settings and reset, real statistics.
-* See CHANGELOG.md in the plugin for the complete list.
-
 = 1.0.0 =
-* Initial release
+* First public release.
+* WebP and AVIF conversion of every JPEG and PNG size WordPress generates, delivered through `<picture>` on top of the core `srcset`.
+* Background conversion with Action Scheduler, bulk conversion and removal with pause and resume, WP-CLI, REST API, Site Health tests.
+* Safe by design: originals and files of other attachments are never overwritten or deleted.
+* See CHANGELOG.md in the plugin for the complete list.
 
 == Upgrade Notice ==
 
-= 2.0.0 =
-Major release. Back up the uploads folder and the database first. The images are regenerated in the background with new file names and the old files are removed afterwards; files of 1.x that collide with other attachments are reported and never deleted. Requires PHP 8.0 and WordPress 6.5.
-
 = 1.0.0 =
-This is the first version of TrustOptimize.
+First public release.
 
 == Development ==
 

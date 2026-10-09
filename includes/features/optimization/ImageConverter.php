@@ -61,27 +61,36 @@ class ImageConverter {
 	 * Convert one pending variant.
 	 *
 	 * The row moves pending -> processing -> done | skipped | failed. A variant that is
-	 * not smaller than its source is not kept (D-11). A format that no editor can write
+	 * not smaller than its source is not kept. A format that no editor can write
 	 * is downgraded in the capability service.
 	 *
 	 * @param array                $variant_row Row from the variants table.
 	 * @param OptimizationSettings $settings    Current settings (quality).
-	 * @return OptimizeResult Success (done), skipped (reason in message) or failed (reason in message).
+	 * @return OptimizeResult Success (done), skipped (reason in message; row_gone when the row was removed meanwhile) or failed (reason in message).
 	 */
 	public function convert( array $variant_row, OptimizationSettings $settings ) {
 		$id     = (int) $variant_row['id'];
 		$format = (string) $variant_row['format'];
 		$mime   = 'image/' . $format;
 
-		if ( ! $this->variants->transition( $id, VariantStatus::PENDING, VariantStatus::PROCESSING ) ) {
+		$source_relative = (string) $variant_row['source_relative_path'];
+		$target_relative = VariantNaming::target_relative_path( $source_relative, $format );
+		$target_path     = UploadsPath::absolute( $target_relative );
+
+		// The row claims its target path before anything is written: a run killed between the rename
+		// and the update of the row can then overwrite its own file next time instead of taking it for
+		// a foreign one. A file that no row owns is not ours to claim; the writer refuses it.
+		$reserve = null !== $target_path && ( ! file_exists( $target_path ) || $this->variants->owns( $target_relative ) );
+		$claimed = $reserve && empty( $variant_row['relative_path'] );
+
+		if ( ! $this->variants->transition( $id, VariantStatus::PENDING, VariantStatus::PROCESSING, $reserve ? array( 'relative_path' => $target_relative ) : array() ) ) {
 			return OptimizeResult::skipped( 'not_pending' );
 		}
 
-		$source_relative = (string) $variant_row['source_relative_path'];
-		$source_path     = UploadsPath::absolute( $source_relative );
+		$source_path = UploadsPath::absolute( $source_relative );
 
 		if ( null === $source_path || ! is_file( $source_path ) ) {
-			return $this->fail( $id, 'missing_file', 'Source file is missing: ' . $source_relative );
+			return $this->fail( $id, 'missing_file', 'Source file is missing: ' . $source_relative, $claimed );
 		}
 
 		$source_size = (int) wp_filesize( $source_path );
@@ -92,27 +101,24 @@ class ImageConverter {
 			if ( 'trust_optimize_unsupported_target_mime' === $editor->get_error_code() ) {
 				$this->capabilities->downgrade( $format, $editor->get_error_message() );
 
-				return $this->fail( $id, 'unsupported_format', $editor->get_error_message() );
+				return $this->fail( $id, 'unsupported_format', $editor->get_error_message(), $claimed );
 			}
 
-			return $this->fail( $id, 'no_editor', $editor->get_error_message() );
+			return $this->fail( $id, 'no_editor', $editor->get_error_message(), $claimed );
 		}
 
 		$editor->set_quality( $quality );
 
-		$target_relative = VariantNaming::target_relative_path( $source_relative, $format );
-		$target_path     = UploadsPath::absolute( $target_relative );
-		$saved           = null === $target_path ? new \WP_Error( 'target_outside_uploads', 'Invalid target path.' ) : $this->writer->save( $editor, $target_path, $mime );
+		$saved = null === $target_path ? new \WP_Error( 'target_outside_uploads', 'Invalid target path.' ) : $this->writer->save( $editor, $target_path, $mime );
 
 		if ( is_wp_error( $saved ) ) {
-			return $this->fail( $id, $this->failure_reason( $saved ), $saved->get_error_message() );
+			return $this->fail( $id, $this->failure_reason( $saved ), $saved->get_error_message(), $claimed );
 		}
 
 		$file_size = (int) wp_filesize( $saved['path'] );
 
 		if ( $file_size >= $source_size ) {
-			wp_delete_file( $saved['path'] );
-			$this->variants->transition(
+			$published = $this->variants->transition(
 				$id,
 				VariantStatus::PROCESSING,
 				VariantStatus::SKIPPED,
@@ -125,11 +131,12 @@ class ImageConverter {
 					'reason'           => 'not_smaller',
 				)
 			);
+			$this->discard_unowned_file( $saved['path'], $target_relative );
 
-			return OptimizeResult::skipped( 'not_smaller' );
+			return OptimizeResult::skipped( $published ? 'not_smaller' : 'row_gone' );
 		}
 
-		$this->variants->transition(
+		$published = $this->variants->transition(
 			$id,
 			VariantStatus::PROCESSING,
 			VariantStatus::DONE,
@@ -145,7 +152,26 @@ class ImageConverter {
 			)
 		);
 
+		// The row was removed while the file was being written: nothing may point at the file now.
+		if ( ! $published ) {
+			$this->discard_unowned_file( $saved['path'], $target_relative );
+
+			return OptimizeResult::skipped( 'row_gone' );
+		}
+
 		return OptimizeResult::success( 'done', array( 'relative_path' => $target_relative ) );
+	}
+
+	/**
+	 * Delete a file the converter has just written unless a variant row still points at it.
+	 *
+	 * @param string $path          Absolute path of the file.
+	 * @param string $relative_path Path relative to uploads.
+	 */
+	private function discard_unowned_file( $path, $relative_path ) {
+		if ( ! $this->variants->owns( $relative_path ) ) {
+			wp_delete_file( $path );
+		}
 	}
 
 	/**
@@ -154,10 +180,17 @@ class ImageConverter {
 	 * @param int    $id      Variant row id.
 	 * @param string $reason  Machine-readable reason.
 	 * @param string $message Human-readable detail.
+	 * @param bool   $release Whether to give up the path this run reserved for a row that had none.
 	 * @return OptimizeResult
 	 */
-	private function fail( $id, $reason, $message ) {
-		$this->variants->transition( $id, VariantStatus::PROCESSING, VariantStatus::FAILED, array( 'reason' => $reason ) );
+	private function fail( $id, $reason, $message, $release = false ) {
+		$fields = array( 'reason' => $reason );
+
+		if ( $release ) {
+			$fields['relative_path'] = null;
+		}
+
+		$this->variants->transition( $id, VariantStatus::PROCESSING, VariantStatus::FAILED, $fields );
 
 		return OptimizeResult::failed( $reason, array( $message ) );
 	}

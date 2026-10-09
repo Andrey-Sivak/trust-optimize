@@ -1,6 +1,6 @@
 <?php
 /**
- * ImageConverter tests (regressions H-1, H-2, M-1, M-8, M-13).
+ * ImageConverter tests.
  *
  * @package TrustOptimize\Tests
  */
@@ -10,6 +10,7 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -62,7 +63,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => true ) );
 		$this->capabilities = new CapabilityService();
 		$this->variants     = new VariantRepository( new DatabaseManager() );
-		$this->converter    = new ImageConverter( $this->variants, new AtomicImageWriter( $this->variants ), $this->capabilities );
+		$this->converter    = new ImageConverter( $this->variants, new AtomicImageWriter( $this->variants, new FileOwnership( $this->variants ) ), $this->capabilities );
 	}
 
 	public function tear_down() {
@@ -116,7 +117,7 @@ class ImageConverterTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Regression H-1: same stem in one directory must not overwrite anything.
+	 * Regression: same stem in one directory must not overwrite anything.
 	 */
 	public function test_same_stem_files_do_not_overwrite_each_other_or_originals() {
 		$jpg  = $this->source( 'photo.jpg', 'jpg', 902 );
@@ -186,6 +187,145 @@ class ImageConverterTest extends WP_UnitTestCase {
 		$this->assertTrue( $result->is_failed() );
 		$this->assertSame( 'target_exists_foreign', $this->variants->get_for_attachment( 907 )[0]['reason'] );
 		$this->assertSame( 'foreign', file_get_contents( $this->dir . '/photo.jpg.webp' ) );
+		$this->assertNull( $this->variants->get_for_attachment( 907 )[0]['relative_path'], 'A foreign file is not claimed by reserving its path.' );
+	}
+
+	/**
+	 * A converter whose writer runs a callback right after the file is saved.
+	 *
+	 * @param callable $after_save Called once the file is in place, before the row is updated.
+	 */
+	private function converter_acting_after_save( callable $after_save ) {
+		$writer = new class( $this->variants, new FileOwnership( $this->variants ), $after_save ) extends AtomicImageWriter {
+			private $after_save;
+
+			public function __construct( VariantRepository $variants, FileOwnership $ownership, callable $after_save ) {
+				parent::__construct( $variants, $ownership );
+				$this->after_save = $after_save;
+			}
+
+			public function save( WP_Image_Editor $editor, $target_path, $mime ) {
+				$saved = parent::save( $editor, $target_path, $mime );
+				( $this->after_save )();
+
+				return $saved;
+			}
+		};
+
+		return new ImageConverter( $this->variants, $writer, $this->capabilities );
+	}
+
+	/**
+	 * A converter that drops the given variant row right after the file is saved,
+	 * as a cleanup running in another request would.
+	 *
+	 * @param int $row_id Row to delete.
+	 */
+	private function converter_losing_the_row( $row_id ) {
+		return $this->converter_acting_after_save(
+			function () use ( $row_id ) {
+				$this->variants->delete( $row_id );
+			}
+		);
+	}
+
+	public function test_a_variant_whose_row_was_removed_meanwhile_is_discarded() {
+		$row = $this->source( 'photo.jpg', 'jpg', 910 );
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings() );
+
+		$this->assertTrue( $result->is_skipped(), wp_json_encode( $result->to_array() ) );
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileDoesNotExist( $this->dir . '/photo.jpg.webp', 'No file is left without a row.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 910 ) );
+	}
+
+	public function test_a_file_another_row_owns_is_kept_when_the_row_was_removed_meanwhile() {
+		$this->source( 'photo.jpg', 'jpg', 911 );
+		$other = $this->variants->upsert(
+			array(
+				'attachment_id'        => 912,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => $this->relative_dir . '/photo.jpg',
+				'relative_path'        => $this->relative_dir . '/photo.jpg.webp',
+			)
+		);
+		file_put_contents( $this->dir . '/photo.jpg.webp', 'variant of the other attachment' );
+		$row = $this->variants->get_for_attachment( 911 )[0];
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings() );
+
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileExists( $this->dir . '/photo.jpg.webp', 'The other row still points at the file.' );
+		$this->assertSame( array( $other ), array_column( $this->variants->get_for_attachment( 912 ), 'id' ) );
+	}
+
+	public function test_a_not_smaller_outcome_reports_the_row_gone_too() {
+		$path = $this->dir . '/noise.jpg';
+		$im   = imagecreatetruecolor( 64, 64 );
+		for ( $x = 0; $x < 64; $x++ ) {
+			for ( $y = 0; $y < 64; $y++ ) {
+				imagesetpixel( $im, $x, $y, imagecolorallocate( $im, wp_rand( 0, 255 ), wp_rand( 0, 255 ), wp_rand( 0, 255 ) ) );
+			}
+		}
+		imagejpeg( $im, $path, 5 );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 913,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'source_relative_path' => $this->relative_dir . '/noise.jpg',
+			)
+		);
+		$row = $this->variants->get_for_attachment( 913 )[0];
+
+		$result = $this->converter_losing_the_row( $row['id'] )->convert( $row, $this->settings( 100 ) );
+
+		$this->assertSame( 'row_gone', $result->get_message() );
+		$this->assertFileDoesNotExist( $this->dir . '/noise.jpg.webp' );
+	}
+
+	public function test_a_run_killed_after_the_rename_is_recovered_by_the_next_conversion() {
+		$row     = $this->source( 'photo.jpg', 'jpg', 920 );
+		$dying   = $this->converter_acting_after_save(
+			static function () {
+				throw new RuntimeException( 'killed between the rename and the row update' );
+			}
+		);
+		$target  = $this->dir . '/photo.jpg.webp';
+
+		try {
+			$dying->convert( $row, $this->settings() );
+			$this->fail( 'The run was expected to die.' );
+		} catch ( RuntimeException $killed ) {
+			$this->assertFileExists( $target );
+		}
+
+		$crashed = $this->variants->get_for_attachment( 920 )[0];
+		$this->assertSame( VariantStatus::PROCESSING, $crashed['status'] );
+		$this->assertSame( $this->relative_dir . '/photo.jpg.webp', $crashed['relative_path'], 'The path is reserved for the row.' );
+		$this->assertSame( array(), $this->variants->get_servable_for_attachment( 920 ), 'A reserved path is not served.' );
+
+		// What AttachmentProcessor::run() does with a row left in processing by a crashed worker.
+		$this->variants->transition( $crashed['id'], VariantStatus::PROCESSING, VariantStatus::PENDING );
+		$result = $this->converter->convert( $this->variants->get_for_attachment( 920 )[0], $this->settings() );
+
+		$this->assertTrue( $result->is_success(), wp_json_encode( $result->to_array() ) );
+		$done = $this->variants->get_servable_for_attachment( 920 )[0];
+		$this->assertSame( hash_file( 'sha256', $target ), $done['file_hash'] );
+	}
+
+	public function test_a_failed_conversion_releases_the_path_it_reserved() {
+		$row = $this->source( 'gone.jpg', 'jpg', 921 );
+		unlink( $this->dir . '/gone.jpg' );
+
+		$this->assertTrue( $this->converter->convert( $row, $this->settings() )->is_failed() );
+
+		$after = $this->variants->get_for_attachment( 921 )[0];
+		$this->assertSame( VariantStatus::FAILED, $after['status'] );
+		$this->assertNull( $after['relative_path'], 'A failed row must not keep claiming a path nothing was written to.' );
 	}
 
 	public function test_unsupported_format_downgrades_the_capability() {

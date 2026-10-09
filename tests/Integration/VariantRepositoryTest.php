@@ -58,7 +58,6 @@ class VariantRepositoryTest extends WP_UnitTestCase {
 		$this->assertSame( '2026/05/photo.jpg', $rows[0]['source_relative_path'] );
 		$this->assertSame( VariantStatus::PENDING, $rows[0]['status'] );
 		$this->assertNull( $rows[0]['relative_path'] );
-		$this->assertSame( 'v2', $rows[0]['naming'] );
 	}
 
 	public function test_cas_transition_succeeds_exactly_once() {
@@ -120,28 +119,21 @@ class VariantRepositoryTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->repo->find_by_source_path( '2026/05/other.jpg' ) );
 	}
 
-	public function test_servable_path_prefers_the_finished_file_and_falls_back_to_the_legacy_one() {
-		$this->assertSame( 'a.jpg.webp', VariantRepository::servable_path( array( 'status' => VariantStatus::DONE, 'relative_path' => 'a.jpg.webp', 'legacy_relative_path' => 'a.webp' ) ) );
-		$this->assertSame( 'a.webp', VariantRepository::servable_path( array( 'status' => VariantStatus::PENDING, 'relative_path' => null, 'legacy_relative_path' => 'a.webp' ) ) );
-		$this->assertSame( 'a.webp', VariantRepository::servable_path( array( 'status' => VariantStatus::FAILED, 'relative_path' => null, 'legacy_relative_path' => 'a.webp' ) ) );
-		$this->assertNull( VariantRepository::servable_path( array( 'status' => VariantStatus::PENDING, 'relative_path' => 'a.jpg.webp', 'legacy_relative_path' => null ) ) );
-		$this->assertNull( VariantRepository::servable_path( array( 'status' => VariantStatus::FAILED, 'relative_path' => null, 'legacy_relative_path' => '' ) ) );
+	public function test_servable_path_is_the_file_of_a_finished_variant_only() {
+		$this->assertSame( 'a.jpg.webp', VariantRepository::servable_path( array( 'status' => VariantStatus::DONE, 'relative_path' => 'a.jpg.webp' ) ) );
+		$this->assertNull( VariantRepository::servable_path( array( 'status' => VariantStatus::PENDING, 'relative_path' => 'a.jpg.webp' ) ) );
+		$this->assertNull( VariantRepository::servable_path( array( 'status' => VariantStatus::FAILED, 'relative_path' => null ) ) );
+		$this->assertNull( VariantRepository::servable_path( array( 'status' => VariantStatus::DONE, 'relative_path' => '' ) ) );
 	}
 
-	public function test_servable_rows_include_variants_that_only_have_a_legacy_file() {
-		$this->repo->upsert( $this->variant( array( 'attachment_id' => 701, 'legacy_relative_path' => '2026/05/photo.webp' ) ) );
-		$this->repo->upsert( $this->variant( array( 'attachment_id' => 701, 'format' => 'avif' ) ) );
+	public function test_find_other_owners_ignores_the_attachment_itself() {
+		$this->repo->upsert( $this->variant( array( 'attachment_id' => 801, 'status' => VariantStatus::DONE, 'relative_path' => '2026/05/shared.jpg.webp' ) ) );
+		$this->repo->upsert( $this->variant( array( 'attachment_id' => 802, 'status' => VariantStatus::DONE, 'relative_path' => '2026/05/own.jpg.webp' ) ) );
 
-		$rows = $this->repo->get_servable_for_attachment( 701 );
+		$owners = $this->repo->find_other_owners( 802, array( '2026/05/shared.jpg.webp', '2026/05/own.jpg.webp', '2026/05/none.jpg.webp' ) );
 
-		$this->assertCount( 1, $rows );
-		$this->assertSame( 'webp', $rows[0]['format'] );
-	}
-
-	public function test_owns_covers_the_legacy_path() {
-		$this->repo->upsert( $this->variant( array( 'legacy_relative_path' => '2026/05/photo.webp' ) ) );
-
-		$this->assertTrue( $this->repo->owns( '2026/05/photo.webp' ) );
+		$this->assertSame( array( '2026/05/shared.jpg.webp' => 801 ), $owners );
+		$this->assertSame( array(), $this->repo->find_other_owners( 802, array() ) );
 	}
 
 	public function test_delete_and_count_by_status() {

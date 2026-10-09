@@ -25,17 +25,6 @@ class SettingsFormTest extends WP_UnitTestCase {
 		$this->assertArrayNotHasKey( 'jpeg_quality', $options );
 	}
 
-	public function test_legacy_uninstall_flag_is_read_and_removed_on_save() {
-		update_option( 'trust_optimize_options', array( 'webp_quality' => 85 ) );
-		update_option( Settings::LEGACY_REMOVE_DATA_OPTION, 1 );
-
-		$this->assertSame( 1, ( new Settings() )->get( 'remove_data_on_uninstall' ) );
-
-		update_option( 'trust_optimize_options', ( new Settings() )->sanitize( array( 'webp_quality' => 70 ) ) );
-
-		$this->assertFalse( get_option( Settings::LEGACY_REMOVE_DATA_OPTION, false ) );
-	}
-
 	public function test_limits_settings_reach_the_limit_classes() {
 		update_option( 'trust_optimize_options', ( new Settings() )->sanitize( array( 'max_pixels' => 1000, 'min_free_disk' => 7 ) ) );
 
@@ -48,5 +37,21 @@ class SettingsFormTest extends WP_UnitTestCase {
 		add_filter( 'trust_optimize_max_pixels', static fn() => 1000000 );
 
 		$this->assertNull( ImageLimits::skip_reason( 100, 100 ) );
+	}
+
+	public function test_the_limit_entered_in_megapixels_is_stored_in_pixels() {
+		$options = ( new Settings() )->sanitize( array( 'max_megapixels' => '12.5', 'max_pixels' => 1000 ) );
+
+		$this->assertSame( 12500000, $options['max_pixels'] );
+		$this->assertArrayNotHasKey( 'max_megapixels', $options );
+	}
+
+	public function test_pixels_are_used_when_no_positive_megapixels_come_in() {
+		$settings = new Settings();
+
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_megapixels' => 0, 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( 4000, $settings->sanitize( array( 'max_megapixels' => 'abc', 'max_pixels' => 4000 ) )['max_pixels'] );
+		$this->assertSame( ImageLimits::DEFAULT_MAX_PIXELS, $settings->sanitize( array( 'max_megapixels' => -3 ) )['max_pixels'] );
 	}
 }

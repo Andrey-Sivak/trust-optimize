@@ -7,12 +7,14 @@
 
 namespace TrustOptimize\Admin;
 
+use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\EligibilityQuery;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\Bulk\BulkProducer;
 use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Health\SiteHealth;
-use TrustOptimize\Migration\ConflictReport;
+use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Settings\OptimizationSettings;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -21,6 +23,28 @@ use TrustOptimize\Storage\VariantRepository;
  * Class Admin
  */
 class Admin {
+
+	/**
+	 * How the formats are written.
+	 *
+	 * @var string[]
+	 */
+	const FORMAT_NAMES = array(
+		'webp' => 'WebP',
+		'avif' => 'AVIF',
+	);
+
+	/**
+	 * How the formats the plugin does not convert are named in the media column.
+	 *
+	 * @var string[]
+	 */
+	const MIME_NAMES = array(
+		'image/webp' => 'WebP',
+		'image/avif' => 'AVIF',
+		'image/gif'  => 'GIF',
+		'image/bmp'  => 'BMP',
+	);
 
 	/**
 	 * Plugin settings.
@@ -49,13 +73,6 @@ class Admin {
 	 * @var CapabilityService
 	 */
 	private $capabilities;
-
-	/**
-	 * Report of 1.x files that collide with files of other attachments.
-	 *
-	 * @var ConflictReport
-	 */
-	private $conflicts;
 
 	/**
 	 * Variant repository.
@@ -92,17 +109,15 @@ class Admin {
 	 * @param AttachmentRepository $attachments  Attachment repository.
 	 * @param EligibilityQuery     $eligibility  Eligibility query.
 	 * @param CapabilityService    $capabilities Capability service.
-	 * @param ConflictReport       $conflicts    Conflict report.
 	 * @param VariantRepository    $variants     Variant repository.
 	 * @param Statistics           $statistics   Statistics.
 	 * @param SiteHealth           $health       Site Health tests.
 	 */
-	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, ConflictReport $conflicts, VariantRepository $variants, Statistics $statistics, SiteHealth $health ) {
+	public function __construct( Settings $settings, AttachmentRepository $attachments, EligibilityQuery $eligibility, CapabilityService $capabilities, VariantRepository $variants, Statistics $statistics, SiteHealth $health ) {
 		$this->settings     = $settings;
 		$this->attachments  = $attachments;
 		$this->eligibility  = $eligibility;
 		$this->capabilities = $capabilities;
-		$this->conflicts    = $conflicts;
 		$this->variants     = $variants;
 		$this->statistics   = $statistics;
 		$this->health       = $health;
@@ -139,8 +154,17 @@ class Admin {
 			'manage_options',
 			'trust-optimize',
 			array( $this, 'display_admin_page' ),
-			'dashicons-visibility',
+			'dashicons-format-image',
 			30
+		);
+
+		add_submenu_page(
+			'trust-optimize',
+			__( 'TrustOptimize', 'trust-optimize' ),
+			__( 'Overview', 'trust-optimize' ),
+			'manage_options',
+			'trust-optimize',
+			array( $this, 'display_admin_page' )
 		);
 
 		add_submenu_page(
@@ -160,19 +184,18 @@ class Admin {
 		$trust_optimize_total_eligible = $this->eligibility->count_eligible_attachments();
 		$trust_optimize_webp_supported = $this->capabilities->supports( 'webp' );
 		$trust_optimize_avif_supported = $this->capabilities->supports( 'avif' );
-		$trust_optimize_conflicts      = array_values( $this->conflicts->all() );
 		$trust_optimize_stats          = $this->statistics->get();
 		$trust_optimize_overdue        = $this->health->test_overdue_tasks();
 		$trust_optimize_max_pending    = BulkProducer::max_pending();
 
-		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
+		require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/admin-page.php';
 	}
 
 	/**
 	 * Display the settings page.
 	 */
 	public function display_settings_page() {
-		require_once TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/settings-page.php';
+		require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/settings-page.php';
 	}
 
 	/**
@@ -185,12 +208,9 @@ class Admin {
 			array( 'sanitize_callback' => array( $this->settings, 'sanitize' ) )
 		);
 
-		add_settings_section(
-			'trust_optimize_general_section',
-			__( 'General Settings', 'trust-optimize' ),
-			array( $this, 'render_general_section' ),
-			'trust_optimize_settings'
-		);
+		foreach ( $this->get_sections() as $id => $title ) {
+			add_settings_section( 'trust_optimize_' . $id . '_section', $title, '', 'trust_optimize_settings' );
+		}
 
 		foreach ( $this->get_fields() as $key => $field ) {
 			add_settings_field(
@@ -198,7 +218,7 @@ class Admin {
 				$field['label'],
 				array( $this, 'render_field' ),
 				'trust_optimize_settings',
-				'trust_optimize_general_section',
+				'trust_optimize_' . $field['section'] . '_section',
 				array_merge(
 					$field,
 					array(
@@ -208,39 +228,70 @@ class Admin {
 				)
 			);
 		}
+
+		add_settings_field(
+			'recheck_capabilities',
+			__( 'Format support', 'trust-optimize' ),
+			array( $this, 'render_recheck_button' ),
+			'trust_optimize_settings',
+			'trust_optimize_formats_section'
+		);
+	}
+
+	/**
+	 * The sections of the settings page, in the order they are shown.
+	 *
+	 * @return string[] Titles keyed by section ID.
+	 */
+	private function get_sections() {
+		return array(
+			'delivery'  => __( 'Delivery', 'trust-optimize' ),
+			'formats'   => __( 'Formats and quality', 'trust-optimize' ),
+			'limits'    => __( 'Limits', 'trust-optimize' ),
+			'uninstall' => __( 'Uninstall', 'trust-optimize' ),
+		);
 	}
 
 	/**
 	 * The settings shown on the page.
 	 *
-	 * @return array[] Field definitions keyed by option key.
+	 * @return array[] Field definitions keyed by option key; each names its section.
 	 */
 	private function get_fields() {
 		$fields = array(
 			'enable_adaptive_images' => array(
+				'section'     => 'delivery',
 				'label'       => __( 'Serve optimized images', 'trust-optimize' ),
 				'type'        => 'checkbox',
 				'description' => __( 'Wrap images in a picture element that offers the generated WebP and AVIF files.', 'trust-optimize' ),
+			),
+			'force_lazy'             => array(
+				'section'     => 'delivery',
+				'label'       => __( 'Force lazy loading', 'trust-optimize' ),
+				'type'        => 'checkbox',
+				'description' => __( 'Add loading="lazy" to images that have no loading attribute. Off by default so that the largest image of a page is not delayed.', 'trust-optimize' ),
 			),
 		);
 
 		foreach ( array_keys( OptimizationSettings::FORMAT_OPTIONS ) as $format ) {
 			$fields[ 'convert_to_' . $format ] = array(
+				'section'     => 'formats',
 				/* translators: %s: format name, e.g. WebP. */
-				'label'       => sprintf( __( 'Create %s', 'trust-optimize' ), strtoupper( $format ) ),
+				'label'       => sprintf( __( 'Create %s', 'trust-optimize' ), self::FORMAT_NAMES[ $format ] ),
 				'type'        => 'checkbox',
 				'disabled'    => ! $this->capabilities->supports( $format ),
 				'description' => $this->capabilities->supports( $format )
 					? ''
 					/* translators: %s: format name, e.g. WebP. */
-					: sprintf( __( 'This server cannot write %s files.', 'trust-optimize' ), strtoupper( $format ) ),
+					: sprintf( __( 'This server cannot write %s files.', 'trust-optimize' ), self::FORMAT_NAMES[ $format ] ),
 			);
 		}
 
 		foreach ( Settings::QUALITY_KEYS as $key ) {
 			$fields[ $key ] = array(
+				'section'     => 'formats',
 				/* translators: %s: format name, e.g. WebP. */
-				'label'       => sprintf( __( '%s quality', 'trust-optimize' ), strtoupper( strtok( $key, '_' ) ) ),
+				'label'       => sprintf( __( '%s quality', 'trust-optimize' ), self::FORMAT_NAMES[ strtok( $key, '_' ) ] ),
 				'type'        => 'number',
 				'min'         => 1,
 				'max'         => 100,
@@ -249,36 +300,29 @@ class Admin {
 		}
 
 		return $fields + array(
-			'force_lazy'               => array(
-				'label'       => __( 'Force lazy loading', 'trust-optimize' ),
-				'type'        => 'checkbox',
-				'description' => __( 'Add loading="lazy" to images that have no loading attribute. Off by default so that the largest image of a page is not delayed.', 'trust-optimize' ),
-			),
-			'max_pixels'               => array(
-				'label'       => __( 'Largest image to convert (pixels)', 'trust-optimize' ),
+			'max_megapixels'           => array(
+				'section'     => 'limits',
+				'label'       => __( 'Largest image to convert (megapixels)', 'trust-optimize' ),
 				'type'        => 'number',
-				'min'         => 1,
-				'description' => __( 'Width times height. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
+				'min'         => 0.1,
+				'step'        => 'any',
+				'value'       => (int) $this->settings->get( 'max_pixels' ) / 1000000,
+				'description' => __( 'Width times height in millions of pixels. Larger images are skipped to protect the server memory.', 'trust-optimize' ),
 			),
 			'min_free_disk'            => array(
+				'section'     => 'limits',
 				'label'       => __( 'Minimum free disk space (MB)', 'trust-optimize' ),
 				'type'        => 'number',
 				'min'         => 0,
 				'description' => __( 'Conversion pauses below this value. 0 keeps the automatic value: 1 GB or 5% of the disk, whichever is larger.', 'trust-optimize' ),
 			),
 			'remove_data_on_uninstall' => array(
+				'section'     => 'uninstall',
 				'label'       => __( 'Remove data on uninstall', 'trust-optimize' ),
 				'type'        => 'checkbox',
 				'description' => __( 'Delete the generated files and the plugin data when the plugin is deleted. Originals are never deleted.', 'trust-optimize' ),
 			),
 		);
-	}
-
-	/**
-	 * Render the general settings section.
-	 */
-	public function render_general_section() {
-		echo '<p>' . esc_html__( 'Configure general settings for TrustOptimize.', 'trust-optimize' ) . '</p>';
 	}
 
 	/**
@@ -290,7 +334,7 @@ class Admin {
 	 */
 	public function render_field( $args ) {
 		$key   = $args['key'];
-		$value = $this->settings->get( $key );
+		$value = $args['value'] ?? $this->settings->get( $key );
 		$name  = 'trust_optimize_options[' . $key . ']';
 
 		if ( 'checkbox' === $args['type'] ) {
@@ -309,18 +353,32 @@ class Admin {
 			);
 		} else {
 			printf(
-				'<input type="number" id="%1$s" name="%2$s" value="%3$d" min="%4$d" %5$s class="regular-text">',
+				'<input type="number" id="%1$s" name="%2$s" value="%3$s" min="%4$s" step="%5$s"%6$s class="small-text">',
 				esc_attr( $key ),
 				esc_attr( $name ),
-				(int) $value,
-				(int) $args['min'],
-				isset( $args['max'] ) ? 'max="' . (int) $args['max'] . '"' : ''
+				esc_attr( $value ),
+				esc_attr( $args['min'] ),
+				esc_attr( $args['step'] ?? 1 ),
+				isset( $args['max'] ) ? ' max="' . esc_attr( $args['max'] ) . '"' : ''
 			);
 		}
 
 		if ( '' !== $args['description'] ) {
 			echo '<p class="description">' . esc_html( $args['description'] ) . '</p>';
 		}
+	}
+
+	/**
+	 * Render the button that detects the supported formats again.
+	 *
+	 * The button belongs to the form of the page, which cannot hold another form: it submits the form below the settings through its form attribute.
+	 */
+	public function render_recheck_button() {
+		printf(
+			'<button type="submit" form="trust-optimize-recheck-form" class="button">%s</button><p class="description">%s</p>',
+			esc_html__( 'Re-check format support', 'trust-optimize' ),
+			esc_html__( 'Run this after the image libraries of the server changed.', 'trust-optimize' )
+		);
 	}
 
 	/**
@@ -340,7 +398,7 @@ class Admin {
 	public function handle_reset() {
 		$this->authorize( 'trust_optimize_reset' );
 
-		$this->settings->reset();
+		$this->settings->reset( $this->capabilities );
 
 		$this->redirect_to_settings( 'reset' );
 	}
@@ -398,10 +456,28 @@ class Admin {
 					'restUrl' => rest_url( 'trust-optimize/v1/' ),
 					'nonce'   => wp_create_nonce( 'wp_rest' ),
 					'i18n'    => array(
-						'finishing'     => __( 'Finishing…', 'trust-optimize' ),
-						'confirmReset'  => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
-						'confirmRemove' => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
-						'confirmCancel' => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
+						'working'           => __( 'Working…', 'trust-optimize' ),
+						'idle'              => __( 'No bulk job is running.', 'trust-optimize' ),
+						'requestFailed'     => __( 'Request failed.', 'trust-optimize' ),
+						/* translators: 1: what the job is doing, e.g. Optimizing; 2: percent done; 3: attachments processed; 4: attachments in the job. */
+						'progress'          => __( '%1$s — %2$s (%3$s of %4$s)', 'trust-optimize' ),
+						/* translators: %1$s: what the job is doing, e.g. Optimizing. */
+						'progressFinishing' => __( '%1$s — finishing…', 'trust-optimize' ),
+						'active'            => array(
+							BulkJob::TYPE_SYNC      => __( 'Optimizing', 'trust-optimize' ),
+							BulkJob::TYPE_REMOVE    => __( 'Removing optimized files', 'trust-optimize' ),
+							BulkJob::TYPE_INVENTORY => __( 'Analyzing', 'trust-optimize' ),
+						),
+						'statuses'          => array(
+							JobStatus::PAUSED    => __( 'Paused', 'trust-optimize' ),
+							JobStatus::COMPLETED => __( 'Completed', 'trust-optimize' ),
+							JobStatus::COMPLETED_WITH_ERRORS => __( 'Completed with errors', 'trust-optimize' ),
+							JobStatus::CANCELLED => __( 'Cancelled', 'trust-optimize' ),
+							JobStatus::FAILED    => __( 'Failed', 'trust-optimize' ),
+						),
+						'confirmReset'      => __( 'Are you sure you want to reset all settings to defaults?', 'trust-optimize' ),
+						'confirmRemove'     => __( 'Remove all TrustOptimize-generated files? Originals and WordPress thumbnails will be preserved.', 'trust-optimize' ),
+						'confirmCancel'     => __( 'Cancel the active bulk job? Already processed files will not be rolled back.', 'trust-optimize' ),
 					),
 				)
 			);
@@ -439,7 +515,7 @@ class Admin {
 	 * Warn in the plugin list that deleting the plugin would keep its data.
 	 *
 	 * Shown when the plugin is set to remove its data on uninstall but generated files are still registered:
-	 * uninstall removes files only within its time limit and otherwise keeps the registry (M-3).
+	 * uninstall removes files only within its time limit and otherwise keeps the registry.
 	 */
 	public function render_uninstall_warning() {
 		if ( ! current_user_can( 'manage_options' ) || ! $this->settings->get( 'remove_data_on_uninstall' ) ) {
@@ -465,7 +541,7 @@ class Admin {
 						'trust-optimize'
 					),
 					number_format_i18n( $remaining ),
-					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize#media-library' ) ) . '">' . esc_html__( 'TrustOptimize', 'trust-optimize' ) . '</a>'
+					'<a href="' . esc_url( admin_url( 'admin.php?page=trust-optimize#bulk' ) ) . '">' . esc_html__( 'TrustOptimize', 'trust-optimize' ) . '</a>'
 				),
 				array( 'a' => array( 'href' => array() ) )
 			)
@@ -567,6 +643,23 @@ class Admin {
 		// Only show for image attachments
 		if ( ! wp_attachment_is_image( $attachment_id ) ) {
 			echo '<span class="dashicons dashicons-minus" title="' . esc_attr__( 'Not an image', 'trust-optimize' ) . '"></span>';
+			return;
+		}
+
+		$mime = get_post_mime_type( $attachment_id );
+
+		// Formats the plugin does not convert have no state to wait for.
+		if ( ! in_array( $mime, VariantPlanner::SOURCE_MIMES, true ) ) {
+			printf(
+				'<span class="trust-optimize-status" data-status="unsupported">%s</span>',
+				esc_html(
+					sprintf(
+						/* translators: %s: image format, e.g. WebP. */
+						__( 'Not converted (%s)', 'trust-optimize' ),
+						self::MIME_NAMES[ $mime ] ?? strtoupper( (string) substr( (string) $mime, strpos( (string) $mime, '/' ) + 1 ) )
+					)
+				)
+			);
 			return;
 		}
 

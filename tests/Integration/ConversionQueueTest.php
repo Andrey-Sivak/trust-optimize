@@ -1,6 +1,6 @@
 <?php
 /**
- * One Action Scheduler action per attachment (regression H-2: partial result).
+ * One Action Scheduler action per attachment (a partial result is stored).
  *
  * @package TrustOptimize\Tests
  */
@@ -93,7 +93,7 @@ class ConversionQueueTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Regression H-2: one failing variant must leave the attachment "partial", not stuck.
+	 * Regression: one failing variant must leave the attachment "partial", not stuck.
 	 */
 	public function test_one_failed_variant_gives_partial() {
 		$id = $this->upload();

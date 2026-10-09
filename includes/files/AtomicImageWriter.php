@@ -25,12 +25,21 @@ class AtomicImageWriter {
 	private $variants;
 
 	/**
+	 * File ownership checks.
+	 *
+	 * @var FileOwnership
+	 */
+	private $ownership;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param VariantRepository $variants Variant repository.
+	 * @param VariantRepository $variants  Variant repository.
+	 * @param FileOwnership     $ownership File ownership checks.
 	 */
-	public function __construct( VariantRepository $variants ) {
-		$this->variants = $variants;
+	public function __construct( VariantRepository $variants, FileOwnership $ownership ) {
+		$this->variants  = $variants;
+		$this->ownership = $ownership;
 	}
 
 	/**
@@ -52,7 +61,8 @@ class AtomicImageWriter {
 		}
 
 		$relative = ltrim( substr( $target_path, strlen( UploadsPath::basedir() ) ), '/' );
-		if ( file_exists( $target_path ) && ! $this->variants->owns( $relative ) ) {
+		// An existing file is replaced only when a variant row owns it and no attachment registered it as its original.
+		if ( file_exists( $target_path ) && ( ! $this->variants->owns( $relative ) || $this->ownership->is_attachment_file( $relative ) ) ) {
 			return new WP_Error( 'target_exists_foreign', 'Target file exists and is not a TrustOptimize variant.' );
 		}
 

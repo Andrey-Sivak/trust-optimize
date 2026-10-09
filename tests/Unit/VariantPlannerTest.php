@@ -157,6 +157,40 @@ class VariantPlannerTest extends TestCase {
 		$this->assertSame( array(), $busy['reset'], 'A row being processed is left alone.' );
 	}
 
+	public function test_reconcile_resets_done_and_skipped_rows_whose_source_size_changed() {
+		foreach ( array( 'done', 'skipped' ) as $status ) {
+			$result = VariantPlanner::reconcile(
+				array( $this->row( array( 'status' => $status, 'source_file_size' => 5000 ) ) ),
+				array( $this->want( array( 'source_file_size' => 6000 ) ) ),
+				$this->settings()
+			);
+
+			$this->assertCount( 1, $result['reset'], $status );
+			$this->assertSame( array(), $result['replaced'], 'The path is the same: this is not a replaced row.' );
+		}
+	}
+
+	public function test_reconcile_keeps_rows_whose_source_size_is_unchanged_or_unknown() {
+		$same    = VariantPlanner::reconcile( array( $this->row( array( 'source_file_size' => 5000 ) ) ), array( $this->want( array( 'source_file_size' => 5000 ) ) ), $this->settings() );
+		$no_row  = VariantPlanner::reconcile( array( $this->row( array( 'source_file_size' => 0 ) ) ), array( $this->want( array( 'source_file_size' => 6000 ) ) ), $this->settings() );
+		$no_file = VariantPlanner::reconcile( array( $this->row( array( 'source_file_size' => 5000 ) ) ), array( $this->want( array( 'source_file_size' => 0 ) ) ), $this->settings() );
+		$unset   = VariantPlanner::reconcile( array( $this->row( array( 'source_file_size' => 5000 ) ) ), array( $this->want() ), $this->settings() );
+
+		foreach ( array( $same, $no_row, $no_file, $unset ) as $result ) {
+			$this->assertSame( array(), $result['reset'] );
+		}
+	}
+
+	public function test_reconcile_leaves_a_row_in_progress_alone_when_the_source_size_changed() {
+		$result = VariantPlanner::reconcile(
+			array( $this->row( array( 'status' => 'processing', 'source_file_size' => 5000 ) ) ),
+			array( $this->want( array( 'source_file_size' => 6000 ) ) ),
+			$this->settings()
+		);
+
+		$this->assertSame( array(), $result['reset'] );
+	}
+
 	public function test_reconcile_deletes_rows_of_disabled_formats_and_vanished_sizes() {
 		$existing = array(
 			$this->row(),
@@ -208,18 +242,5 @@ class VariantPlannerTest extends TestCase {
 
 		$this->assertCount( 1, $result['delete'] );
 		$this->assertSame( 'gone', $result['delete'][0]['size_name'] );
-	}
-
-	public function test_reconcile_never_touches_legacy_rows() {
-		$legacy = array(
-			$this->row( array( 'naming' => 'legacy', 'quality' => 0 ) ),
-			$this->row( array( 'naming' => 'legacy', 'format' => 'png', 'size_name' => 'original' ) ),
-			$this->row( array( 'naming' => 'legacy', 'status' => 'failed', 'size_name' => 'medium' ) ),
-			$this->row( array( 'naming' => 'legacy', 'format' => 'avif', 'size_name' => 'gone' ) ),
-		);
-
-		$result = VariantPlanner::reconcile( $legacy, array( $this->want(), $this->want( array( 'size_name' => 'medium' ) ) ), $this->settings() );
-
-		$this->assertSame( array( 'insert' => array(), 'reset' => array(), 'delete' => array(), 'replaced' => array() ), $result, 'Stale, failed and orphaned legacy rows are left to the migration and no row is inserted over them.' );
 	}
 }

@@ -9,6 +9,7 @@ namespace TrustOptimize\Admin;
 
 use TrustOptimize\Bulk\Inventory;
 use TrustOptimize\Domain\AttachmentState;
+use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -23,12 +24,7 @@ class Statistics {
 	/**
 	 * Transient that holds the numbers.
 	 */
-	const TRANSIENT = 'trust_optimize_stats';
-
-	/**
-	 * Format whose savings are reported: it is the one every site creates.
-	 */
-	const SAVINGS_FORMAT = 'webp';
+	const TRANSIENT = 'trust_optimize_stats_by_format';
 
 	/**
 	 * Inventory.
@@ -85,7 +81,7 @@ class Statistics {
 	/**
 	 * The numbers.
 	 *
-	 * @return array total_images, eligible, optimized, partial, failed, skipped, queued, outdated, saved_bytes and rate (percent of eligible images that are optimized).
+	 * @return array total_images, eligible, optimized, partial, failed, skipped, queued, outdated, saved_bytes_by_format (bytes saved per format, AVIF first as browsers receive it) and rate (percent of eligible images that are optimized).
 	 */
 	public function get() {
 		$cached = get_transient( self::TRANSIENT );
@@ -97,16 +93,20 @@ class Statistics {
 		$summary = $this->inventory->summary();
 		$states  = $summary['attachment_states'];
 		$stats   = array(
-			'total_images' => (int) $summary['total_images'],
-			'eligible'     => (int) $summary['eligible_attachments'],
-			'optimized'    => $states[ AttachmentState::OPTIMIZED ] ?? 0,
-			'partial'      => $states[ AttachmentState::PARTIAL ] ?? 0,
-			'failed'       => $states[ AttachmentState::FAILED ] ?? 0,
-			'skipped'      => $states[ AttachmentState::SKIPPED ] ?? 0,
-			'queued'       => ( $states[ AttachmentState::QUEUED ] ?? 0 ) + ( $states[ AttachmentState::PROCESSING ] ?? 0 ),
-			'outdated'     => (int) $summary['outdated_variants'],
-			'saved_bytes'  => $this->variants->sum_saved_bytes( self::SAVINGS_FORMAT ),
+			'total_images'          => (int) $summary['total_images'],
+			'eligible'              => (int) $summary['eligible_attachments'],
+			'optimized'             => $states[ AttachmentState::OPTIMIZED ] ?? 0,
+			'partial'               => $states[ AttachmentState::PARTIAL ] ?? 0,
+			'failed'                => $states[ AttachmentState::FAILED ] ?? 0,
+			'skipped'               => $states[ AttachmentState::SKIPPED ] ?? 0,
+			'queued'                => ( $states[ AttachmentState::QUEUED ] ?? 0 ) + ( $states[ AttachmentState::PROCESSING ] ?? 0 ),
+			'outdated'              => (int) $summary['outdated_variants'],
+			'saved_bytes_by_format' => array(),
 		);
+
+		foreach ( array_keys( PictureRenderer::FORMATS ) as $format ) {
+			$stats['saved_bytes_by_format'][ $format ] = $this->variants->sum_saved_bytes( $format );
+		}
 
 		$stats['rate'] = $stats['eligible'] > 0 ? round( 100 * $stats['optimized'] / $stats['eligible'], 1 ) : 0;
 

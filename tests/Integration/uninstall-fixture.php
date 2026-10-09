@@ -122,7 +122,7 @@ trait Uninstall_Fixture {
 	/**
 	 * Whether a plugin table of the current site exists.
 	 *
-	 * @param string $key Table key: attachments, variants, jobs or images.
+	 * @param string $key Table key: attachments, variants or jobs.
 	 * @return bool
 	 */
 	private function table_exists( $key ) {

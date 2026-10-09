@@ -44,6 +44,28 @@ class BulkJobRepository {
 	const MUTEX_STALE_SECONDS = 60;
 
 	/**
+	 * Columns of the jobs table that transition() may change. Anything else is ignored.
+	 *
+	 * @var string[]
+	 */
+	const UPDATABLE_COLUMNS = array(
+		'status',
+		'cursor_id',
+		'total',
+		'processed',
+		'skipped',
+		'failed_count',
+		'created_count',
+		'deleted_count',
+		'settings_snapshot',
+		'profile_hash',
+		'last_error',
+		'started_at',
+		'updated_at',
+		'finished_at',
+	);
+
+	/**
 	 * Constructor.
 	 *
 	 * @param DatabaseManager $db_manager Database manager.
@@ -190,9 +212,9 @@ class BulkJobRepository {
 
 		$table = $this->get_table_name();
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$row = $wpdb->get_row(
-			$wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d", $job_id ),
+			$wpdb->prepare( 'SELECT * FROM %i WHERE id = %d', $table, $job_id ),
 			ARRAY_A
 		);
 		// phpcs:enable
@@ -211,10 +233,11 @@ class BulkJobRepository {
 		$table    = $this->get_table_name();
 		$statuses = JobStatus::active();
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$row = $wpdb->get_row(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE status IN (%s, %s, %s) ORDER BY id DESC LIMIT 1",
+				'SELECT * FROM %i WHERE status IN (%s, %s, %s) ORDER BY id DESC LIMIT 1',
+				$table,
 				$statuses[0],
 				$statuses[1],
 				$statuses[2]
@@ -236,9 +259,9 @@ class BulkJobRepository {
 
 		$table = $this->get_table_name();
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$row = $wpdb->get_row(
-			"SELECT * FROM {$table} ORDER BY id DESC LIMIT 1",
+			$wpdb->prepare( 'SELECT * FROM %i ORDER BY id DESC LIMIT 1', $table ),
 			ARRAY_A
 		);
 		// phpcs:enable
@@ -257,10 +280,11 @@ class BulkJobRepository {
 
 		$now = current_time( 'mysql' );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery
 		$changed = $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->get_table_name()} SET status = %s, started_at = COALESCE(started_at, %s), updated_at = %s WHERE id = %d AND status IN (%s, %s, %s)",
+				'UPDATE %i SET status = %s, started_at = COALESCE(started_at, %s), updated_at = %s WHERE id = %d AND status IN (%s, %s, %s)',
+				$this->get_table_name(),
 				JobStatus::RUNNING,
 				$now,
 				$now,
@@ -307,10 +331,11 @@ class BulkJobRepository {
 	public function pause_unfinished( $reason ) {
 		global $wpdb;
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery
 		return (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->get_table_name()} SET status = %s, last_error = %s, updated_at = %s WHERE status IN (%s, %s)",
+				'UPDATE %i SET status = %s, last_error = %s, updated_at = %s WHERE status IN (%s, %s)',
+				$this->get_table_name(),
 				JobStatus::PAUSED,
 				$reason,
 				current_time( 'mysql' ),
@@ -400,37 +425,6 @@ class BulkJobRepository {
 	}
 
 	/**
-	 * Close the active jobs of schema 1.x: their tick runner no longer exists.
-	 *
-	 * Jobs of 2.0 always store the settings they were created with; those of 1.x stored none.
-	 *
-	 * @return int Number of jobs closed.
-	 */
-	public function supersede_legacy_jobs() {
-		global $wpdb;
-
-		$table = $this->get_table_name();
-		$now   = current_time( 'mysql' );
-
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$closed = (int) $wpdb->query(
-			$wpdb->prepare(
-				"UPDATE {$table} SET status = %s, last_error = %s, finished_at = %s, updated_at = %s WHERE status IN (%s, %s, %s) AND (settings_snapshot IS NULL OR settings_snapshot IN ('', '[]'))",
-				JobStatus::CANCELLED,
-				'superseded by 2.0',
-				$now,
-				$now,
-				JobStatus::PENDING,
-				JobStatus::RUNNING,
-				JobStatus::PAUSED
-			)
-		);
-		// phpcs:enable
-
-		return $closed;
-	}
-
-	/**
 	 * Find stale running jobs.
 	 *
 	 * @param int $stale_after_seconds Stale threshold in seconds.
@@ -442,10 +436,11 @@ class BulkJobRepository {
 		$table     = $this->get_table_name();
 		$threshold = gmdate( 'Y-m-d H:i:s', strtotime( current_time( 'mysql' ) ) - (int) $stale_after_seconds );
 
-		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		// phpcs:disable WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT * FROM {$table} WHERE status = %s AND updated_at < %s ORDER BY id ASC",
+				'SELECT * FROM %i WHERE status = %s AND updated_at < %s ORDER BY id ASC',
+				$table,
 				JobStatus::RUNNING,
 				$threshold
 			),
@@ -554,18 +549,26 @@ class BulkJobRepository {
 	 *
 	 * @param int      $job_id Job ID.
 	 * @param string[] $from   Statuses the job may be in.
-	 * @param array    $data   Columns to set.
+	 * @param array    $data   Columns to set (only UPDATABLE_COLUMNS; null is stored as NULL).
 	 * @return bool True when a row was changed.
 	 */
 	private function transition( $job_id, array $from, array $data ) {
 		global $wpdb;
 
 		$data['updated_at'] = current_time( 'mysql' );
+		$data               = array_intersect_key( $data, array_flip( self::UPDATABLE_COLUMNS ) );
 		$sets               = array();
-		$values             = array();
+		$values             = array( $this->get_table_name() );
 
 		foreach ( $data as $column => $value ) {
-			$sets[]   = "{$column} = %s";
+			$values[] = $column;
+
+			if ( null === $value ) {
+				$sets[] = '%i = NULL';
+				continue;
+			}
+
+			$sets[]   = '%i = %s';
 			$values[] = $value;
 		}
 
@@ -573,9 +576,10 @@ class BulkJobRepository {
 		$values   = array_merge( $values, $from );
 
 		// phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- The SET list is made of %i = %s / %i = NULL pairs over UPDATABLE_COLUMNS, every name and value is bound.
 		return 1 === (int) $wpdb->query(
 			$wpdb->prepare(
-				"UPDATE {$this->get_table_name()} SET " . implode( ', ', $sets ) . ' WHERE id = %d AND status IN (' . implode( ', ', array_fill( 0, count( $from ), '%s' ) ) . ')',
+				'UPDATE %i SET ' . implode( ', ', $sets ) . ' WHERE id = %d AND status IN (' . implode( ', ', array_fill( 0, count( $from ), '%s' ) ) . ')',
 				$values
 			)
 		);

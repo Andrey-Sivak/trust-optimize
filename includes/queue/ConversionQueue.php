@@ -11,7 +11,6 @@ namespace TrustOptimize\Queue;
 
 use Throwable;
 use TrustOptimize\Domain\AttachmentState;
-use TrustOptimize\Migration\CleanupLegacyRuntime;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Storage\AttachmentRepository;
@@ -184,8 +183,6 @@ class ConversionQueue {
 	public static function cancel_all_tasks() {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
 			as_unschedule_all_actions( self::HOOK_PROCESS, null, self::GROUP );
-			as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_TASK_HOOK, null, self::GROUP );
-			as_unschedule_all_actions( CleanupLegacyRuntime::LEGACY_BULK_HOOK, null, self::GROUP );
 		}
 	}
 

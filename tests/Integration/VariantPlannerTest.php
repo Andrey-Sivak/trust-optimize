@@ -54,7 +54,7 @@ class VariantPlannerTest extends WP_UnitTestCase {
 	private function upload() {
 		$id = self::factory()->attachment->create_upload_object( DIR_TESTDATA . '/images/canola.jpg' );
 		$this->assertGreaterThan( 0, $id );
-		// Ignore whatever the legacy upload hook did to the new tables.
+		// Ignore whatever the upload hook did to the plugin tables.
 		$this->variants->delete_for_attachment( $id );
 		$this->attachments->delete( $id );
 

@@ -5,8 +5,6 @@
  * @package TrustOptimize\Tests
  */
 
-require_once __DIR__ . '/legacy-schema-fixture.php';
-
 use TrustOptimize\Bulk\BulkJob;
 use TrustOptimize\Bulk\BulkJobRepository;
 use TrustOptimize\Bulk\BulkProducer;
@@ -17,7 +15,6 @@ use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\AttachmentState;
 use TrustOptimize\Domain\JobStatus;
 use TrustOptimize\Domain\VariantStatus;
-use TrustOptimize\Migration\ConflictReport;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
@@ -28,8 +25,6 @@ use TrustOptimize\Storage\VariantRepository;
  * @covers \TrustOptimize\Bulk\JobProgress
  */
 class BulkProducerTest extends WP_UnitTestCase {
-
-	use Legacy_Schema_Fixture;
 
 	/**
 	 * Producer.
@@ -68,8 +63,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 
 	public function set_up() {
 		parent::set_up();
-		$this->install_legacy_table();
-		delete_option( ConflictReport::OPTION );
 		update_option( CapabilityService::OPTION, array( 'webp' => true, 'avif' => false ) );
 		update_option( 'trust_optimize_options', array( 'convert_to_webp' => 1, 'convert_to_avif' => 0 ) );
 		as_unschedule_all_actions( ConversionQueue::HOOK_PROCESS );
@@ -86,8 +79,6 @@ class BulkProducerTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down() {
-		$this->remove_legacy_schema();
-		delete_option( ConflictReport::OPTION );
 		add_filter( 'wp_generate_attachment_metadata', array( Plugin::get_instance()->conversion_queue, 'handle_new_metadata' ), 20, 2 );
 
 		foreach ( $this->temp_files as $file ) {
@@ -329,29 +320,68 @@ class BulkProducerTest extends WP_UnitTestCase {
 		$this->assertSame( array(), $this->variants->get_for_attachment( $b ) );
 	}
 
-	public function test_remove_job_does_not_touch_the_original_of_another_attachment() {
-		$a    = $this->upload();
-		$b    = $this->upload();
-		$path = get_attached_file( $a );
+	public function test_remove_job_keeps_a_file_that_another_attachment_still_needs() {
+		$name = 'bulk-shared-' . wp_generate_uuid4() . '.jpg.webp';
+		$file = wp_upload_dir()['basedir'] . '/' . $name;
+		file_put_contents( $file, 'shared variant' );
+		$this->temp_files[] = $file;
 
+		foreach ( array( 3001, 3002 ) as $attachment_id ) {
+			$this->variants->upsert(
+				array(
+					'attachment_id'        => $attachment_id,
+					'size_name'            => 'original',
+					'format'               => 'webp',
+					'status'               => VariantStatus::DONE,
+					'source_relative_path' => 'bulk-shared.jpg',
+					'relative_path'        => $name,
+					'file_hash'            => hash( 'sha256', 'shared variant' ),
+				)
+			);
+		}
+
+		// One attachment per run: the first run removes only 3001.
+		add_filter(
+			'trust_optimize_bulk_batch_size',
+			static function () {
+				return 1;
+			}
+		);
+		$job = $this->producer->launch( BulkJob::TYPE_REMOVE );
+		$this->producer->produce( $job->get_id() );
+
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3001 ) );
+		$this->assertCount( 1, $this->variants->get_servable_for_attachment( 3002 ) );
+		$this->assertFileExists( $file, 'The file is still the variant of another attachment.' );
+
+		$job = $this->drive( $job->get_id() );
+
+		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3002 ) );
+		$this->assertFileDoesNotExist( $file, 'The last owner deletes the file.' );
+	}
+
+	public function test_remove_job_does_not_touch_the_original_of_another_attachment() {
+		$original = $this->upload();
+		$file     = get_attached_file( $original );
+		$checksum = hash_file( 'sha256', $file );
 		$this->variants->upsert(
 			array(
-				'attachment_id'        => $b,
+				'attachment_id'        => 3010,
 				'size_name'            => 'original',
-				'format'               => 'png',
+				'format'               => 'webp',
 				'status'               => VariantStatus::DONE,
-				'naming'               => 'legacy',
-				'source_relative_path' => get_post_meta( $b, '_wp_attached_file', true ),
-				'relative_path'        => get_post_meta( $a, '_wp_attached_file', true ),
+				'source_relative_path' => 'elsewhere.jpg',
+				'relative_path'        => get_post_meta( $original, '_wp_attached_file', true ),
+				'file_hash'            => $checksum,
 			)
 		);
 
 		$job = $this->drive( $this->producer->launch( BulkJob::TYPE_REMOVE )->get_id() );
 
-		$this->assertFileExists( $path );
-		$rows = $this->variants->get_for_attachment( $b );
-		$this->assertSame( 'legacy_conflict', $rows[0]['reason'] );
-		$this->assertSame( JobStatus::COMPLETED_WITH_ERRORS, $job->get_status() );
+		$this->assertSame( JobStatus::COMPLETED, $job->get_status() );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 3010 ) );
+		$this->assertSame( $checksum, hash_file( 'sha256', $file ), 'The original of another attachment is intact.' );
 	}
 
 	public function test_inventory_job_walks_the_library_and_completes() {

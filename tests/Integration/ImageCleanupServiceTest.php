@@ -7,11 +7,13 @@
 
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Domain\VariantStatus;
-use TrustOptimize\Migration\ConflictReport;
+use TrustOptimize\Files\FileOwnership;
+use TrustOptimize\Frontend\PictureRenderer;
+use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
+use TrustOptimize\Utils\UploadsPath;
 
 /**
  * @covers \TrustOptimize\Service\ImageCleanupService
@@ -62,7 +64,7 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 		$database          = new DatabaseManager();
 		$this->variants    = new VariantRepository( $database );
 		$this->attachments = new AttachmentRepository( $database, $this->variants );
-		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments, new LegacyPathGuard( $database, $this->variants ), new ConflictReport() );
+		$this->cleanup     = new ImageCleanupService( $this->variants, $this->attachments, new FileOwnership( $this->variants ) );
 	}
 
 	public function tear_down() {
@@ -165,6 +167,103 @@ class ImageCleanupServiceTest extends WP_UnitTestCase {
 
 		$this->assertSame( 'missing_file', $result->get_data()['skipped'][0]['reason'] );
 		$this->assertSame( array(), $this->variants->get_for_attachment( 1004 ) );
+	}
+
+	public function test_a_row_pointing_outside_uploads_is_removed_and_its_file_is_never_touched() {
+		$outside = dirname( wp_upload_dir()['basedir'] ) . '/cleanup-outside-' . wp_generate_uuid4();
+		wp_mkdir_p( $outside );
+		file_put_contents( $outside . '/g.jpg.webp', 'not ours to delete' );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 1007,
+				'size_name'            => 'g.jpg.webp',
+				'format'               => 'webp',
+				'status'               => VariantStatus::DONE,
+				'source_relative_path' => '../' . basename( $outside ) . '/g.jpg',
+				'relative_path'        => '../' . basename( $outside ) . '/g.jpg.webp',
+				'file_hash'            => hash( 'sha256', 'not ours to delete' ),
+			)
+		);
+
+		$result = $this->cleanup->cleanup_attachment( 1007 );
+
+		$this->assertSame( 'outside_uploads', $result->get_data()['skipped'][0]['reason'] );
+		$this->assertSame( 'not ours to delete', file_get_contents( $outside . '/g.jpg.webp' ) );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1007 ), 'The row is not parked: nothing reports it.' );
+
+		unlink( $outside . '/g.jpg.webp' );
+		rmdir( $outside );
+	}
+
+	public function test_a_file_shared_with_another_attachment_is_kept_until_its_last_owner_is_cleaned_up() {
+		$this->variant( 1020, 'shared.jpg.webp' );
+		$this->variant( 1021, 'shared.jpg.webp' );
+
+		$first = $this->cleanup->cleanup_attachment( 1020 );
+
+		$this->assertSame( 'shared_file', $first->get_data()['skipped'][0]['reason'] );
+		$this->assertFileExists( $this->dir . '/shared.jpg.webp' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1020 ), 'Its own row is removed.' );
+
+		$remaining = $this->variants->get_servable_for_attachment( 1021 );
+		$this->assertCount( 1, $remaining, 'The other attachment still has its variant.' );
+		$this->assertFileExists( UploadsPath::absolute( VariantRepository::servable_path( $remaining[0] ) ) );
+
+		$img = '<img src="' . wp_upload_dir()['baseurl'] . '/' . $this->relative_dir . '/source.jpg" alt="x">';
+		$out = ( new PictureRenderer( $this->variants, new UploadsUrl() ) )->render( $img, 1021 );
+		$this->assertStringContainsString( '<picture>', $out );
+		$this->assertStringContainsString( $this->relative_dir . '/shared.jpg.webp', $out );
+
+		$this->cleanup->cleanup_attachment( 1021 );
+
+		$this->assertFileDoesNotExist( $this->dir . '/shared.jpg.webp', 'The last owner deletes the file.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1021 ) );
+	}
+
+	public function test_cleanup_variants_keeps_a_shared_file_too() {
+		$this->variant( 1022, 'shared2.jpg.webp' );
+		$this->variant( 1023, 'shared2.jpg.webp' );
+
+		$this->cleanup->cleanup_variants( 1022, $this->variants->get_for_attachment( 1022 ) );
+
+		$this->assertFileExists( $this->dir . '/shared2.jpg.webp' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1022 ) );
+		$this->assertCount( 1, $this->variants->get_for_attachment( 1023 ) );
+	}
+
+	public function test_a_file_that_is_the_original_of_another_attachment_is_never_deleted() {
+		$this->variant( 1030, 'imported.jpg.webp', 'webp', 'original of another attachment' );
+		self::factory()->post->create(
+			array(
+				'post_type'  => 'attachment',
+				'meta_input' => array( '_wp_attached_file' => $this->relative_dir . '/imported.jpg.webp' ),
+			)
+		);
+
+		$result = $this->cleanup->cleanup_attachment( 1030 );
+
+		$this->assertSame( 'attachment_file', $result->get_data()['skipped'][0]['reason'] );
+		$this->assertSame( hash( 'sha256', 'original of another attachment' ), hash_file( 'sha256', $this->dir . '/imported.jpg.webp' ) );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1030 ), 'The row is removed: it must not claim the file.' );
+	}
+
+	public function test_a_row_that_reserved_its_path_but_never_finished_is_removed_with_its_file() {
+		file_put_contents( $this->dir . '/reserved.jpg.webp', 'written before the crash' );
+		$this->variants->upsert(
+			array(
+				'attachment_id'        => 1040,
+				'size_name'            => 'original',
+				'format'               => 'webp',
+				'status'               => VariantStatus::PROCESSING,
+				'source_relative_path' => $this->relative_dir . '/source.jpg',
+				'relative_path'        => $this->relative_dir . '/reserved.jpg.webp',
+			)
+		);
+
+		$this->cleanup->cleanup_attachment( 1040 );
+
+		$this->assertFileDoesNotExist( $this->dir . '/reserved.jpg.webp', 'The path was reserved by this row, so the file is its own.' );
+		$this->assertSame( array(), $this->variants->get_for_attachment( 1040 ) );
 	}
 
 	public function test_cleanup_variants_removes_only_the_given_rows() {

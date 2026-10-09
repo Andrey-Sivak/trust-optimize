@@ -10,172 +10,169 @@ if ( ! defined( 'WPINC' ) ) {
 	die;
 }
 
-// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, conflicts, stats, overdue (Site Health result) and max_pending, all prefixed with trust_optimize_.
+// Variables from Admin::display_admin_page(): total_eligible, webp_supported, avif_supported, stats, overdue (Site Health result) and max_pending, all prefixed with trust_optimize_.
 $trust_optimize_upload_dir       = wp_upload_dir();
 $trust_optimize_uploads_writable = ! empty( $trust_optimize_upload_dir['basedir'] ) && wp_is_writable( $trust_optimize_upload_dir['basedir'] );
 $trust_optimize_disk_free        = ! empty( $trust_optimize_upload_dir['basedir'] ) ? disk_free_space( $trust_optimize_upload_dir['basedir'] ) : false;
+// Images without a state: optimized, skipped, failed and queued ones are not waiting for the user.
+$trust_optimize_unoptimized = max( 0, $trust_optimize_stats['eligible'] - $trust_optimize_stats['optimized'] - $trust_optimize_stats['partial'] - $trust_optimize_stats['skipped'] - $trust_optimize_stats['failed'] - $trust_optimize_stats['queued'] );
+
+// Browsers receive AVIF first: the card shows its savings once AVIF files exist, otherwise those of WebP.
+$trust_optimize_saved_format = ! empty( $trust_optimize_stats['saved_bytes_by_format']['avif'] ) ? 'avif' : 'webp';
+$trust_optimize_saved_label  = 'avif' === $trust_optimize_saved_format ? __( 'Saved with AVIF', 'trust-optimize' ) : __( 'Saved with WebP', 'trust-optimize' );
+
+// Each check of the server: label, whether it is fine and the value shown next to it.
+$trust_optimize_server_checks = array(
+	array( __( 'GD', 'trust-optimize' ), extension_loaded( 'gd' ), extension_loaded( 'gd' ) ? __( 'available', 'trust-optimize' ) : __( 'missing', 'trust-optimize' ) ),
+	array( __( 'Imagick', 'trust-optimize' ), extension_loaded( 'imagick' ), extension_loaded( 'imagick' ) ? __( 'available', 'trust-optimize' ) : __( 'missing', 'trust-optimize' ) ),
+	array( __( 'WebP output', 'trust-optimize' ), $trust_optimize_webp_supported, $trust_optimize_webp_supported ? __( 'available', 'trust-optimize' ) : __( 'not supported by this server', 'trust-optimize' ) ),
+	array( __( 'AVIF output', 'trust-optimize' ), $trust_optimize_avif_supported, $trust_optimize_avif_supported ? __( 'available', 'trust-optimize' ) : __( 'not supported by this server', 'trust-optimize' ) ),
+	array( __( 'Uploads writable', 'trust-optimize' ), $trust_optimize_uploads_writable, $trust_optimize_uploads_writable ? __( 'yes', 'trust-optimize' ) : __( 'no', 'trust-optimize' ) ),
+	array( __( 'Action Scheduler', 'trust-optimize' ), function_exists( 'as_enqueue_async_action' ), function_exists( 'as_enqueue_async_action' ) ? __( 'available', 'trust-optimize' ) : __( 'missing', 'trust-optimize' ) ),
+	array( __( 'Free disk space', 'trust-optimize' ), false !== $trust_optimize_disk_free, false !== $trust_optimize_disk_free ? size_format( $trust_optimize_disk_free, 1 ) : __( 'unknown', 'trust-optimize' ) ),
+);
 ?>
 
-<div class="wrap trust-optimize-admin-wrap">
-	<h1><?php echo esc_html( get_admin_page_title() ); ?></h1>
+<div class="wrap trust-optimize-wrap">
+	<h1>
+		<?php esc_html_e( 'TrustOptimize', 'trust-optimize' ); ?>
+		<span class="trust-optimize-version">
+			<?php
+			/* translators: %s: plugin version number. */
+			echo esc_html( sprintf( __( 'Version %s', 'trust-optimize' ), TRUST_OPTIMIZE_VERSION ) );
+			?>
+		</span>
+	</h1>
 
-	<div class="trust-optimize-admin-container">
-		<div class="trust-optimize-admin-header">
-			<div class="trust-optimize-logo">
-				<!-- Placeholder for logo -->
+	<nav class="nav-tab-wrapper trust-optimize-tabs" aria-label="<?php esc_attr_e( 'TrustOptimize sections', 'trust-optimize' ); ?>">
+		<a href="#overview" class="nav-tab nav-tab-active" data-tab="overview"><?php esc_html_e( 'Overview', 'trust-optimize' ); ?></a>
+		<a href="#bulk" class="nav-tab" data-tab="bulk"><?php esc_html_e( 'Bulk optimization', 'trust-optimize' ); ?></a>
+	</nav>
+
+	<div class="trust-optimize-panel" id="trust-optimize-tab-overview">
+		<?php if ( $trust_optimize_unoptimized > 0 ) : ?>
+			<div class="notice notice-info inline">
+				<p>
+					<?php
+					echo esc_html(
+						sprintf(
+							/* translators: %s: number of images. */
+							_n( '%s image is not optimized yet.', '%s images are not optimized yet.', $trust_optimize_unoptimized, 'trust-optimize' ),
+							number_format_i18n( $trust_optimize_unoptimized )
+						)
+					);
+					?>
+					<a href="#bulk" class="button button-primary trust-optimize-open-tab" data-tab="bulk"><?php esc_html_e( 'Optimize library', 'trust-optimize' ); ?></a>
+				</p>
 			</div>
-			<div class="trust-optimize-version">
-				<?php
-				// Translators: %s is the plugin version number.
-				echo esc_html( sprintf( __( 'Version %s', 'trust-optimize' ), TRUST_OPTIMIZE_VERSION ) );
-				?>
+		<?php endif; ?>
+
+		<div class="trust-optimize-cards">
+			<div class="trust-optimize-card">
+				<div class="trust-optimize-card-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['total_images'] ) ); ?></div>
+				<div class="trust-optimize-card-label"><?php esc_html_e( 'Total images', 'trust-optimize' ); ?></div>
+			</div>
+			<div class="trust-optimize-card">
+				<div class="trust-optimize-card-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></div>
+				<div class="trust-optimize-card-label"><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></div>
+			</div>
+			<div class="trust-optimize-card">
+				<div class="trust-optimize-card-value"><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format'][ $trust_optimize_saved_format ], 1 ) ); ?></div>
+				<div class="trust-optimize-card-label"><?php echo esc_html( $trust_optimize_saved_label ); ?></div>
+			</div>
+			<div class="trust-optimize-card">
+				<div class="trust-optimize-card-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['rate'], 1 ) . '%' ); ?></div>
+				<div class="trust-optimize-card-label"><?php esc_html_e( 'Optimization rate', 'trust-optimize' ); ?></div>
 			</div>
 		</div>
 
-		<?php require TRUST_OPTIMIZE_PLUGIN_DIR . 'templates/admin/migration-conflicts.php'; ?>
+		<h2><?php esc_html_e( 'Details', 'trust-optimize' ); ?></h2>
+		<p class="description"><?php esc_html_e( 'Counted from the plugin tables and refreshed at most every five minutes.', 'trust-optimize' ); ?></p>
 
-		<div class="trust-optimize-dashboard">
-			<div class="trust-optimize-stats-row">
-				<div class="trust-optimize-stat-box">
-					<h3><?php esc_html_e( 'Total Images', 'trust-optimize' ); ?></h3>
-					<div
-						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['total_images'] ) ); ?></div>
-				</div>
+		<table class="widefat striped trust-optimize-details">
+			<tbody>
+				<tr><th><?php esc_html_e( 'Images that can be optimized (JPEG, PNG)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['eligible'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Partially optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['partial'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Waiting or in progress', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['queued'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['failed'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['skipped'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Outdated variants (settings changed)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['outdated'] ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Storage saved by AVIF files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format']['avif'], 1 ) ); ?></td></tr>
+				<tr><th><?php esc_html_e( 'Storage saved by WebP files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes_by_format']['webp'], 1 ) ); ?></td></tr>
+			</tbody>
+		</table>
+	</div>
 
-				<div class="trust-optimize-stat-box">
-					<h3><?php esc_html_e( 'Optimized Images', 'trust-optimize' ); ?></h3>
-					<div
-						class="trust-optimize-stat-value"><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></div>
-				</div>
-
-				<div class="trust-optimize-stat-box">
-					<h3><?php esc_html_e( 'Storage Saved', 'trust-optimize' ); ?></h3>
-					<div class="trust-optimize-stat-value">
-						<?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?>
-					</div>
-				</div>
-
-				<div class="trust-optimize-stat-box">
-					<h3><?php esc_html_e( 'Optimization Rate', 'trust-optimize' ); ?></h3>
-					<div class="trust-optimize-stat-value">
-						<?php echo esc_html( number_format_i18n( $trust_optimize_stats['rate'], 1 ) . '%' ); ?>
-					</div>
-				</div>
+	<div class="trust-optimize-panel" id="trust-optimize-tab-bulk" hidden>
+		<?php if ( 'good' !== $trust_optimize_overdue['status'] ) : ?>
+			<div class="notice notice-warning inline">
+				<p><strong><?php echo esc_html( $trust_optimize_overdue['label'] ); ?></strong></p>
+				<?php echo wp_kses_post( $trust_optimize_overdue['description'] ); ?>
 			</div>
+		<?php endif; ?>
 
-			<div class="trust-optimize-dashboard-tabs">
-				<div class="trust-optimize-tab-nav">
-					<a href="#overview" class="trust-optimize-tab-link active">
-						<?php esc_html_e( 'Overview', 'trust-optimize' ); ?>
-					</a>
-					<a href="#media-library" class="trust-optimize-tab-link">
-						<?php esc_html_e( 'Media Library', 'trust-optimize' ); ?>
-					</a>
-					<a href="#statistics" class="trust-optimize-tab-link">
-						<?php esc_html_e( 'Statistics', 'trust-optimize' ); ?>
-					</a>
-				</div>
+		<h2><?php esc_html_e( 'Server', 'trust-optimize' ); ?></h2>
+		<ul class="trust-optimize-server">
+			<?php foreach ( $trust_optimize_server_checks as $trust_optimize_check ) : ?>
+				<li class="<?php echo $trust_optimize_check[1] ? 'is-ok' : 'is-warning'; ?>">
+					<span class="dashicons <?php echo $trust_optimize_check[1] ? 'dashicons-yes-alt' : 'dashicons-warning'; ?>" aria-hidden="true"></span>
+					<strong><?php echo esc_html( $trust_optimize_check[0] ); ?></strong>
+					<span><?php echo esc_html( $trust_optimize_check[2] ); ?></span>
+				</li>
+			<?php endforeach; ?>
+		</ul>
 
-				<div class="trust-optimize-tab-content" id="overview">
-					<div class="trust-optimize-overview-content">
-						<h2><?php esc_html_e( 'Welcome to TrustOptimize', 'trust-optimize' ); ?></h2>
-						<p>
-							<?php esc_html_e( 'TrustOptimize helps you optimize your website\'s images for better performance and user experience.', 'trust-optimize' ); ?>
-						</p>
+		<h2><?php esc_html_e( 'Optimize the library', 'trust-optimize' ); ?></h2>
+		<p>
+			<?php
+			echo esc_html(
+				sprintf(
+					/* translators: %s: number of images. */
+					_n( '%s image can be optimized.', '%s images can be optimized.', $trust_optimize_total_eligible, 'trust-optimize' ),
+					number_format_i18n( $trust_optimize_total_eligible )
+				)
+			);
+			?>
+			<?php esc_html_e( 'Opening this page does not start processing.', 'trust-optimize' ); ?>
+		</p>
 
-						<div class="trust-optimize-actions">
-							<a href="<?php echo esc_url( admin_url( 'admin.php?page=trust-optimize-settings' ) ); ?>" class="button button-primary">
-								<?php esc_html_e( 'Configure Settings', 'trust-optimize' ); ?>
-							</a>
+		<div class="trust-optimize-bulk-actions">
+			<button type="button" class="button button-primary trust-optimize-bulk-action" data-action="sync"><?php esc_html_e( 'Optimize library', 'trust-optimize' ); ?></button>
+			<button type="button" class="button trust-optimize-bulk-action" data-action="inventory"><?php esc_html_e( 'Analyze library', 'trust-optimize' ); ?></button>
+			<button type="button" class="button trust-optimize-bulk-control" data-action="pause" hidden><?php esc_html_e( 'Pause', 'trust-optimize' ); ?></button>
+			<button type="button" class="button trust-optimize-bulk-control" data-action="resume" hidden><?php esc_html_e( 'Resume', 'trust-optimize' ); ?></button>
+			<button type="button" class="button trust-optimize-bulk-control" data-action="cancel" hidden><?php esc_html_e( 'Cancel', 'trust-optimize' ); ?></button>
+		</div>
+		<p class="description">
+			<?php
+			/* translators: %d: most attachments waiting on the queue. */
+			echo esc_html( sprintf( __( 'Pause and Cancel stop adding new attachments to the queue; attachments already queued (up to %d) are still processed.', 'trust-optimize' ), $trust_optimize_max_pending ) );
+			?>
+		</p>
 
-							<button type="button" class="button button-secondary trust-optimize-bulk-action" data-action="inventory">
-								<?php esc_html_e( 'Analyze Media Library', 'trust-optimize' ); ?>
-							</button>
-						</div>
-					</div>
-				</div>
-
-				<div class="trust-optimize-tab-content" id="media-library" style="display:none;">
-					<h2><?php esc_html_e( 'Media Library Optimization', 'trust-optimize' ); ?></h2>
-					<p><?php esc_html_e( 'Run resumable bulk jobs for existing image attachments. Opening this page does not start processing.', 'trust-optimize' ); ?></p>
-
-					<div class="trust-optimize-bulk-panel">
-						<?php if ( 'good' !== $trust_optimize_overdue['status'] ) : ?>
-							<div class="notice notice-warning inline">
-								<p><strong><?php echo esc_html( $trust_optimize_overdue['label'] ); ?></strong></p>
-								<?php echo wp_kses_post( $trust_optimize_overdue['description'] ); ?>
-							</div>
-						<?php endif; ?>
-
-						<h3><?php esc_html_e( 'Preflight diagnostics', 'trust-optimize' ); ?></h3>
-						<ul class="trust-optimize-preflight">
-							<li><?php esc_html_e( 'Eligible image attachments:', 'trust-optimize' ); ?> <strong><?php echo esc_html( number_format_i18n( $trust_optimize_total_eligible ) ); ?></strong></li>
-							<li><?php esc_html_e( 'GD:', 'trust-optimize' ); ?> <strong><?php echo extension_loaded( 'gd' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'Imagick:', 'trust-optimize' ); ?> <strong><?php echo extension_loaded( 'imagick' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'WebP output:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_webp_supported ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'unsupported by WP editor', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'AVIF output:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_avif_supported ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'unsupported by WP editor', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'Uploads writable:', 'trust-optimize' ); ?> <strong><?php echo $trust_optimize_uploads_writable ? esc_html__( 'yes', 'trust-optimize' ) : esc_html__( 'no', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'Action Scheduler:', 'trust-optimize' ); ?> <strong><?php echo function_exists( 'as_enqueue_async_action' ) ? esc_html__( 'available', 'trust-optimize' ) : esc_html__( 'missing', 'trust-optimize' ); ?></strong></li>
-							<li><?php esc_html_e( 'Approx. free disk:', 'trust-optimize' ); ?> <strong><?php echo false !== $trust_optimize_disk_free ? esc_html( size_format( $trust_optimize_disk_free, 1 ) ) : esc_html__( 'unknown', 'trust-optimize' ); ?></strong></li>
-						</ul>
-
-						<p class="description">
-							<?php
-							/* translators: %d: most attachments waiting on the queue. */
-							echo esc_html( sprintf( __( 'Pause and Cancel stop adding new attachments to the queue; attachments already queued (up to %d) are still processed.', 'trust-optimize' ), $trust_optimize_max_pending ) );
-							?>
-						</p>
-						<p class="description"><?php esc_html_e( 'Before deleting the plugin with "Remove data on uninstall" enabled, use "Remove Generated Files" and wait until the job finishes. Originals and WordPress thumbnails are never removed.', 'trust-optimize' ); ?></p>
-
-						<div class="trust-optimize-bulk-actions">
-							<button type="button" class="button trust-optimize-bulk-action" data-action="inventory"><?php esc_html_e( 'Analyze', 'trust-optimize' ); ?></button>
-							<button type="button" class="button button-primary trust-optimize-bulk-action" data-action="sync"><?php esc_html_e( 'Start Sync', 'trust-optimize' ); ?></button>
-							<button type="button" class="button button-secondary trust-optimize-bulk-action" data-action="remove"><?php esc_html_e( 'Remove Generated Files', 'trust-optimize' ); ?></button>
-							<button type="button" class="button trust-optimize-bulk-control" data-action="pause"><?php esc_html_e( 'Pause', 'trust-optimize' ); ?></button>
-							<button type="button" class="button trust-optimize-bulk-control" data-action="resume"><?php esc_html_e( 'Resume', 'trust-optimize' ); ?></button>
-							<button type="button" class="button trust-optimize-bulk-control" data-action="cancel"><?php esc_html_e( 'Cancel', 'trust-optimize' ); ?></button>
-						</div>
-
-						<div class="trust-optimize-progress-wrap">
-							<div class="trust-optimize-progress-bar" aria-hidden="true">
-								<span style="width:0%"></span>
-							</div>
-							<p class="trust-optimize-bulk-status"><?php esc_html_e( 'No active bulk job.', 'trust-optimize' ); ?></p>
-						</div>
-
-						<table class="widefat striped trust-optimize-bulk-counters">
-							<tbody>
-								<tr><th><?php esc_html_e( 'Status', 'trust-optimize' ); ?></th><td data-field="status">—</td></tr>
-								<tr><th><?php esc_html_e( 'Processed', 'trust-optimize' ); ?></th><td data-field="processed">0</td></tr>
-								<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td data-field="skipped">0</td></tr>
-								<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td data-field="failed_count">0</td></tr>
-								<tr><th><?php esc_html_e( 'Optimized images', 'trust-optimize' ); ?></th><td data-field="created_count">0</td></tr>
-								<tr><th><?php esc_html_e( 'Deleted', 'trust-optimize' ); ?></th><td data-field="deleted_count">0</td></tr>
-								<tr><th><?php esc_html_e( 'Cursor', 'trust-optimize' ); ?></th><td data-field="cursor_id">0</td></tr>
-								<tr><th><?php esc_html_e( 'Last error', 'trust-optimize' ); ?></th><td data-field="last_error">—</td></tr>
-							</tbody>
-						</table>
-					</div>
-				</div>
-
-				<div class="trust-optimize-tab-content" id="statistics" style="display:none;">
-					<h2><?php esc_html_e( 'Optimization Statistics', 'trust-optimize' ); ?></h2>
-					<p><?php esc_html_e( 'Counted from the plugin tables and refreshed at most every five minutes.', 'trust-optimize' ); ?></p>
-
-					<table class="widefat striped trust-optimize-statistics">
-						<tbody>
-							<tr><th><?php esc_html_e( 'Images that can be optimized (JPEG, PNG)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['eligible'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['optimized'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Partially optimized', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['partial'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Waiting or in progress', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['queued'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['failed'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['skipped'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Outdated variants (settings changed)', 'trust-optimize' ); ?></th><td><?php echo esc_html( number_format_i18n( $trust_optimize_stats['outdated'] ) ); ?></td></tr>
-							<tr><th><?php esc_html_e( 'Storage saved by WebP files', 'trust-optimize' ); ?></th><td><?php echo esc_html( size_format( $trust_optimize_stats['saved_bytes'], 1 ) ); ?></td></tr>
-						</tbody>
-					</table>
-				</div>
+		<div class="trust-optimize-progress-wrap">
+			<div class="trust-optimize-progress-bar" aria-hidden="true">
+				<span></span>
 			</div>
+			<p class="trust-optimize-bulk-status" aria-live="polite"><?php esc_html_e( 'No bulk job is running.', 'trust-optimize' ); ?></p>
+		</div>
+
+		<table class="widefat striped trust-optimize-bulk-counters" hidden>
+			<tbody>
+				<tr data-types="sync remove inventory"><th><?php esc_html_e( 'Processed', 'trust-optimize' ); ?></th><td data-field="processed">0</td></tr>
+				<tr data-types="sync"><th><?php esc_html_e( 'Optimized', 'trust-optimize' ); ?></th><td data-field="created_count">0</td></tr>
+				<tr data-types="sync"><th><?php esc_html_e( 'Skipped', 'trust-optimize' ); ?></th><td data-field="skipped">0</td></tr>
+				<tr data-types="remove"><th><?php esc_html_e( 'Cleaned up', 'trust-optimize' ); ?></th><td data-field="deleted_count">0</td></tr>
+				<tr data-types="sync remove"><th><?php esc_html_e( 'Failed', 'trust-optimize' ); ?></th><td data-field="failed_count">0</td></tr>
+				<tr class="trust-optimize-last-error" hidden><th><?php esc_html_e( 'Last error', 'trust-optimize' ); ?></th><td data-field="last_error"></td></tr>
+			</tbody>
+		</table>
+
+		<div class="trust-optimize-remove">
+			<h2><?php esc_html_e( 'Remove optimized files', 'trust-optimize' ); ?></h2>
+			<p class="description"><?php esc_html_e( 'Before deleting the plugin with "Remove data on uninstall" enabled, remove the optimized files here and wait until the job finishes. Originals and WordPress thumbnails are never removed.', 'trust-optimize' ); ?></p>
+			<button type="button" class="button button-link-delete trust-optimize-bulk-action" data-action="remove"><?php esc_html_e( 'Remove optimized files', 'trust-optimize' ); ?></button>
 		</div>
 	</div>
 </div>

@@ -22,7 +22,7 @@ use TrustOptimize\Utils\DiskSpace;
  * Class BulkProducer
  *
  * The producer is one Action Scheduler action per job that reschedules itself. It never converts
- * anything: a sync job puts an attachment task on the queue for every attachment (D-9), so one
+ * anything: a sync job puts an attachment task on the queue for every attachment, so one
  * crashing image cannot stop the others. Its position is the job's cursor, its progress is
  * derived by JobProgress, and it keeps the number of waiting tasks below a limit (backpressure).
  */
@@ -327,7 +327,7 @@ class BulkProducer {
 	 * Do the work of the job for one attachment.
 	 *
 	 * Sync marks the attachment with the job and queues it; remove deletes through the cleanup
-	 * service, which guards legacy files (D-15). A failure of one attachment never stops the job.
+	 * service. A failure of one attachment never stops the job.
 	 *
 	 * @param BulkJob $job           Job.
 	 * @param int     $attachment_id Attachment ID.

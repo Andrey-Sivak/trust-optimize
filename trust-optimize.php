@@ -4,20 +4,19 @@
  *
  * @package           TrustOptimize
  * @author            Andrii Sivak
- * @copyright         2025 Andrii Sivak
+ * @copyright         2026 Andrii Sivak
  * @license           GPL-2.0-or-later
  *
  * @wordpress-plugin
  * Plugin Name:       TrustOptimize
  * Plugin URI:        https://github.com/Andrey-Sivak/trust-optimize
  * Description:       Converts WordPress image sizes to WebP and AVIF and serves them through picture elements.
- * Version:           2.0.0
+ * Version:           1.0.0
  * Requires at least: 6.5
  * Requires PHP:      8.0
  * Author:            Andrii Sivak
  * Author URI:        https://github.com/Andrey-Sivak
  * Text Domain:       trust-optimize
- * Domain Path:       /languages
  * License:           GPL v2 or later
  * License URI:       http://www.gnu.org/licenses/gpl-2.0.txt
  */
@@ -35,7 +34,7 @@ if ( ! defined( 'WPINC' ) ) {
 }
 
 // Define plugin constants
-define( 'TRUST_OPTIMIZE_VERSION', '2.0.0' );
+define( 'TRUST_OPTIMIZE_VERSION', '1.0.0' );
 define( 'TRUST_OPTIMIZE_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'TRUST_OPTIMIZE_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -83,9 +82,7 @@ function trust_optimize_activate() {
 		);
 	}
 
-	$database_manager = new DatabaseManager();
-	$database_manager->create_tables();
-	update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
+	( new DatabaseManager() )->check_version();
 
 	$capabilities = new CapabilityService();
 	$capabilities->recheck();
@@ -105,9 +102,6 @@ function trust_optimize_deactivate() {
  * Initialize the plugin.
  */
 function trust_optimize_init() {
-	// Load text domain for internationalization
-	load_plugin_textdomain( 'trust-optimize', false, dirname( TRUST_OPTIMIZE_PLUGIN_BASENAME ) . '/languages' );
-
 	Plugin::get_instance()->init();
 }
 add_action( 'plugins_loaded', 'trust_optimize_init' );

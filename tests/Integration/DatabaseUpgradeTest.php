@@ -1,6 +1,6 @@
 <?php
 /**
- * Schema 2.0.0 creation and upgrade from 1.3.0.
+ * Schema creation and the version check.
  *
  * @package TrustOptimize\Tests
  */
@@ -41,60 +41,46 @@ class DatabaseUpgradeTest extends WP_UnitTestCase {
 		$this->assertSame( 'varchar(32)', $this->column_type( $tables['jobs'], 'status' ) );
 	}
 
-	public function test_upgrade_from_1_3_0_widens_jobs_status_and_keeps_legacy_rows() {
-		global $wpdb;
+	public function test_the_variants_table_has_no_columns_of_earlier_formats() {
+		$variants = ( new DatabaseManager() )->get_plugin_table_names()['variants'];
 
-		$database = new DatabaseManager();
-		$tables   = $database->get_plugin_table_names();
-
-		// A 1.3.0 site has the legacy manifest table; 2.0 no longer creates it (DDL commits implicitly).
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "CREATE TABLE IF NOT EXISTS `{$tables['images']}` (id bigint(20) unsigned NOT NULL AUTO_INCREMENT, attachment_id bigint(20) unsigned NOT NULL, metadata longtext NOT NULL, status varchar(20) NOT NULL DEFAULT 'completed', PRIMARY KEY  (id), UNIQUE KEY attachment_id (attachment_id))" );
-
-		// Put the jobs table back into its 1.3.0 shape.
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "ALTER TABLE `{$tables['jobs']}` MODIFY status varchar(20) NOT NULL DEFAULT 'pending'" );
-		$this->assertSame( 'varchar(20)', $this->column_type( $tables['jobs'], 'status' ) );
-
-		// The upgrade commits implicitly, so the legacy row must be removed by hand.
-		$wpdb->delete( $tables['images'], array( 'attachment_id' => 987654 ) );
-		$wpdb->insert(
-			$tables['images'],
-			array(
-				'attachment_id' => 987654,
-				'metadata'      => '{}',
-				'status'        => 'completed',
-			)
-		);
-
-		update_option( 'trust_optimize_db_version', '1.3.0' );
-		$database->check_version();
-
-		$this->assertSame( DatabaseManager::DB_VERSION, get_option( 'trust_optimize_db_version' ) );
-		$this->assertSame( 'varchar(32)', $this->column_type( $tables['jobs'], 'status' ) );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$legacy_rows = (string) $wpdb->get_var( "SELECT COUNT(*) FROM `{$tables['images']}` WHERE attachment_id = 987654" );
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "DROP TABLE IF EXISTS `{$tables['images']}`" );
-
-		$this->assertSame( '1', $legacy_rows );
+		$this->assertNull( $this->column_type( $variants, 'naming' ) );
+		$this->assertNull( $this->column_type( $variants, 'legacy_relative_path' ) );
+		$this->assertSame( 'varchar(255)', $this->column_type( $variants, 'relative_path' ) );
 	}
 
-	public function test_upgrade_from_2_0_0_adds_the_legacy_path_column() {
+	public function test_the_schema_is_created_from_scratch_at_version_1_0_0() {
+		$database = new DatabaseManager();
+
+		delete_option( 'trust_optimize_db_version' );
+		$database->check_version();
+
+		$this->assertSame( '1.0.0', DatabaseManager::DB_VERSION );
+		$this->assertSame( '1.0.0', get_option( 'trust_optimize_db_version' ) );
+		$this->assertSame( array( 'attachments', 'variants', 'jobs' ), array_keys( $database->get_plugin_table_names() ) );
+	}
+
+	public function test_a_current_schema_is_left_alone() {
 		global $wpdb;
 
 		$database = new DatabaseManager();
-		$variants = $database->get_plugin_table_names()['variants'];
+		$jobs     = $database->get_plugin_table_names()['jobs'];
 
-		// Put the variants table back into its 2.0.0 shape (DDL commits implicitly).
+		// Narrow a column (DDL commits implicitly): create_tables() would widen it again.
 		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
-		$wpdb->query( "ALTER TABLE `{$variants}` DROP INDEX legacy_relative_path, DROP COLUMN legacy_relative_path" );
-		$this->assertNull( $this->column_type( $variants, 'legacy_relative_path' ) );
+		$wpdb->query( "ALTER TABLE `{$jobs}` MODIFY status varchar(20) NOT NULL DEFAULT 'pending'" );
 
-		update_option( 'trust_optimize_db_version', '2.0.0' );
-		$database->check_version();
+		try {
+			update_option( 'trust_optimize_db_version', DatabaseManager::DB_VERSION );
+			$database->check_version();
 
+			$this->assertSame( 'varchar(20)', $this->column_type( $jobs, 'status' ), 'The current version does not touch the tables.' );
+		} finally {
+			update_option( 'trust_optimize_db_version', '0.0.0' );
+			$database->check_version();
+		}
+
+		$this->assertSame( 'varchar(32)', $this->column_type( $jobs, 'status' ) );
 		$this->assertSame( DatabaseManager::DB_VERSION, get_option( 'trust_optimize_db_version' ) );
-		$this->assertSame( 'varchar(255)', $this->column_type( $variants, 'legacy_relative_path' ) );
 	}
 }

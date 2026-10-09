@@ -19,32 +19,22 @@ use TrustOptimize\Bulk\Inventory;
 use TrustOptimize\Bulk\JobProgress;
 use TrustOptimize\Capabilities\CapabilityService;
 use TrustOptimize\CLI\Command;
-use TrustOptimize\CLI\MigrationCommand;
 use TrustOptimize\Database\DatabaseManager;
 use TrustOptimize\Features\Optimization\ImageConverter;
 use TrustOptimize\Files\AtomicImageWriter;
+use TrustOptimize\Files\FileOwnership;
 use TrustOptimize\Frontend\ContentPrimer;
 use TrustOptimize\Frontend\ImageDelivery;
 use TrustOptimize\Frontend\PictureRenderer;
 use TrustOptimize\Frontend\SourceResolver;
 use TrustOptimize\Frontend\UploadsUrl;
 use TrustOptimize\Health\SiteHealth;
-use TrustOptimize\Migration\CleanupLegacyRuntime;
-use TrustOptimize\Migration\ConflictReport;
-use TrustOptimize\Migration\DetectCollisions;
-use TrustOptimize\Migration\Finalize;
-use TrustOptimize\Migration\ImportLegacyManifest;
-use TrustOptimize\Migration\MigrationRunner;
-use TrustOptimize\Migration\RetireLegacyFiles;
-use TrustOptimize\Migration\ScheduleRegeneration;
-use TrustOptimize\Migration\StripAttachmentMetadata;
 use TrustOptimize\Planning\VariantPlanner;
 use TrustOptimize\Processing\AttachmentProcessor;
 use TrustOptimize\Queue\ConversionQueue;
 use TrustOptimize\Queue\Lifecycle;
 use TrustOptimize\Queue\Maintenance;
 use TrustOptimize\Service\ImageCleanupService;
-use TrustOptimize\Service\LegacyPathGuard;
 use TrustOptimize\Storage\AttachmentRepository;
 use TrustOptimize\Storage\VariantRepository;
 
@@ -140,44 +130,28 @@ class Plugin {
 		$capabilities = new CapabilityService();
 		$variants     = new VariantRepository( $database );
 		$attachments  = new AttachmentRepository( $database, $variants );
-		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants ), $capabilities );
+		$ownership    = new FileOwnership( $variants );
+		$converter    = new ImageConverter( $variants, new AtomicImageWriter( $variants, $ownership ), $capabilities );
 		$jobs         = new BulkJobRepository( $database );
 		$eligibility  = new EligibilityQuery( $variants );
 		$progress     = new JobProgress( $attachments, $eligibility );
-		$conflicts    = new ConflictReport();
-		$guard        = new LegacyPathGuard( $database, $variants );
 		$primer       = new ContentPrimer( $variants, $settings );
 		$urls         = new UploadsUrl();
 
 		$this->planner          = new VariantPlanner( $variants, $attachments, $settings, $capabilities );
-		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $guard, $conflicts );
+		$this->cleanup          = new ImageCleanupService( $variants, $attachments, $ownership );
 		$this->processor        = new AttachmentProcessor( $attachments, $variants, $converter, $this->planner, $this->cleanup, $settings, $capabilities );
 		$this->conversion_queue = new ConversionQueue( $attachments, $this->processor, $this->planner );
 		$this->inventory        = new Inventory( $eligibility, $attachments, $variants, $settings, $capabilities );
 		$this->bulk_producer    = new BulkProducer( $jobs, $eligibility, $progress, $attachments, $this->conversion_queue, $this->cleanup, $this->inventory, $settings, $capabilities );
 		$statistics             = new Statistics( $this->inventory, $variants );
 		$health                 = new SiteHealth( $capabilities );
-		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $conflicts, $variants, $statistics, $health );
+		$this->admin            = new Admin( $settings, $attachments, $eligibility, $capabilities, $variants, $statistics, $health );
 		$this->rest_controller  = new RestController( $attachments, $this->processor, $this->cleanup, $jobs, $progress, $this->bulk_producer );
-
-		$legacy_runtime = new CleanupLegacyRuntime( $this->conversion_queue, $jobs );
-		$migration      = new MigrationRunner(
-			$database,
-			array(
-				new ImportLegacyManifest( $database, $variants, $attachments ),
-				new DetectCollisions( $variants, $attachments, $guard, $conflicts ),
-				new ScheduleRegeneration( $variants, $this->conversion_queue, $conflicts ),
-				new RetireLegacyFiles( $variants, $this->cleanup ),
-				new StripAttachmentMetadata( $database ),
-				$legacy_runtime,
-				new Finalize( $database, $variants ),
-			)
-		);
 
 		foreach ( array(
 			$database,
 			$settings,
-			$migration,
 			$capabilities,
 			$primer,
 			new ImageDelivery( new PictureRenderer( $variants, $urls ), $primer, new SourceResolver( $variants, $urls ), $settings ),
@@ -186,19 +160,17 @@ class Plugin {
 			new Maintenance( $attachments, $this->conversion_queue ),
 			new Lifecycle( $attachments, $this->conversion_queue ),
 			$health,
-			$legacy_runtime,
 			$this->bulk_producer,
 			$statistics,
 			$this->admin,
-			new Notices( $migration, $conflicts, $jobs, $this->bulk_producer, $capabilities ),
+			new Notices( $jobs, $this->bulk_producer, $capabilities ),
 			$this->rest_controller,
 		) as $component ) {
 			$component->register();
 		}
 
 		if ( defined( 'WP_CLI' ) && WP_CLI ) {
-			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->inventory, $progress, $this->bulk_producer, $this->processor, $this->cleanup, $migration ) );
-			\WP_CLI::add_command( 'trust-optimize migration', new MigrationCommand( $conflicts ) );
+			\WP_CLI::add_command( 'trust-optimize', new Command( $jobs, $eligibility, $this->inventory, $progress, $this->bulk_producer, $this->processor, $this->cleanup ) );
 		}
 	}
 }

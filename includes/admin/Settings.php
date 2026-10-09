@@ -47,11 +47,6 @@ class Settings {
 	);
 
 	/**
-	 * Option that held the uninstall flag before it moved into trust_optimize_options.
-	 */
-	const LEGACY_REMOVE_DATA_OPTION = 'trust_optimize_remove_data_on_uninstall';
-
-	/**
 	 * Feed the stored limits into the filters that the limit classes already apply.
 	 *
 	 * Priority 5 lets site code that filters at the default priority override the setting.
@@ -59,14 +54,6 @@ class Settings {
 	public function register() {
 		add_filter( 'trust_optimize_max_pixels', array( $this, 'filter_max_pixels' ), 5 );
 		add_filter( 'trust_optimize_min_free_disk_bytes', array( $this, 'filter_min_free_disk' ), 5 );
-		add_action( 'update_option_trust_optimize_options', array( $this, 'drop_legacy_remove_data_option' ) );
-	}
-
-	/**
-	 * The uninstall flag lives in the options array now; the separate option is obsolete once settings are saved.
-	 */
-	public function drop_legacy_remove_data_option() {
-		delete_option( self::LEGACY_REMOVE_DATA_OPTION );
 	}
 
 	/**
@@ -98,6 +85,7 @@ class Settings {
 	 *
 	 * Only known keys survive, so keys of earlier versions disappear on the next save. Checkboxes
 	 * that are absent from the input are off, other missing values fall back to the defaults.
+	 * max_megapixels, when positive, takes the place of max_pixels and is never stored itself.
 	 *
 	 * @param mixed $input Submitted values.
 	 * @return array
@@ -114,7 +102,10 @@ class Settings {
 			$output[ $key ] = max( 1, min( 100, (int) ( $input[ $key ] ?? $this->defaults[ $key ] ) ) );
 		}
 
-		$max_pixels              = (int) ( $input['max_pixels'] ?? 0 );
+		// The form enters the limit in megapixels; code and CLI may still send pixels. Only pixels are stored.
+		$megapixels = $input['max_megapixels'] ?? 0;
+		$max_pixels = is_numeric( $megapixels ) && $megapixels > 0 ? (int) round( $megapixels * 1000000 ) : (int) ( $input['max_pixels'] ?? 0 );
+
 		$output['max_pixels']    = $max_pixels > 0 ? $max_pixels : $this->defaults['max_pixels'];
 		$output['min_free_disk'] = max( 0, (int) ( $input['min_free_disk'] ?? 0 ) );
 
@@ -130,10 +121,7 @@ class Settings {
 	 * @param CapabilityService $capabilities Capability service.
 	 */
 	public function add_default_settings( CapabilityService $capabilities ) {
-		$defaults                    = $this->defaults;
-		$defaults['convert_to_avif'] = (int) $capabilities->supports( 'avif' );
-
-		add_option( 'trust_optimize_options', $defaults );
+		add_option( 'trust_optimize_options', $this->defaults_for( $capabilities ) );
 	}
 
 	/**
@@ -149,10 +137,6 @@ class Settings {
 
 		if ( isset( $options[ $key ] ) ) {
 			return $options[ $key ];
-		}
-
-		if ( 'remove_data_on_uninstall' === $key && false !== get_option( self::LEGACY_REMOVE_DATA_OPTION, false ) ) {
-			return (int) get_option( self::LEGACY_REMOVE_DATA_OPTION );
 		}
 
 		if ( null !== $default ) {
@@ -172,11 +156,25 @@ class Settings {
 	}
 
 	/**
-	 * Reset settings to defaults.
+	 * Reset settings to the defaults of a new install.
 	 *
+	 * @param CapabilityService $capabilities Capability service.
 	 * @return bool
 	 */
-	public function reset() {
-		return update_option( 'trust_optimize_options', $this->defaults );
+	public function reset( CapabilityService $capabilities ) {
+		return update_option( 'trust_optimize_options', $this->defaults_for( $capabilities ) );
+	}
+
+	/**
+	 * Defaults for this server: AVIF is on only where it can be written.
+	 *
+	 * @param CapabilityService $capabilities Capability service.
+	 * @return array
+	 */
+	private function defaults_for( CapabilityService $capabilities ) {
+		$defaults                    = $this->defaults;
+		$defaults['convert_to_avif'] = (int) $capabilities->supports( 'avif' );
+
+		return $defaults;
 	}
 }

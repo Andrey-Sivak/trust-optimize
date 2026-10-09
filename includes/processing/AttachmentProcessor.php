@@ -229,11 +229,6 @@ class AttachmentProcessor {
 				$handled[ $row['id'] ] = true;
 				$result                = $this->converter->convert( $row, $settings );
 
-				// The 2.0 file exists now: the 1.x file it replaces is no longer needed (a failure keeps it served).
-				if ( $result->is_success() && ! empty( $row['legacy_relative_path'] ) ) {
-					$this->cleanup->retire_legacy_file( $attachment_id, $row );
-				}
-
 				if ( $result->is_failed() ) {
 					$errors   = $result->get_errors();
 					$last_err = $errors ? (string) reset( $errors ) : $result->get_message();
