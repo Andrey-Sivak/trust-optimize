@@ -115,7 +115,7 @@ class ImageDelivery {
 	 * @param string|array $attr          Attributes for the image markup.
 	 * @return string
 	 */
-	public function filter_attachment_image( $html, $attachment_id, $size, $icon, $attr ) {
+	public function filter_attachment_image( $html, $attachment_id, $size, $icon, $attr ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed -- the signature is fixed by the wp_get_attachment_image filter.
 		if ( $icon || empty( $html ) || ! $this->is_enabled() || ! $this->should_render( 'wp_get_attachment_image', (int) $attachment_id ) ) {
 			return $html;
 		}

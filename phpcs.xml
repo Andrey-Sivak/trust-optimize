@@ -31,15 +31,22 @@
         <exclude name="WordPress.Files.FileName.NotHyphenatedLowercase"/>
         <exclude name="Squiz.Commenting.InlineComment.InvalidEndChar"/>
         <exclude name="Squiz.Commenting.FunctionComment.ParamCommentFullStop"/>
+        <!-- Parameter names such as $default are part of the public method signatures. -->
+        <exclude name="Universal.NamingConventions.NoReservedKeywordParameterNames"/>
     </rule>
     <rule ref="WordPress.NamingConventions.PrefixAllGlobals">
         <properties>
-            <property name="prefixes" type="array" value="trust_optimize,TrustOptimize"/>
+            <property name="prefixes" type="array">
+                <element value="trust_optimize"/>
+                <element value="TrustOptimize"/>
+            </property>
         </properties>
     </rule>
     <rule ref="WordPress.WP.I18n">
         <properties>
-            <property name="text_domain" type="array" value="trust-optimize"/>
+            <property name="text_domain" type="array">
+                <element value="trust-optimize"/>
+            </property>
         </properties>
     </rule>
 
