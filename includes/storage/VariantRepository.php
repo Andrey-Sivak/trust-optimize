@@ -125,6 +125,7 @@ class VariantRepository {
 			$assignments[] = "{$column} = VALUES({$column})";
 		}
 
+		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- Column names are whitelisted by self::DEFAULTS, every value is a bound placeholder.
 		$wpdb->query(
 			$wpdb->prepare(
 				"INSERT INTO {$this->table()} (" . implode( ', ', $columns ) . ') VALUES (' . implode( ', ', $values ) . ') ON DUPLICATE KEY UPDATE ' . implode( ', ', $assignments ),
@@ -171,6 +172,7 @@ class VariantRepository {
 		$args[] = (int) $id;
 		$args[] = $from;
 
+		// phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- Column names are whitelisted by self::DEFAULTS, every value is a bound placeholder.
 		$changed = 1 === (int) $wpdb->query(
 			$wpdb->prepare( "UPDATE {$this->table()} SET " . implode( ', ', $sets ) . ' WHERE id = %d AND status = %s', $args )
 		);
@@ -440,7 +442,7 @@ class VariantRepository {
 			$args[]  = $settings->quality_for( $format );
 		}
 
-		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared
+		// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- The conditions are literals with placeholders, every value is bound.
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$this->table()} WHERE status = %s AND (" . implode( ' OR ', $where ) . ')', $args ) );
 	}
 
